@@ -2,11 +2,10 @@ import { jsPDF } from 'jspdf'
 import type { PackingResult } from '@/types'
 import {
   drawSheetToCanvas,
-  getPartLabelFontSize,
-  getWasteLabelFontSize,
   formatDim,
   labelableWasteRects,
   visibleWasteRects,
+  edgeLabelsSvgMarkup,
 } from '@/lib/layout-drawing'
 
 const PAGE_W = 297
@@ -83,21 +82,13 @@ export function printCuttingPlan(result: PackingResult, variantLabel: string): v
         )
         .join('')
 
-      const wasteLabels = labelableWasteRects(sheet.wasteRects)
-        .map((r) => {
-          const fs = getWasteLabelFontSize(r.width, r.height)!
-          const cx = r.x + r.width / 2
-          const cy = r.y + r.height / 2
-          return `<text x="${cx}" y="${cy}" text-anchor="middle" dominant-baseline="middle" font-size="${fs}" font-weight="600" fill="#475569">${formatDim(r.width, r.height)}</text>`
-        })
+      const wasteLabels = visibleWasteRects(sheet.wasteRects)
+        .map((r) => edgeLabelsSvgMarkup(r.x, r.y, r.width, r.height, '#475569'))
         .join('')
 
       const parts = sheet.placed
         .map((p) => {
-          const fs = getPartLabelFontSize(p.width, p.height)
-          const cx = p.x + p.width / 2
-          const cy = p.y + p.height / 2
-          return `<rect x="${p.x}" y="${p.y}" width="${p.width}" height="${p.height}" fill="#fff" stroke="#1e293b" stroke-width="2"/><text x="${cx}" y="${cy}" text-anchor="middle" dominant-baseline="middle" font-size="${fs}" font-weight="600" fill="#1e293b">${formatDim(p.width, p.height)}</text>`
+          return `<rect x="${p.x}" y="${p.y}" width="${p.width}" height="${p.height}" fill="#fff" stroke="#1e293b" stroke-width="2"/>${edgeLabelsSvgMarkup(p.x, p.y, p.width, p.height, '#1e293b')}`
         })
         .join('')
 

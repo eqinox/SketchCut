@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import type { PackedSheet, PlacedPart } from '@/types'
 import { resolvePartPosition, type SnapGuide } from '@/lib/layout-edit'
 
@@ -6,11 +6,6 @@ export const HATCH_PATTERN_ID = 'waste-hatch'
 
 /** Minimum side length (mm) to show a waste label */
 const MIN_WASTE_LABEL_SIDE = 80
-
-export function getPartLabelFontSize(width: number, height: number): number {
-  const minDim = Math.min(width, height)
-  return Math.max(36, Math.min(minDim * 0.14, 120))
-}
 
 /** Returns null if the waste pocket is too small for a readable label */
 export function getWasteLabelFontSize(width: number, height: number): number | null {
@@ -21,6 +16,206 @@ export function getWasteLabelFontSize(width: number, height: number): number | n
 
 export function formatDim(w: number, h: number): string {
   return `${Math.round(w)}×${Math.round(h)}`
+}
+
+export type EdgeLabel = {
+  x: number
+  y: number
+  text: string
+  fontSize: number
+  rotate: boolean
+}
+
+const MIN_EDGE_FONT = 12
+const MAX_EDGE_FONT = 78
+const CHAR_WIDTH = 0.62
+
+function estimateTextLen(text: string, fontSize: number) {
+  return text.length * fontSize * CHAR_WIDTH
+}
+
+function maxFontAlongSide(along: number, across: number, text: string) {
+  if (along < 24 || across < 18) return 0
+  const byAlong = (along * 0.82) / Math.max(text.length * CHAR_WIDTH, CHAR_WIDTH)
+  const byAcross = across * 0.3
+  const font = Math.min(MAX_EDGE_FONT, byAlong, byAcross)
+  return font >= MIN_EDGE_FONT ? font : 0
+}
+
+function labelBoxes(
+  width: number,
+  height: number,
+  wFont: number,
+  hFont: number,
+  wText: string,
+  hText: string,
+) {
+  const wInset = wFont * 0.52
+  const hInset = hFont * 0.52
+  const wBox =
+    wFont > 0
+      ? {
+          l: width / 2 - estimateTextLen(wText, wFont) / 2,
+          r: width / 2 + estimateTextLen(wText, wFont) / 2,
+          t: wInset - wFont / 2,
+          b: wInset + wFont / 2,
+        }
+      : null
+  const hBox =
+    hFont > 0
+      ? {
+          l: hInset - hFont / 2,
+          r: hInset + hFont / 2,
+          t: height / 2 - estimateTextLen(hText, hFont) / 2,
+          b: height / 2 + estimateTextLen(hText, hFont) / 2,
+        }
+      : null
+  return { wBox, hBox }
+}
+
+function boxesOverlap(
+  a: { l: number; r: number; t: number; b: number } | null,
+  b: { l: number; r: number; t: number; b: number } | null,
+  pad: number,
+) {
+  if (!a || !b) return false
+  return a.l < b.r + pad && a.r > b.l - pad && a.t < b.b + pad && a.b > b.t - pad
+}
+
+/** Width on the top edge, length on the left edge. Font shrinks on small parts. */
+export function getRectEdgeLabels(
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+): EdgeLabel[] {
+  const wText = `${Math.round(width)}`
+  const hText = `${Math.round(height)}`
+
+  let wFont = maxFontAlongSide(width, height, wText)
+  let hFont = maxFontAlongSide(height, width, hText)
+
+  for (let i = 0; i < 14; i++) {
+    const { wBox, hBox } = labelBoxes(width, height, wFont, hFont, wText, hText)
+    const pad = Math.max(4, 0.18 * Math.max(wFont, hFont))
+    if (!boxesOverlap(wBox, hBox, pad)) break
+    if (wFont > 0) wFont = wFont * 0.84
+    if (hFont > 0) hFont = hFont * 0.84
+    if (wFont > 0 && wFont < MIN_EDGE_FONT) wFont = 0
+    if (hFont > 0 && hFont < MIN_EDGE_FONT) hFont = 0
+  }
+
+  const { wBox, hBox } = labelBoxes(width, height, wFont, hFont, wText, hText)
+  if (boxesOverlap(wBox, hBox, 3)) {
+    if (width >= height) hFont = 0
+    else wFont = 0
+  }
+
+  const labels: EdgeLabel[] = []
+  if (wFont > 0) {
+    labels.push({
+      x: x + width / 2,
+      y: y + wFont * 0.52,
+      text: wText,
+      fontSize: wFont,
+      rotate: false,
+    })
+  }
+  if (hFont > 0) {
+    labels.push({
+      x: x + hFont * 0.52,
+      y: y + height / 2,
+      text: hText,
+      fontSize: hFont,
+      rotate: true,
+    })
+  }
+
+  return labels
+}
+
+export function EdgeDimensionLabels({
+  x,
+  y,
+  width,
+  height,
+  fill,
+  opacity = 1,
+}: {
+  x: number
+  y: number
+  width: number
+  height: number
+  fill: string
+  opacity?: number
+}) {
+  return (
+    <g pointerEvents="none" opacity={opacity}>
+      {getRectEdgeLabels(x, y, width, height).map((label, i) => (
+        <text
+          key={i}
+          x={label.x}
+          y={label.y}
+          textAnchor="middle"
+          dominantBaseline="middle"
+          fill={fill}
+          fontSize={label.fontSize}
+          fontWeight="600"
+          fontFamily="system-ui, sans-serif"
+          transform={label.rotate ? `rotate(-90 ${label.x} ${label.y})` : undefined}
+        >
+          {label.text}
+        </text>
+      ))}
+    </g>
+  )
+}
+
+export function edgeLabelsSvgMarkup(
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  fill: string,
+): string {
+  return getRectEdgeLabels(x, y, width, height)
+    .map((label) => {
+      const rot = label.rotate ? ` transform="rotate(-90 ${label.x} ${label.y})"` : ''
+      return `<text x="${label.x}" y="${label.y}" text-anchor="middle" dominant-baseline="middle" font-size="${label.fontSize}" font-weight="600" fill="${fill}"${rot}>${label.text}</text>`
+    })
+    .join('')
+}
+
+export function drawEdgeDimensionLabels(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  scale: number,
+  fill: string,
+  offsetX = 0,
+  offsetY = 0,
+) {
+  ctx.save()
+  ctx.fillStyle = fill
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  for (const label of getRectEdgeLabels(x, y, width, height)) {
+    ctx.save()
+    ctx.font = `600 ${Math.max(label.fontSize * scale, 5)}px system-ui, sans-serif`
+    const lx = offsetX + label.x * scale
+    const ly = offsetY + label.y * scale
+    if (label.rotate) {
+      ctx.translate(lx, ly)
+      ctx.rotate(-Math.PI / 2)
+      ctx.fillText(label.text, 0, 0)
+    } else {
+      ctx.fillText(label.text, lx, ly)
+    }
+    ctx.restore()
+  }
+  ctx.restore()
 }
 
 export function visibleWasteRects(
@@ -84,29 +279,16 @@ export function WasteLabels({
 }) {
   return (
     <>
-      {labelableWasteRects(rects).map((r, i) => {
-        const fontSize = getWasteLabelFontSize(r.width, r.height)!
-        const cx = r.x + r.width / 2
-        const cy = r.y + r.height / 2
-        const narrow = r.width < r.height * 0.5
-
-        return (
-          <text
-            key={`waste-label-${i}`}
-            x={cx}
-            y={cy}
-            textAnchor="middle"
-            dominantBaseline="middle"
-            fill="#475569"
-            fontSize={fontSize}
-            fontWeight="600"
-            fontFamily="system-ui, sans-serif"
-            transform={narrow ? `rotate(-90 ${cx} ${cy})` : undefined}
-          >
-            {formatDim(r.width, r.height)}
-          </text>
-        )
-      })}
+      {visibleWasteRects(rects).map((r, i) => (
+        <EdgeDimensionLabels
+          key={`waste-label-${i}`}
+          x={r.x}
+          y={r.y}
+          width={r.width}
+          height={r.height}
+          fill="#475569"
+        />
+      ))}
     </>
   )
 }
@@ -156,6 +338,106 @@ export function SnapGuides({
   )
 }
 
+const HOLD_MS_TOUCH = 400
+const HOLD_MS_MOUSE = 160
+const TOUCH_CANCEL_PX = 14
+const MOUSE_GRAB_PX = 5
+
+type PartInteraction = {
+  pointerId: number
+  pointerType: string
+  partIndex: number
+  startClientX: number
+  startClientY: number
+  offsetX: number
+  offsetY: number
+  originX: number
+  originY: number
+  x: number
+  y: number
+  valid: boolean
+  snapped: boolean
+  guides: SnapGuide[]
+  phase: 'holding' | 'dragging'
+}
+
+function isCoarsePointer(pointerType: string) {
+  return pointerType === 'touch' || pointerType === 'pen'
+}
+
+function PartGrabBadge({
+  x,
+  y,
+  width,
+  height,
+  sheetWidth,
+  sheetHeight,
+  text,
+  accent,
+}: {
+  x: number
+  y: number
+  width: number
+  height: number
+  sheetWidth: number
+  sheetHeight: number
+  text: string
+  accent: string
+}) {
+  const fontSize = Math.max(
+    72,
+    Math.min(200, Math.min(width * 0.2, height * 0.28, sheetWidth * 0.055)),
+  )
+  const padX = fontSize * 0.55
+  const padY = fontSize * 0.32
+  const textW = text.length * fontSize * 0.58
+  const badgeW = textW + padX * 2
+  const badgeH = fontSize + padY * 2
+  const gap = fontSize * 0.25
+
+  let bx = x + width / 2 - badgeW / 2
+  let by = y - badgeH - gap
+  if (by < 8) by = Math.min(y + gap, Math.max(8, sheetHeight - badgeH - 8))
+  if (by + badgeH > sheetHeight - 8) by = Math.max(8, sheetHeight - badgeH - 8)
+  bx = Math.max(8, Math.min(bx, sheetWidth - badgeW - 8))
+
+  return (
+    <g pointerEvents="none" className="sketchcut-grab-badge">
+      <rect
+        x={bx}
+        y={by}
+        width={badgeW}
+        height={badgeH}
+        rx={badgeH / 2}
+        fill="#0f172a"
+        opacity={0.92}
+      />
+      <rect
+        x={bx}
+        y={by}
+        width={badgeW}
+        height={badgeH}
+        rx={badgeH / 2}
+        fill="none"
+        stroke={accent}
+        strokeWidth={Math.max(4, fontSize * 0.06)}
+      />
+      <text
+        x={bx + badgeW / 2}
+        y={by + badgeH / 2}
+        textAnchor="middle"
+        dominantBaseline="middle"
+        fill="#ffffff"
+        fontSize={fontSize}
+        fontWeight="700"
+        fontFamily="system-ui, sans-serif"
+      >
+        {text}
+      </text>
+    </g>
+  )
+}
+
 export function PlacedParts({
   parts,
   fill = '#ffffff',
@@ -176,19 +458,19 @@ export function PlacedParts({
   onPartMove?: (partIndex: number, x: number, y: number) => void
 }) {
   const svgRef = useRef<SVGGElement>(null)
-  const captureRef = useRef<Element | null>(null)
-  const [dragging, setDragging] = useState<{
-    partIndex: number
-    offsetX: number
-    offsetY: number
-    originX: number
-    originY: number
-    x: number
-    y: number
-    valid: boolean
-    snapped: boolean
-    guides: SnapGuide[]
-  } | null>(null)
+  const captureElRef = useRef<Element | null>(null)
+  const timersRef = useRef<number[]>([])
+  const preventScrollRef = useRef(false)
+  const interactionRef = useRef<PartInteraction | null>(null)
+  const partsRef = useRef(parts)
+  const sheetSizeRef = useRef({ sheetWidth, sheetHeight })
+  const onPartMoveRef = useRef(onPartMove)
+  const shadowId = useId().replace(/:/g, '')
+  const [interaction, setInteraction] = useState<PartInteraction | null>(null)
+
+  partsRef.current = parts
+  sheetSizeRef.current = { sheetWidth, sheetHeight }
+  onPartMoveRef.current = onPartMove
 
   const clientToSvg = (clientX: number, clientY: number) => {
     const svg = svgRef.current?.closest('svg')
@@ -202,23 +484,81 @@ export function PlacedParts({
     return { x: svgPt.x, y: svgPt.y }
   }
 
-  const resolveDrag = (partIndex: number, rawX: number, rawY: number) => {
-    if (!sheetWidth || !sheetHeight) {
-      return { x: rawX, y: rawY, valid: false, snapped: false, guides: [] as SnapGuide[] }
+  const syncInteraction = (next: PartInteraction | null) => {
+    interactionRef.current = next
+    setInteraction(next)
+  }
+
+  const clearTimers = () => {
+    for (const id of timersRef.current) window.clearTimeout(id)
+    timersRef.current = []
+  }
+
+  const releaseCapture = (pointerId: number) => {
+    try {
+      captureElRef.current?.releasePointerCapture(pointerId)
+    } catch {
+      // already released
     }
-    return resolvePartPosition(sheetWidth, sheetHeight, parts, partIndex, rawX, rawY)
+    captureElRef.current = null
+  }
+
+  const activateGrab = () => {
+    const cur = interactionRef.current
+    if (!cur || cur.phase === 'dragging') return
+    clearTimers()
+    preventScrollRef.current = true
+    try {
+      captureElRef.current?.setPointerCapture(cur.pointerId)
+    } catch {
+      // capture not available
+    }
+    try {
+      navigator.vibrate?.(12)
+    } catch {
+      // vibration not supported
+    }
+    syncInteraction({ ...cur, phase: 'dragging' })
+  }
+
+  const cancelInteraction = (pointerId?: number) => {
+    const cur = interactionRef.current
+    if (!cur) return
+    if (pointerId != null && cur.pointerId !== pointerId) return
+    clearTimers()
+    preventScrollRef.current = false
+    releaseCapture(cur.pointerId)
+    syncInteraction(null)
+  }
+
+  const commitDrag = () => {
+    const cur = interactionRef.current
+    if (!cur) return
+    const moved = cur.x !== cur.originX || cur.y !== cur.originY
+    if (cur.phase === 'dragging' && cur.valid && moved) {
+      onPartMoveRef.current?.(cur.partIndex, cur.x, cur.y)
+    }
+    cancelInteraction(cur.pointerId)
   }
 
   const handlePointerDown = (e: React.PointerEvent, partIndex: number) => {
     if (!editable || !onPartMove || !sheetWidth || !sheetHeight) return
-    e.preventDefault()
+    if (e.pointerType === 'mouse' && e.button !== 0) return
+    if (interactionRef.current) return
+
     e.stopPropagation()
+    if (e.pointerType === 'mouse') e.preventDefault()
+
     const part = parts[partIndex]
     const svgPt = clientToSvg(e.clientX, e.clientY)
-    captureRef.current = e.currentTarget as Element
-    ;(e.currentTarget as Element).setPointerCapture(e.pointerId)
-    setDragging({
+    captureElRef.current = e.currentTarget as Element
+
+    const next: PartInteraction = {
+      pointerId: e.pointerId,
+      pointerType: e.pointerType,
       partIndex,
+      startClientX: e.clientX,
+      startClientY: e.clientY,
       offsetX: svgPt.x - part.x,
       offsetY: svgPt.y - part.y,
       originX: part.x,
@@ -228,71 +568,176 @@ export function PlacedParts({
       valid: true,
       snapped: false,
       guides: [],
-    })
-  }
+      phase: 'holding',
+    }
+    syncInteraction(next)
 
-  const handlePointerMove = (e: React.PointerEvent) => {
-    if (!dragging) return
-    const svgPt = clientToSvg(e.clientX, e.clientY)
-    const rawX = svgPt.x - dragging.offsetX
-    const rawY = svgPt.y - dragging.offsetY
-    const resolved = resolveDrag(dragging.partIndex, rawX, rawY)
-    setDragging((prev) =>
-      prev
-        ? {
-            ...prev,
-            x: resolved.x,
-            y: resolved.y,
-            valid: resolved.valid,
-            snapped: resolved.snapped,
-            guides: resolved.guides,
+    const coarse = isCoarsePointer(e.pointerType)
+    if (coarse) {
+      timersRef.current.push(
+        window.setTimeout(() => {
+          const cur = interactionRef.current
+          if (cur?.phase !== 'holding' || cur.pointerId !== next.pointerId) return
+          preventScrollRef.current = true
+          try {
+            captureElRef.current?.setPointerCapture(cur.pointerId)
+          } catch {
+            // capture not available
           }
-        : null,
+        }, 180),
+      )
+    }
+
+    const holdMs = coarse ? HOLD_MS_TOUCH : HOLD_MS_MOUSE
+    timersRef.current.push(
+      window.setTimeout(() => {
+        if (interactionRef.current?.pointerId === next.pointerId) activateGrab()
+      }, holdMs),
     )
   }
 
-  const endDrag = (e: React.PointerEvent) => {
-    if (!dragging || !onPartMove) return
-    if (dragging.valid) {
-      onPartMove(dragging.partIndex, dragging.x, dragging.y)
-    }
-    setDragging(null)
-    try {
-      captureRef.current?.releasePointerCapture(e.pointerId)
-    } catch {
-      // already released
-    }
-    captureRef.current = null
-  }
+  const isInteracting = interaction !== null
 
-  const dragIndex = dragging?.partIndex ?? -1
+  useEffect(() => {
+    if (!isInteracting) return
+
+    const onMove = (e: PointerEvent) => {
+      const cur = interactionRef.current
+      if (!cur || e.pointerId !== cur.pointerId) return
+
+      const dist = Math.hypot(e.clientX - cur.startClientX, e.clientY - cur.startClientY)
+
+      if (cur.phase === 'holding') {
+        if (isCoarsePointer(cur.pointerType)) {
+          if (dist > TOUCH_CANCEL_PX) {
+            if (preventScrollRef.current) activateGrab()
+            else {
+              cancelInteraction(cur.pointerId)
+              return
+            }
+          } else {
+            return
+          }
+        } else if (dist > MOUSE_GRAB_PX) {
+          activateGrab()
+        } else {
+          return
+        }
+      }
+
+      const active = interactionRef.current
+      if (!active || active.phase !== 'dragging') return
+
+      const { sheetWidth: w, sheetHeight: h } = sheetSizeRef.current
+      if (!w || !h) return
+
+      const svgPt = clientToSvg(e.clientX, e.clientY)
+      const resolved = resolvePartPosition(
+        w,
+        h,
+        partsRef.current,
+        active.partIndex,
+        svgPt.x - active.offsetX,
+        svgPt.y - active.offsetY,
+      )
+      syncInteraction({
+        ...active,
+        x: resolved.x,
+        y: resolved.y,
+        valid: resolved.valid,
+        snapped: resolved.snapped,
+        guides: resolved.guides,
+      })
+    }
+
+    const onUp = (e: PointerEvent) => {
+      const cur = interactionRef.current
+      if (!cur || e.pointerId !== cur.pointerId) return
+      if (cur.phase === 'dragging') commitDrag()
+      else cancelInteraction(cur.pointerId)
+    }
+
+    const onCancel = (e: PointerEvent) => {
+      cancelInteraction(e.pointerId)
+    }
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (preventScrollRef.current || interactionRef.current?.phase === 'dragging') {
+        e.preventDefault()
+      }
+    }
+
+    const onContextMenu = (e: Event) => e.preventDefault()
+
+    document.addEventListener('pointermove', onMove)
+    document.addEventListener('pointerup', onUp)
+    document.addEventListener('pointercancel', onCancel)
+    document.addEventListener('touchmove', onTouchMove, { passive: false })
+    document.addEventListener('contextmenu', onContextMenu)
+
+    return () => {
+      document.removeEventListener('pointermove', onMove)
+      document.removeEventListener('pointerup', onUp)
+      document.removeEventListener('pointercancel', onCancel)
+      document.removeEventListener('touchmove', onTouchMove)
+      document.removeEventListener('contextmenu', onContextMenu)
+    }
+  }, [isInteracting])
+
+  useEffect(() => {
+    if (interaction?.phase !== 'dragging') return
+    const svg = svgRef.current?.closest('svg')
+    const parent = svg?.parentElement
+    const prevOverflow = parent?.style.overflow
+    const prevTouch = parent?.style.touchAction
+    const prevSvgTouch = svg?.style.touchAction
+    if (svg) svg.style.touchAction = 'none'
+    if (parent) {
+      parent.style.overflow = 'hidden'
+      parent.style.touchAction = 'none'
+    }
+    document.body.style.overscrollBehavior = 'none'
+    document.body.style.cursor = 'grabbing'
+    return () => {
+      if (svg) svg.style.touchAction = prevSvgTouch ?? ''
+      if (parent) {
+        parent.style.overflow = prevOverflow ?? ''
+        parent.style.touchAction = prevTouch ?? ''
+      }
+      document.body.style.overscrollBehavior = ''
+      document.body.style.cursor = ''
+    }
+  }, [interaction?.phase])
+
+  useEffect(() => () => clearTimers(), [])
+
+  const activeIndex = interaction?.partIndex ?? -1
+  const isDragging = interaction?.phase === 'dragging'
+  const isHolding = interaction?.phase === 'holding'
 
   return (
-    <g
-      ref={svgRef}
-      onPointerMove={handlePointerMove}
-      onPointerUp={endDrag}
-      onPointerCancel={endDrag}
-    >
-      {dragging && sheetWidth && sheetHeight && (
-        <SnapGuides guides={dragging.guides} sheetWidth={sheetWidth} sheetHeight={sheetHeight} />
+    <g ref={svgRef}>
+      <defs>
+        <filter id={`part-drag-shadow-${shadowId}`} x="-25%" y="-25%" width="150%" height="150%">
+          <feDropShadow dx="10" dy="16" stdDeviation="14" floodColor="#0f172a" floodOpacity="0.4" />
+        </filter>
+      </defs>
+
+      {isDragging && sheetWidth && sheetHeight && (
+        <SnapGuides guides={interaction.guides} sheetWidth={sheetWidth} sheetHeight={sheetHeight} />
       )}
 
       {parts.map((part, i) => {
-        const isDragging = dragIndex === i
-        const hiddenWhileDrag = dragIndex >= 0 && !isDragging
-        const displayPart = isDragging ? { ...part, x: dragging!.x, y: dragging!.y } : part
-        const label = formatDim(displayPart.width, displayPart.height)
-        const fontSize = getPartLabelFontSize(displayPart.width, displayPart.height)
-        const cx = displayPart.x + displayPart.width / 2
-        const cy = displayPart.y + displayPart.height / 2
-        const narrow = displayPart.width < displayPart.height * 0.45
-        const invalid = isDragging && !dragging!.valid
-        const snapped = isDragging && dragging!.snapped && dragging!.valid
+        const isActive = activeIndex === i
+        const faded = activeIndex >= 0 && !isActive
+        const displayPart =
+          isActive && isDragging ? { ...part, x: interaction.x, y: interaction.y } : part
+        const invalid = isActive && isDragging && !interaction.valid
+        const snapped = isActive && isDragging && interaction.snapped && interaction.valid
 
         let strokeColor = stroke
         let fillColor = fill
-        if (isDragging) {
+        if (isActive) {
           if (invalid) {
             strokeColor = '#dc2626'
             fillColor = '#fef2f2'
@@ -307,10 +752,10 @@ export function PlacedParts({
 
         return (
           <g key={`${part.partId}-${i}`}>
-            {isDragging && (
+            {isActive && isDragging && (
               <rect
-                x={dragging!.originX}
-                y={dragging!.originY}
+                x={interaction.originX}
+                y={interaction.originY}
                 width={part.width}
                 height={part.height}
                 fill="none"
@@ -323,52 +768,70 @@ export function PlacedParts({
             )}
 
             <g
-              opacity={hiddenWhileDrag ? 0.35 : 1}
+              opacity={faded ? 0.35 : 1}
               onPointerDown={(e) => handlePointerDown(e, i)}
               style={{
-                cursor: editable ? (isDragging ? 'grabbing' : 'grab') : undefined,
-                touchAction: editable ? 'none' : undefined,
+                cursor: editable ? (isDragging && isActive ? 'grabbing' : 'grab') : undefined,
+                touchAction: editable ? (isActive ? 'none' : 'manipulation') : undefined,
+                userSelect: editable ? 'none' : undefined,
               }}
             >
-              {isDragging && (
+              {isActive && isDragging && (
                 <rect
-                  x={displayPart.x + 4}
-                  y={displayPart.y + 4}
+                  x={displayPart.x + 6}
+                  y={displayPart.y + 8}
                   width={displayPart.width}
                   height={displayPart.height}
-                  fill="#00000018"
+                  fill="#00000022"
+                  rx={4}
                   pointerEvents="none"
                 />
               )}
               <rect
+                className={isActive && isHolding ? 'sketchcut-part-holding' : undefined}
                 x={displayPart.x}
                 y={displayPart.y}
                 width={displayPart.width}
                 height={displayPart.height}
                 fill={fillColor}
                 stroke={strokeColor}
-                strokeWidth={isDragging ? 4 : 2}
-                rx={isDragging ? 2 : 0}
+                strokeWidth={isActive ? 6 : 2}
+                rx={isActive ? 4 : 0}
+                filter={
+                  isActive && isDragging ? `url(#part-drag-shadow-${shadowId})` : undefined
+                }
               />
-              <text
-                x={cx}
-                y={cy}
-                textAnchor="middle"
-                dominantBaseline="middle"
+              <EdgeDimensionLabels
+                x={displayPart.x}
+                y={displayPart.y}
+                width={displayPart.width}
+                height={displayPart.height}
                 fill={textFill}
-                fontSize={fontSize}
-                fontWeight="600"
-                fontFamily="system-ui, sans-serif"
-                transform={narrow ? `rotate(-90 ${cx} ${cy})` : undefined}
-                pointerEvents="none"
-                opacity={isDragging ? 0.9 : 1}
-              >
-                {label}
-              </text>
+                opacity={isActive ? 0.9 : 1}
+              />
             </g>
           </g>
         )
       })}
+
+      {interaction && sheetWidth && sheetHeight && parts[interaction.partIndex] && (
+        <PartGrabBadge
+          x={isDragging ? interaction.x : interaction.originX}
+          y={isDragging ? interaction.y : interaction.originY}
+          width={parts[interaction.partIndex].width}
+          height={parts[interaction.partIndex].height}
+          sheetWidth={sheetWidth}
+          sheetHeight={sheetHeight}
+          text="Задръж и влачи"
+          accent={
+            isDragging && !interaction.valid
+              ? '#dc2626'
+              : isDragging && interaction.snapped
+                ? '#16a34a'
+                : '#3b82f6'
+          }
+        />
+      )}
     </g>
   )
 }
@@ -393,7 +856,8 @@ export function SheetSvg({
       width={displayWidth + 2}
       height={displayHeight + 2}
       viewBox={`0 0 ${sheet.sheetWidth} ${sheet.sheetHeight}`}
-      className={className}
+      className={[className, editable ? 'sketchcut-sheet-editable' : null].filter(Boolean).join(' ')}
+      onContextMenu={editable ? (e) => e.preventDefault() : undefined}
       style={{ width: displayWidth, height: displayHeight }}
     >
       <defs>
@@ -471,23 +935,12 @@ export function drawSheetToCanvas(
     ctx.strokeStyle = '#64748b'
     ctx.lineWidth = 1.5
     ctx.strokeRect(rx, ry, rw, rh)
-
-    const fontSize = getWasteLabelFontSize(r.width, r.height)
-    if (fontSize !== null) {
-      ctx.fillStyle = '#475569'
-      ctx.font = `600 ${fontSize * scale}px system-ui, sans-serif`
-      ctx.textAlign = 'center'
-      ctx.textBaseline = 'middle'
-      ctx.fillText(formatDim(r.width, r.height), rx + rw / 2, ry + rh / 2)
-    }
+    drawEdgeDimensionLabels(ctx, r.x, r.y, r.width, r.height, scale, '#475569', ox, oy)
   }
 
   ctx.strokeStyle = '#1e293b'
   ctx.lineWidth = 2
   ctx.strokeRect(ox, oy, w, h)
-
-  ctx.textAlign = 'center'
-  ctx.textBaseline = 'middle'
 
   for (const part of sheet.placed) {
     const px = ox + part.x * scale
@@ -500,10 +953,6 @@ export function drawSheetToCanvas(
     ctx.strokeStyle = '#1e293b'
     ctx.lineWidth = 1.5
     ctx.strokeRect(px, py, pw, ph)
-
-    const fontSize = getPartLabelFontSize(part.width, part.height) * scale
-    ctx.fillStyle = '#1e293b'
-    ctx.font = `600 ${Math.max(fontSize, 6)}px system-ui, sans-serif`
-    ctx.fillText(formatDim(part.width, part.height), px + pw / 2, py + ph / 2)
+    drawEdgeDimensionLabels(ctx, part.x, part.y, part.width, part.height, scale, '#1e293b', ox, oy)
   }
 }

@@ -73,7 +73,8 @@ export function CuttingLayout({
       )}
 
       <p className="text-xs text-[var(--color-muted-foreground)]">
-        Влачи детайлите — приближават се автоматично към разрез (±3 см) · разрез: 3 мм
+        Задръж детайл, докато се маркира, после влачи — приближават се автоматично към разрез
+        (±3 см) · разрез: 3 мм
       </p>
 
       <div className="grid gap-6 lg:grid-cols-2">
