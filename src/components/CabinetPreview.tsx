@@ -395,9 +395,9 @@ function Front3DView({ p, m }: { p: KitchenBaseParams; m: ReturnType<typeof meas
         stroke="#1e293b"
         strokeWidth={1.2}
       />
-      {/* Back rail - top surface visible */}
+      {/* Back rail - top surface visible (ending INSIDE the right side, not extending to outer edge) */}
       <polygon
-        points={`${ox + T + dx - dxR},${floor - L - H + dy - dyR} ${ox + W - T + dx - dxR},${floor - L - H + dy - dyR} ${ox + W - T + dx},${floor - L - H + dy} ${ox + T + dx},${floor - L - H + dy}`}
+        points={`${ox + T + dx - dxR},${floor - L - H + dy - dyR} ${ox + W - T + dx - dxR},${floor - L - H + dy - dyR} ${ox + W - T + dx - dxR + (T * depthScale * Math.cos((depthAngle * Math.PI) / 180))},${floor - L - H + dy - dyR + (-T * depthScale * Math.sin((depthAngle * Math.PI) / 180))} ${ox + T + dx - dxR + (T * depthScale * Math.cos((depthAngle * Math.PI) / 180))},${floor - L - H + dy - dyR + (-T * depthScale * Math.sin((depthAngle * Math.PI) / 180))}`}
         fill="#c7e7c7"
         stroke="#1e293b"
         strokeWidth={1}
@@ -420,16 +420,16 @@ function Front3DView({ p, m }: { p: KitchenBaseParams; m: ReturnType<typeof meas
       />
 
       {/* === DIMENSIONS === */}
-      {/* Width at top */}
-      <DimH x1={ox} x2={ox + W} y={18} label={mm(W)} />
+      {/* Width at top - centered on cabinet */}
+      <DimH x1={ox} x2={ox + W} y={floor - L - H - T - 30} label={mm(W)} />
       {/* Depth along right side panel from front to back edge */}
-      <DimH x1={ox + W} x2={ox + W + dx} y={floor - L - T - 20} label={mm(D)} />
-      {/* Rail width on front rail */}
-      <DimH x1={ox + T} x2={ox + T + dxR} y={floor - L - H - 15} label={mm(R)} color="#6a9a6a" />
-      {/* Cabinet height */}
-      <DimV x={12} y1={floor - L - H} y2={floor - L} label={mm(H)} />
-      {/* Leg height */}
-      <DimV x={vbW - 12} y1={floor - L} y2={floor} label={mm(L)} />
+      <DimH x1={ox + W} x2={ox + W + dx} y={floor - L - (H / 2)} label={mm(D)} />
+      {/* Rail length (between sides) on front rail */}
+      <DimH x1={ox + T} x2={ox + W - T} y={floor - L - H - T - 10} label={mm(m.railLength)} color="#6a9a6a" />
+      {/* Cabinet height (from bottom to top of rail) */}
+      <DimV x={ox - 25} y1={floor - L - H} y2={floor - L} label={mm(H)} />
+      {/* Leg height - on the leg itself */}
+      <DimV x={ox + legInset + legW / 2} y1={floor - L} y2={floor} label={mm(L)} />
     </svg>
   )
 }
@@ -457,7 +457,7 @@ function DimH({
       {/* Right arrow */}
       <polygon points={`${x2},${y} ${x2 - arrowSize},${y - arrowSize / 2} ${x2 - arrowSize},${y + arrowSize / 2}`} />
       {/* Label */}
-      <text x={(x1 + x2) / 2} y={y - 12} textAnchor="middle" fontSize={20} fontWeight="700" stroke="none" fill={color}>
+      <text x={(x1 + x2) / 2} y={y - 14} textAnchor="middle" fontSize={24} fontWeight="800" stroke="none" fill={color}>
         {label}
       </text>
     </g>
@@ -489,8 +489,8 @@ function DimV({
         x={x}
         y={(y1 + y2) / 2}
         textAnchor="middle"
-        fontSize={20}
-        fontWeight="700"
+        fontSize={24}
+        fontWeight="800"
         stroke="none"
         fill={DIM}
         transform={`rotate(-90 ${x} ${(y1 + y2) / 2})`}
