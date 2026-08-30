@@ -12,7 +12,6 @@ const WOOD = '#c4a574'
 const WOOD_DARK = '#a68554'
 const WOOD_TOP = '#d4bc8e'
 const RAIL = '#8fbc8f'
-const RAIL_DARK = '#6a9a6a'
 const LEG = '#334155'
 const INK = '#94a3b8'
 const DIM = '#60a5fa'
@@ -48,7 +47,7 @@ function ViewCard({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div className="flex flex-col rounded-md border border-[var(--color-border)] bg-[var(--color-background)] p-2">
       <p className="mb-1 text-center text-[11px] font-medium text-[var(--color-muted-foreground)]">{title}</p>
-      <div className="flex flex-1 items-center justify-center">{children}</div>
+      <div className="flex flex-1 items-center justify-center overflow-auto">{children}</div>
     </div>
   )
 }
@@ -81,7 +80,30 @@ function Front3DView({ p, m }: { p: KitchenBaseParams; m: ReturnType<typeof meas
   const dyR = -R * depthScale * Math.sin((depthAngle * Math.PI) / 180)
 
   return (
-    <svg viewBox={`0 0 ${vbW} ${vbH}`} className="w-full" style={{ height: '400px' }} role="img" aria-label="3D изглед отпред">
+    <svg 
+      viewBox={`0 0 ${vbW} ${vbH}`} 
+      className="w-full touch-auto select-none" 
+      style={{ 
+        height: '400px',
+        touchAction: 'pinch-zoom',
+        cursor: 'zoom-in'
+      }} 
+      role="img" 
+      aria-label="3D изглед отпред"
+      onClick={(e) => {
+        const svg = e.currentTarget
+        if (svg.style.transform === 'scale(1.8)') {
+          svg.style.transform = 'scale(1)'
+          svg.style.cursor = 'zoom-in'
+          svg.style.transformOrigin = 'center center'
+        } else {
+          svg.style.transform = 'scale(1.8)'
+          svg.style.cursor = 'zoom-out'
+          svg.style.transformOrigin = 'center center'
+          svg.style.transition = 'transform 0.3s ease'
+        }
+      }}
+    >
       <defs>
         <filter id="shadow">
           <feDropShadow dx="1" dy="1" stdDeviation="1.5" floodOpacity="0.3" />
@@ -143,19 +165,19 @@ function Front3DView({ p, m }: { p: KitchenBaseParams; m: ReturnType<typeof meas
         stroke="#1e293b"
         strokeWidth={1.2}
       />
-      {/* Left side - right edge (depth) */}
+      {/* Left side - right edge (depth) showing the inner surface */}
       <polygon
         points={`${ox + T},${floor - L - H} ${ox + T + dx},${floor - L - H + dy} ${ox + T + dx},${floor - L - T + dy} ${ox + T},${floor - L - T}`}
         fill={WOOD_DARK}
         stroke="#1e293b"
         strokeWidth={1}
       />
-      {/* Left side - top edge (with edging/kant visible) */}
+      {/* Left side - top edge kant (continuous from front to back) */}
       <polygon
         points={`${ox},${floor - L - H} ${ox + dx},${floor - L - H + dy} ${ox + T + dx},${floor - L - H + dy} ${ox + T},${floor - L - H}`}
         fill={WOOD_TOP}
         stroke="#1e293b"
-        strokeWidth={1}
+        strokeWidth={1.5}
       />
 
       {/* === RIGHT SIDE (sits on bottom) === */}
@@ -166,45 +188,31 @@ function Front3DView({ p, m }: { p: KitchenBaseParams; m: ReturnType<typeof meas
         stroke="#1e293b"
         strokeWidth={1.2}
       />
-      {/* Right side - right edge (depth) */}
+      {/* Right side - right edge (outer surface visible) showing full depth */}
       <polygon
         points={`${ox + W},${floor - L - H} ${ox + W + dx},${floor - L - H + dy} ${ox + W + dx},${floor - L - T + dy} ${ox + W},${floor - L - T}`}
         fill={WOOD_DARK}
         stroke="#1e293b"
-        strokeWidth={1}
+        strokeWidth={1.2}
       />
-      {/* Right side - top edge (with edging/kant visible) */}
+      {/* Right side - top edge kant (continuous from front to back, covering full depth) */}
       <polygon
         points={`${ox + W - T},${floor - L - H} ${ox + W - T + dx},${floor - L - H + dy} ${ox + W + dx},${floor - L - H + dy} ${ox + W},${floor - L - H}`}
         fill={WOOD_TOP}
         stroke="#1e293b"
-        strokeWidth={1}
+        strokeWidth={1.5}
       />
 
-      {/* === BACK RAIL (fits between sides at back) === */}
-      {/* Back rail - top surface visible from depth */}
+      {/* === BACK RAIL (inside between sides - only top surface visible) === */}
+      {/* Back rail - top surface visible at back depth */}
       <polygon
         points={`${ox + T + dx - dxR},${floor - L - H + dy - dyR} ${ox + W - T + dx - dxR},${floor - L - H + dy - dyR} ${ox + W - T + dx},${floor - L - H + dy} ${ox + T + dx},${floor - L - H + dy}`}
         fill="#b7d7b7"
         stroke="#1e293b"
         strokeWidth={1}
       />
-      {/* Back rail - front edge (thickness visible) */}
-      <polygon
-        points={`${ox + T + dx - dxR},${floor - L - H + dy - dyR} ${ox + T + dx - dxR},${floor - L - H + T + dy - dyR} ${ox + W - T + dx - dxR},${floor - L - H + T + dy - dyR} ${ox + W - T + dx - dxR},${floor - L - H + dy - dyR}`}
-        fill={RAIL}
-        stroke="#1e293b"
-        strokeWidth={1}
-      />
-      {/* Back rail - right edge (chipboard thickness) */}
-      <polygon
-        points={`${ox + W - T + dx - dxR},${floor - L - H + dy - dyR} ${ox + W - T + dx},${floor - L - H + dy} ${ox + W - T + dx},${floor - L - H + T + dy} ${ox + W - T + dx - dxR},${floor - L - H + T + dy - dyR}`}
-        fill={RAIL_DARK}
-        stroke="#1e293b"
-        strokeWidth={1}
-      />
 
-      {/* === FRONT RAIL (fits between sides at top) === */}
+      {/* === FRONT RAIL (inside between sides at top) === */}
       {/* Front rail - front face (18mm edge visible) */}
       <polygon
         points={`${ox + T},${floor - L - H} ${ox + W - T},${floor - L - H} ${ox + W - T},${floor - L - H + T} ${ox + T},${floor - L - H + T}`}
@@ -212,17 +220,10 @@ function Front3DView({ p, m }: { p: KitchenBaseParams; m: ReturnType<typeof meas
         stroke="#1e293b"
         strokeWidth={1.2}
       />
-      {/* Front rail - top surface */}
+      {/* Front rail - top surface (goes back but doesn't extend past the side) */}
       <polygon
         points={`${ox + T},${floor - L - H} ${ox + T + dxR},${floor - L - H + dyR} ${ox + W - T + dxR},${floor - L - H + dyR} ${ox + W - T},${floor - L - H}`}
         fill="#b7d7b7"
-        stroke="#1e293b"
-        strokeWidth={1}
-      />
-      {/* Front rail - right edge (chipboard thickness visible) */}
-      <polygon
-        points={`${ox + W - T},${floor - L - H} ${ox + W - T + dxR},${floor - L - H + dyR} ${ox + W - T + dxR},${floor - L - H + T + dyR} ${ox + W - T},${floor - L - H + T}`}
-        fill={RAIL_DARK}
         stroke="#1e293b"
         strokeWidth={1}
       />
@@ -251,10 +252,10 @@ function DimH({
 }) {
   return (
     <g stroke={color} fill={color}>
-      <line x1={x1} y1={y} x2={x2} y2={y} strokeWidth={1.5} />
-      <line x1={x1} y1={y - 5} x2={x1} y2={y + 5} strokeWidth={1.5} />
-      <line x1={x2} y1={y - 5} x2={x2} y2={y + 5} strokeWidth={1.5} />
-      <text x={(x1 + x2) / 2} y={y - 8} textAnchor="middle" fontSize={16} fontWeight="600" stroke="none" fill={color}>
+      <line x1={x1} y1={y} x2={x2} y2={y} strokeWidth={2} />
+      <line x1={x1} y1={y - 6} x2={x1} y2={y + 6} strokeWidth={2} />
+      <line x1={x2} y1={y - 6} x2={x2} y2={y + 6} strokeWidth={2} />
+      <text x={(x1 + x2) / 2} y={y - 10} textAnchor="middle" fontSize={20} fontWeight="700" stroke="none" fill={color}>
         {label}
       </text>
     </g>
@@ -274,15 +275,15 @@ function DimV({
 }) {
   return (
     <g stroke={DIM} fill={DIM}>
-      <line x1={x} y1={y1} x2={x} y2={y2} strokeWidth={1.5} />
-      <line x1={x - 5} y1={y1} x2={x + 5} y2={y1} strokeWidth={1.5} />
-      <line x1={x - 5} y1={y2} x2={x + 5} y2={y2} strokeWidth={1.5} />
+      <line x1={x} y1={y1} x2={x} y2={y2} strokeWidth={2} />
+      <line x1={x - 6} y1={y1} x2={x + 6} y2={y1} strokeWidth={2} />
+      <line x1={x - 6} y1={y2} x2={x + 6} y2={y2} strokeWidth={2} />
       <text
         x={x}
         y={(y1 + y2) / 2}
         textAnchor="middle"
-        fontSize={16}
-        fontWeight="600"
+        fontSize={20}
+        fontWeight="700"
         stroke="none"
         fill={DIM}
         transform={`rotate(-90 ${x} ${(y1 + y2) / 2})`}
