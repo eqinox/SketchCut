@@ -10,6 +10,7 @@ import { useState } from 'react'
 interface CuttingLayoutProps {
   result: PackingResult
   variantLabel: string
+  title?: string
   variants?: { label: string; wastePercent: number }[]
   selectedVariantIndex?: number
   onVariantSelect?: (index: number) => void
@@ -19,6 +20,7 @@ interface CuttingLayoutProps {
 export function CuttingLayout({
   result,
   variantLabel,
+  title = 'Разкрой',
   variants,
   selectedVariantIndex = 0,
   onVariantSelect,
@@ -47,7 +49,7 @@ export function CuttingLayout({
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-lg font-semibold">Разкрой</h2>
+        <h2 className="text-lg font-semibold">{title}</h2>
         <div className="flex flex-wrap items-center gap-2">
           <span className="rounded-md bg-[var(--color-secondary)] px-2 py-1 text-sm">
             Фира: <strong>{totalWastePercent.toFixed(1)}%</strong>

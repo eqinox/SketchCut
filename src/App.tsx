@@ -15,6 +15,12 @@ import {
   addCabinetAndLabel,
   removeCabinetAndLabel,
   updateCabinetAndLabel,
+  createHardboardSheet,
+  firstSheetOfKind,
+  parseKitchenBaseParams,
+  partKind,
+  sheetKind,
+  normalizeSheet,
 } from '@/lib/cabinets'
 import { subscribeAuth, saveProject, loadProjects, getFirebaseInitError } from '@/lib/firebase'
 import { saveDraft, readInitialDraft, setLastProjectId } from '@/lib/draft-storage'
@@ -36,6 +42,9 @@ function App() {
   const [packingVariants, setPackingVariants] = useState<PackingVariantOption[]>([])
   const [selectedVariantIndex, setSelectedVariantIndex] = useState(0)
   const [packingResult, setPackingResult] = useState<PackingResult | null>(null)
+  const [hardboardVariants, setHardboardVariants] = useState<PackingVariantOption[]>([])
+  const [hardboardVariantIndex, setHardboardVariantIndex] = useState(0)
+  const [hardboardResult, setHardboardResult] = useState<PackingResult | null>(null)
   const saveReadyRef = useRef(false)
 
   const [authOpen, setAuthOpen] = useState(false)
@@ -50,7 +59,7 @@ function App() {
   }, [])
 
   const applyProjectData = useCallback((project: SavedProject) => {
-    setSheets(project.sheets.map((s) => ({ ...s, quantity: s.quantity ?? 1 })))
+    setSheets(project.sheets.map(normalizeSheet))
     setParts(project.parts)
     setEdgeBanding(project.edgeBanding)
     setCabinets(project.cabinets ?? [])
@@ -58,6 +67,9 @@ function App() {
     setPackingResult(null)
     setPackingVariants([])
     setSelectedVariantIndex(0)
+    setHardboardResult(null)
+    setHardboardVariants([])
+    setHardboardVariantIndex(0)
   }, [])
 
   useEffect(() => {
@@ -147,17 +159,52 @@ function App() {
   }, [user, loadUserProjects])
 
   const handleGenerate = () => {
-    if (parts.length === 0 || sheets.length === 0) return
-    const variants = optimizeAllVariants(sheets, parts)
-    setPackingVariants(variants)
-    setSelectedVariantIndex(0)
-    setPackingResult(variants[0]?.result ?? null)
+    if (parts.length === 0) return
+    const chipboardParts = parts.filter((p) => partKind(p) === 'chipboard')
+    const hardboardParts = parts.filter((p) => partKind(p) === 'hardboard')
+    const chipboardSheets = sheets.filter((s) => sheetKind(s) === 'chipboard')
+    const hardboardSheets = sheets.filter((s) => sheetKind(s) === 'hardboard')
+
+    if (chipboardParts.length > 0) {
+      const variants = optimizeAllVariants(chipboardSheets, chipboardParts)
+      setPackingVariants(variants)
+      setSelectedVariantIndex(0)
+      setPackingResult(variants[0]?.result ?? null)
+    } else {
+      setPackingVariants([])
+      setPackingResult(null)
+    }
+
+    if (hardboardParts.length > 0) {
+      const variants = optimizeAllVariants(hardboardSheets, hardboardParts)
+      setHardboardVariants(variants)
+      setHardboardVariantIndex(0)
+      setHardboardResult(variants[0]?.result ?? null)
+    } else {
+      setHardboardVariants([])
+      setHardboardResult(null)
+    }
   }
 
   const handleVariantSelect = (index: number) => {
     setSelectedVariantIndex(index)
     setPackingResult(packingVariants[index]?.result ?? null)
   }
+
+  const handleHardboardVariantSelect = (index: number) => {
+    setHardboardVariantIndex(index)
+    setHardboardResult(hardboardVariants[index]?.result ?? null)
+  }
+
+  const handleHardboardLayoutChange = useCallback(
+    (updated: PackingResult) => {
+      setHardboardResult(updated)
+      setHardboardVariants((prev) =>
+        prev.map((v, i) => (i === hardboardVariantIndex ? { ...v, result: updated } : v)),
+      )
+    },
+    [hardboardVariantIndex],
+  )
 
   const handleLayoutChange = useCallback(
     (updated: PackingResult) => {
@@ -210,6 +257,21 @@ function App() {
 
   const cabinetState = { cabinets, parts, edgeBanding }
 
+  const resetPacking = () => {
+    setPackingResult(null)
+    setPackingVariants([])
+    setHardboardResult(null)
+    setHardboardVariants([])
+  }
+
+  const ensureHardboardSheet = (params: Record<string, unknown>) => {
+    if (!parseKitchenBaseParams(params).hasBack) return
+    setSheets((prev) => {
+      if (firstSheetOfKind(prev, 'hardboard')) return prev
+      return [...prev, createHardboardSheet(generateId())]
+    })
+  }
+
   const handleAddCabinet = (input: {
     typeId: string
     params: Record<string, unknown>
@@ -219,8 +281,8 @@ function App() {
     setCabinets(next.cabinets)
     setParts(next.parts)
     setEdgeBanding(next.edgeBanding)
-    setPackingResult(null)
-    setPackingVariants([])
+    ensureHardboardSheet(input.params)
+    resetPacking()
   }
 
   const handleUpdateCabinet = (
@@ -231,8 +293,8 @@ function App() {
     setCabinets(next.cabinets)
     setParts(next.parts)
     setEdgeBanding(next.edgeBanding)
-    setPackingResult(null)
-    setPackingVariants([])
+    ensureHardboardSheet(input.params)
+    resetPacking()
   }
 
   const handleRemoveCabinet = (cabinetId: string) => {
@@ -240,8 +302,7 @@ function App() {
     setCabinets(next.cabinets)
     setParts(next.parts)
     setEdgeBanding(next.edgeBanding)
-    setPackingResult(null)
-    setPackingVariants([])
+    resetPacking()
   }
 
   const variantLabel = packingVariants[selectedVariantIndex]?.label ?? ''
@@ -249,6 +310,19 @@ function App() {
     label: v.label.replace('Разкрой · ', ''),
     wastePercent: v.result.totalWastePercent,
   }))
+  const hardboardVariantLabel = hardboardVariants[hardboardVariantIndex]?.label ?? ''
+  const hardboardVariantOptions = hardboardVariants.map((v) => ({
+    label: v.label.replace('Разкрой · ', ''),
+    wastePercent: v.result.totalWastePercent,
+  }))
+  const chipboardPartCount = parts.filter((p) => partKind(p) === 'chipboard').length
+  const hardboardPartCount = parts.filter((p) => partKind(p) === 'hardboard').length
+  const chipboardSheetCount = sheets.filter((s) => sheetKind(s) === 'chipboard').reduce((s, sh) => s + sh.quantity, 0)
+  const hardboardSheetCount = sheets.filter((s) => sheetKind(s) === 'hardboard').reduce((s, sh) => s + sh.quantity, 0)
+  const canGenerate =
+    parts.length > 0 &&
+    (chipboardPartCount === 0 || chipboardSheetCount > 0) &&
+    (hardboardPartCount === 0 || hardboardSheetCount > 0)
 
   return (
     <div className="flex min-h-dvh flex-col">
@@ -282,6 +356,7 @@ function App() {
 
         <CabinetsPanel
           cabinets={cabinets}
+          sheets={sheets}
           dailyRateEur={dailyRateEur}
           onDailyRateChange={setDailyRateEur}
           applyAdd={handleAddCabinet}
@@ -290,7 +365,7 @@ function App() {
         />
 
         <div className="flex flex-wrap gap-3">
-          <Button size="lg" onClick={handleGenerate} disabled={parts.length === 0 || sheets.length === 0}>
+          <Button size="lg" onClick={handleGenerate} disabled={!canGenerate}>
             <Sparkles className="h-4 w-4" />
             Генерирай разкрой
           </Button>
@@ -301,10 +376,20 @@ function App() {
             </Button>
           )}
 
+          {hardboardPartCount > 0 && hardboardSheetCount === 0 && (
+            <p className="self-center text-sm text-[var(--color-destructive)]">
+              Има фазер, но няма плоча фазер — добавете от панела Плочи
+            </p>
+          )}
+
           {packingResult && !packingResult.success && (
             <p className="self-center text-sm text-[var(--color-destructive)]">
-              {packingResult.unplacedCount} детайла не се побират в наличните{' '}
-              {sheets.reduce((s, sh) => s + sh.quantity, 0)} плочи — добавете още
+              {packingResult.unplacedCount} ПДЧ детайла не се побират в наличните {chipboardSheetCount} плочи
+            </p>
+          )}
+          {hardboardResult && !hardboardResult.success && (
+            <p className="self-center text-sm text-[var(--color-destructive)]">
+              {hardboardResult.unplacedCount} фазер детайла не се побират в наличните {hardboardSheetCount} плочи
             </p>
           )}
         </div>
@@ -313,12 +398,25 @@ function App() {
 
         {packingResult && packingResult.sheets.length > 0 && (
           <CuttingLayout
+            title="Разкрой ПДЧ"
             result={packingResult}
             variantLabel={variantLabel}
             variants={variantOptions}
             selectedVariantIndex={selectedVariantIndex}
             onVariantSelect={handleVariantSelect}
             onResultChange={handleLayoutChange}
+          />
+        )}
+
+        {hardboardResult && hardboardResult.sheets.length > 0 && (
+          <CuttingLayout
+            title="Разкрой фазер"
+            result={hardboardResult}
+            variantLabel={hardboardVariantLabel}
+            variants={hardboardVariantOptions}
+            selectedVariantIndex={hardboardVariantIndex}
+            onVariantSelect={handleHardboardVariantSelect}
+            onResultChange={handleHardboardLayoutChange}
           />
         )}
       </main>

@@ -1,5 +1,11 @@
 import type { CabinetInstance, Part, PartEdgeBanding, Sheet } from '@/types'
 import { generateId } from '@/lib/utils'
+import {
+  DEFAULT_CHIPBOARD_HEIGHT,
+  DEFAULT_CHIPBOARD_PRICE_EUR,
+  DEFAULT_CHIPBOARD_WIDTH,
+  normalizeSheet,
+} from '@/lib/cabinets/materials'
 
 const DRAFT_KEY = 'sketchcut:draft'
 const LAST_PROJECT_KEY = 'sketchcut:lastProjectId'
@@ -16,9 +22,11 @@ export interface DraftData {
 
 const DEFAULT_SHEET = (): Sheet => ({
   id: generateId(),
-  width: 2780,
-  height: 2040,
+  width: DEFAULT_CHIPBOARD_WIDTH,
+  height: DEFAULT_CHIPBOARD_HEIGHT,
   quantity: 1,
+  kind: 'chipboard',
+  priceEur: DEFAULT_CHIPBOARD_PRICE_EUR,
 })
 
 export function saveDraft(data: Omit<DraftData, 'version' | 'updatedAt'>): void {
@@ -43,7 +51,7 @@ export function loadDraft(): DraftData | null {
     if (!Array.isArray(parsed.sheets) || !Array.isArray(parsed.parts)) return null
     return {
       ...parsed,
-      sheets: parsed.sheets.map((s) => ({ ...s, quantity: s.quantity ?? 1 })),
+      sheets: parsed.sheets.map(normalizeSheet),
       edgeBanding: parsed.edgeBanding ?? [],
       cabinets: parsed.cabinets ?? [],
       dailyRateEur: parsed.dailyRateEur ?? 0,

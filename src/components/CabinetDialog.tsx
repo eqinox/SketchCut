@@ -3,6 +3,7 @@ import { Box } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   Dialog,
   DialogContent,
@@ -14,23 +15,43 @@ import { CabinetPreview } from '@/components/CabinetPreview'
 import {
   CABINET_TYPES,
   DEFAULT_KITCHEN_BASE_PARAMS,
+  DEFAULT_PART_COLORS,
+  DEFAULT_SHELF_FRONT_INSET,
+  EDGE_PRICE_MM2_EUR,
+  EDGE_PRICE_MM05_EUR,
+  PART_COLOR_FIELDS,
+  SCREW_5X60,
+  SHELF_PIN,
+  SHELF_PINS_PER_SHELF,
+  WORK_HOURS_PER_DAY,
+  cabinetPrice,
+  doorCutSize,
   estimateFromPanels,
+  fastenerUnitPriceEur,
   formatArea,
+  formatEur,
+  formatMinutes,
   generateCabinet,
+  hardwareQtyById,
+  hourlyRateEur,
   parseKitchenBaseParams,
   scaleCabinetResult,
   type CabinetInstance,
+  type CabinetPartColors,
 } from '@/lib/cabinets'
+import type { Sheet } from '@/types'
 import { cn, formatMeters } from '@/lib/utils'
 
 interface CabinetDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   editing?: CabinetInstance | null
+  sheets: Sheet[]
+  dailyRateEur: number
   onSave: (input: { typeId: string; params: Record<string, unknown>; quantity: number }) => void
 }
 
-export function CabinetDialog({ open, onOpenChange, editing, onSave }: CabinetDialogProps) {
+export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEur, onSave }: CabinetDialogProps) {
   const isEdit = !!editing
   const initial = editing
     ? parseKitchenBaseParams(editing.params)
@@ -42,7 +63,15 @@ export function CabinetDialog({ open, onOpenChange, editing, onSave }: CabinetDi
   const [depth, setDepth] = useState(String(initial.depth))
   const [thickness, setThickness] = useState(String(initial.thickness))
   const [legHeight, setLegHeight] = useState(initial.legHeight === 150 ? 150 : 100)
+  const [shelfCount, setShelfCount] = useState(initial.shelfCount)
+  const [hasBack, setHasBack] = useState(initial.hasBack)
+  const [doorCount, setDoorCount] = useState(initial.doorCount)
   const [quantity, setQuantity] = useState(String(editing?.quantity ?? 1))
+  const [showDimLines, setShowDimLines] = useState(false)
+  const [colors, setColors] = useState<CabinetPartColors>({
+    ...DEFAULT_PART_COLORS,
+    ...initial.colors,
+  })
 
   const params = useMemo(
     () =>
@@ -53,8 +82,12 @@ export function CabinetDialog({ open, onOpenChange, editing, onSave }: CabinetDi
         thickness: parseInt(thickness, 10),
         legHeight,
         railWidth: DEFAULT_KITCHEN_BASE_PARAMS.railWidth,
+        shelfCount,
+        hasBack,
+        doorCount,
+        colors,
       }),
-    [width, height, depth, thickness, legHeight],
+    [width, height, depth, thickness, legHeight, shelfCount, hasBack, doorCount, colors],
   )
 
   const qty = Math.max(1, parseInt(quantity, 10) || 1)
@@ -67,6 +100,10 @@ export function CabinetDialog({ open, onOpenChange, editing, onSave }: CabinetDi
   }, [typeId, params, qty])
 
   const estimate = result ? estimateFromPanels(result.panels) : null
+  const price = result ? cabinetPrice(result.hardware, result.labor, dailyRateEur, result.panels, sheets) : null
+  const screwUnit = fastenerUnitPriceEur(SCREW_5X60)
+  const pinQty = result ? hardwareQtyById(result.hardware, SHELF_PIN.id) : 0
+  const hourly = hourlyRateEur(dailyRateEur)
   const error = validate(params)
 
   const handleSave = () => {
@@ -144,7 +181,120 @@ export function CabinetDialog({ open, onOpenChange, editing, onSave }: CabinetDi
           </p>
         </div>
 
-        <CabinetPreview params={{ ...params }} />
+        <div>
+          <Label>Рафтове</Label>
+          <div className="mt-1 flex gap-2">
+            {([0, 1, 2, 3] as const).map((n) => (
+              <Button
+                key={n}
+                type="button"
+                size="sm"
+                variant={shelfCount === n ? 'default' : 'outline'}
+                onClick={() => setShelfCount(n)}
+              >
+                {n === 0 ? 'Без' : n}
+              </Button>
+            ))}
+          </div>
+          <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
+            {shelfCount === 0
+              ? 'Без рафт'
+              : `${shelfCount} ${shelfCount === 1 ? 'рафт' : 'рафта'} · равни празнини · ${shelfCount * SHELF_PINS_PER_SHELF} рафтоносача · ${formatEur(SHELF_PIN.unitPriceEur)}/бр. · дълбочина ${params.depth - DEFAULT_SHELF_FRONT_INSET} мм`}
+          </p>
+        </div>
+
+        <div>
+          <Label>Фазер на гърба</Label>
+          <div className="mt-1 flex gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant={hasBack ? 'default' : 'outline'}
+              onClick={() => setHasBack(true)}
+            >
+              С фазер
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={!hasBack ? 'default' : 'outline'}
+              onClick={() => setHasBack(false)}
+            >
+              Без
+            </Button>
+          </div>
+          <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
+            {hasBack
+              ? '3 мм фазер между страниците, отделен разкрой от ПДЧ.'
+              : 'Без гръб.'}
+          </p>
+        </div>
+
+        <div>
+          <Label>Врати</Label>
+          <div className="mt-1 flex gap-2">
+            {([0, 1, 2] as const).map((n) => (
+              <Button
+                key={n}
+                type="button"
+                size="sm"
+                variant={doorCount === n ? 'default' : 'outline'}
+                onClick={() => setDoorCount(n)}
+              >
+                {n === 0 ? 'Без' : n === 1 ? '1 врата' : '2 врати'}
+              </Button>
+            ))}
+          </div>
+          <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
+            {doorCount === 0
+              ? 'Без врати'
+              : (() => {
+                  const d = doorCutSize(params.width, params.height, doorCount)
+                  return `Рязане ${Math.round(d.width)} × ${Math.round(d.height)} мм · кант 2 мм от 4 страни`
+                })()}
+          </p>
+        </div>
+
+        <div>
+          <Label>Цветове</Label>
+          <p className="mt-0.5 text-xs text-[var(--color-muted-foreground)]">
+            По подразбиране плоскостите са еднакви. Смени само ако трябва да се отличават.
+          </p>
+          <div className="mt-2 flex flex-wrap items-center gap-3">
+            {PART_COLOR_FIELDS.map(({ key, label }) => (
+              <label key={key} className="flex items-center gap-1.5 text-xs">
+                <input
+                  type="color"
+                  value={colors[key]}
+                  onChange={(e) => setColors((c) => ({ ...c, [key]: e.target.value }))}
+                  className="h-7 w-8 cursor-pointer rounded border border-[var(--color-border)] bg-transparent"
+                  title={label}
+                />
+                {label}
+              </label>
+            ))}
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => setColors({ ...DEFAULT_PART_COLORS })}
+            >
+              Еднакви
+            </Button>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between gap-3">
+          <label className="flex cursor-pointer items-center gap-2 text-sm">
+            <Checkbox
+              checked={showDimLines}
+              onCheckedChange={(c) => setShowDimLines(c === true)}
+            />
+            Оразмерителни линии
+          </label>
+        </div>
+
+        <CabinetPreview params={{ ...params }} showDimLines={showDimLines} />
 
         {error && <p className="text-sm text-[var(--color-destructive)]">{error}</p>}
 
@@ -179,8 +329,13 @@ export function CabinetDialog({ open, onOpenChange, editing, onSave }: CabinetDi
 
             <div className="flex flex-wrap gap-3 rounded-md bg-[var(--color-secondary)] px-3 py-2 text-sm">
               <span>
-                Материал: <strong>{formatArea(estimate.areaM2)}</strong>
+                ПДЧ: <strong>{formatArea(estimate.chipboardAreaM2)}</strong>
               </span>
+              {estimate.hardboardAreaM2 > 0 && (
+                <span>
+                  Фазер: <strong>{formatArea(estimate.hardboardAreaM2)}</strong>
+                </span>
+              )}
               <span>
                 Кант 2 мм: <strong>{formatMeters(estimate.edgeMm2)}</strong>
               </span>
@@ -195,17 +350,90 @@ export function CabinetDialog({ open, onOpenChange, editing, onSave }: CabinetDi
             </div>
 
             {result.hardware.length > 0 && (
-              <p className="text-xs text-[var(--color-muted-foreground)]">
-                Фурнитура (не се реже):{' '}
-                {result.hardware.map((h) => `${h.name} × ${h.quantity}`).join(', ')}
-              </p>
+              <div className="overflow-x-auto rounded-md border border-[var(--color-border)]">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-[var(--color-border)] text-left text-xs text-[var(--color-muted-foreground)]">
+                      <th className="px-3 py-2">Фурнитура</th>
+                      <th className="px-3 py-2">Бр.</th>
+                      <th className="px-3 py-2">Цена</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {result.hardware.map((h, i) => (
+                      <tr key={`${h.id ?? h.name}-${i}`} className="border-b border-[var(--color-border)]/50">
+                        <td className="px-3 py-2">
+                          <span className="font-medium">{h.name}</span>
+                          {h.note && (
+                            <span className="ml-1 text-xs text-[var(--color-muted-foreground)]">
+                              · {h.note}
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2 tabular-nums">{h.quantity}</td>
+                        <td className="px-3 py-2 tabular-nums text-xs">
+                          {h.unitPriceEur != null
+                            ? formatEur(h.unitPriceEur * h.quantity)
+                            : '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {price && (
+              <div className="flex flex-wrap items-baseline gap-3 rounded-md bg-[var(--color-secondary)] px-3 py-2 text-sm">
+                <span>
+                  Винтове {SCREW_5X60.name}: кутия {SCREW_5X60.packQty} бр. = {formatEur(SCREW_5X60.packPriceEur)}{' '}
+                  · {formatEur(screwUnit, 3)}/бр.
+                </span>
+                {pinQty > 0 && (
+                  <span>
+                    {SHELF_PIN.name}: {pinQty} бр. · {formatEur(SHELF_PIN.unitPriceEur)}/бр.
+                  </span>
+                )}
+                <span>
+                  ПДЧ: <strong>{formatEur(price.chipboardEur)}</strong>
+                </span>
+                {price.hardboardEur > 0 && (
+                  <span>
+                    Фазер: <strong>{formatEur(price.hardboardEur)}</strong>
+                  </span>
+                )}
+                <span>
+                  Кант ({formatEur(EDGE_PRICE_MM2_EUR, 2)}/м дебел, {formatEur(EDGE_PRICE_MM05_EUR, 2)}/м
+                  обикновен): <strong>{formatEur(price.edgeEur)}</strong>
+                </span>
+                <span>
+                  Фурнитура: <strong>{formatEur(price.hardwareEur)}</strong>
+                </span>
+                <span>
+                  Рязане: <strong>{formatMinutes(price.cuttingMinutes)}</strong>
+                  {' · '}
+                  Кантиране: <strong>{formatMinutes(price.edgingMinutes)}</strong>
+                </span>
+                {price.laborEur != null ? (
+                  <span>
+                    Труд: <strong>{formatEur(price.laborEur)}</strong>
+                    {' — '}
+                    при {formatEur(dailyRateEur)}/ден ({WORK_HOURS_PER_DAY} ч · {formatEur(hourly)}/ч)
+                  </span>
+                ) : (
+                  <span>Труд: задай ставка €/ден в панела Шкафове, за да влезе в цената</span>
+                )}
+                <span>
+                  Обща цена: <strong>{formatEur(price.totalEur)}</strong>
+                </span>
+              </div>
             )}
 
             <ul className="list-inside list-disc text-xs text-[var(--color-muted-foreground)]">
               {result.notes.map((n) => (
                 <li key={n}>{n}</li>
               ))}
-              <li>Времето за рязане, кантиране и сглобяване ще се зададе по-нататък — тогава и цената за труд.</li>
+              <li>Сглобяването още няма зададено време — ще влезе в цената, когато го попълним.</li>
             </ul>
           </div>
         )}

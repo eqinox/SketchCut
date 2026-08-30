@@ -29,6 +29,7 @@ function panelToPart(
     canRotate: panel.canRotate,
     label: `${index + 1} ${panel.name}`,
     cabinetId,
+    kind: panel.material === 'hardboard' ? 'hardboard' : 'chipboard',
   }
   return { part, banding: bandingFromPlan(id, panel.edges) }
 }

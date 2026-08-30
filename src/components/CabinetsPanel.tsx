@@ -6,15 +6,25 @@ import { Label } from '@/components/ui/label'
 import { CabinetDialog } from '@/components/CabinetDialog'
 import {
   WORK_HOURS_PER_DAY,
+  SCREW_5X60,
+  SHELF_PIN,
+  cabinetPrice,
   formatEur,
+  formatMinutes,
+  generateCabinet,
   getCabinetType,
+  hardwareCostById,
+  hardwareQtyById,
   hourlyRateEur,
   parseKitchenBaseParams,
+  scaleCabinetResult,
   type CabinetInstance,
 } from '@/lib/cabinets'
+import type { Sheet } from '@/types'
 
 interface CabinetsPanelProps {
   cabinets: CabinetInstance[]
+  sheets: Sheet[]
   dailyRateEur: number
   onDailyRateChange: (value: number) => void
   applyAdd: (input: { typeId: string; params: Record<string, unknown>; quantity: number }) => void
@@ -27,6 +37,7 @@ interface CabinetsPanelProps {
 
 export function CabinetsPanel({
   cabinets,
+  sheets,
   dailyRateEur,
   onDailyRateChange,
   applyAdd,
@@ -37,6 +48,34 @@ export function CabinetsPanel({
   const [editing, setEditing] = useState<CabinetInstance | null>(null)
   const [formKey, setFormKey] = useState(0)
   const hourly = hourlyRateEur(dailyRateEur)
+  const priced = cabinets.flatMap((c) => {
+    try {
+      const result = scaleCabinetResult(generateCabinet(c.typeId, c.params), c.quantity)
+      return [
+        {
+          cabinet: c,
+          result,
+          price: cabinetPrice(result.hardware, result.labor, dailyRateEur, result.panels, sheets),
+        },
+      ]
+    } catch {
+      return []
+    }
+  })
+  const hardwareTotal = priced.reduce((s, row) => s + row.price.hardwareEur, 0)
+  const chipboardTotal = priced.reduce((s, row) => s + row.price.chipboardEur, 0)
+  const hardboardTotal = priced.reduce((s, row) => s + row.price.hardboardEur, 0)
+  const edgeTotal = priced.reduce((s, row) => s + row.price.edgeEur, 0)
+  const laborParts = priced.map((row) => row.price.laborEur)
+  const laborKnown = laborParts.length > 0 && laborParts.every((v) => v != null)
+  const laborTotal = laborKnown ? laborParts.reduce((s, v) => s + (v ?? 0), 0) : null
+  const cuttingMinutes = priced.reduce((s, row) => s + row.price.cuttingMinutes, 0)
+  const edgingMinutes = priced.reduce((s, row) => s + row.price.edgingMinutes, 0)
+  const grandTotal = priced.reduce((s, row) => s + row.price.totalEur, 0)
+  const screwQty = priced.reduce((s, row) => s + hardwareQtyById(row.result.hardware, SCREW_5X60.id), 0)
+  const screwCost = priced.reduce((s, row) => s + hardwareCostById(row.result.hardware, SCREW_5X60.id), 0)
+  const pinQty = priced.reduce((s, row) => s + hardwareQtyById(row.result.hardware, SHELF_PIN.id), 0)
+  const pinCost = priced.reduce((s, row) => s + hardwareCostById(row.result.hardware, SHELF_PIN.id), 0)
 
   const openAdd = () => {
     setEditing(null)
@@ -99,47 +138,98 @@ export function CabinetsPanel({
           Няма добавени шкафове — започни с долен кухненски на крачета.
         </p>
       ) : (
-        <ul className="space-y-2">
-          {cabinets.map((c, i) => {
-            const type = getCabinetType(c.typeId)
-            const p = parseKitchenBaseParams(c.params)
-            return (
-              <li
-                key={c.id}
-                className="flex items-center justify-between gap-2 rounded-md border border-[var(--color-border)] bg-[var(--color-background)] px-3 py-2"
-              >
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <Box className="h-4 w-4 shrink-0 text-[var(--color-primary)]" />
-                    <span className="truncate text-sm font-medium">
-                      Ш{i + 1} · {type?.name ?? c.name}
-                    </span>
-                    {c.quantity > 1 && (
-                      <span className="text-xs text-[var(--color-muted-foreground)]">× {c.quantity}</span>
-                    )}
+        <div className="space-y-2">
+          <ul className="space-y-2">
+            {cabinets.map((c, i) => {
+              const type = getCabinetType(c.typeId)
+              const p = parseKitchenBaseParams(c.params)
+              const row = priced.find((r) => r.cabinet.id === c.id)
+              return (
+                <li
+                  key={c.id}
+                  className="flex items-center justify-between gap-2 rounded-md border border-[var(--color-border)] bg-[var(--color-background)] px-3 py-2"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <Box className="h-4 w-4 shrink-0 text-[var(--color-primary)]" />
+                      <span className="truncate text-sm font-medium">
+                        Ш{i + 1} · {type?.name ?? c.name}
+                      </span>
+                      {c.quantity > 1 && (
+                        <span className="text-xs text-[var(--color-muted-foreground)]">× {c.quantity}</span>
+                      )}
+                      {row && (
+                        <span className="ml-auto shrink-0 text-xs tabular-nums text-[var(--color-muted-foreground)]">
+                          {formatEur(row.price.totalEur)}
+                        </span>
+                      )}
+                    </div>
+                    <p className="truncate text-xs text-[var(--color-muted-foreground)]">
+                      {p.width} × {p.height} × {p.depth} мм · крачета {p.legHeight} мм
+                      {p.shelfCount > 0
+                        ? ` · ${p.shelfCount} ${p.shelfCount === 1 ? 'рафт' : 'рафта'}`
+                        : ''}
+                      {p.hasBack ? ' · фазер' : ''}
+                      {p.doorCount === 1 ? ' · 1 врата' : p.doorCount === 2 ? ' · 2 врати' : ''}
+                    </p>
                   </div>
-                  <p className="truncate text-xs text-[var(--color-muted-foreground)]">
-                    {p.width} × {p.height} × {p.depth} мм · крачета {p.legHeight} мм · от пода{' '}
-                    {p.height + p.legHeight} мм
-                  </p>
-                </div>
-                <div className="flex shrink-0 items-center gap-1">
-                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(c)}>
-                    <Pencil className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7"
-                    onClick={() => applyRemove(c.id)}
-                  >
-                    <Trash2 className="h-4 w-4 text-[var(--color-destructive)]" />
-                  </Button>
-                </div>
-              </li>
-            )
-          })}
-        </ul>
+                  <div className="flex shrink-0 items-center gap-1">
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(c)}>
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7"
+                      onClick={() => applyRemove(c.id)}
+                    >
+                      <Trash2 className="h-4 w-4 text-[var(--color-destructive)]" />
+                    </Button>
+                  </div>
+                </li>
+              )
+            })}
+          </ul>
+          <div className="rounded-md bg-[var(--color-secondary)] px-3 py-2 text-sm">
+            <p>
+              Винтове {SCREW_5X60.name}: <strong>{screwQty} бр.</strong>
+              {' · '}
+              кутия {SCREW_5X60.packQty} бр. = {formatEur(SCREW_5X60.packPriceEur)}
+              {' · '}
+              {formatEur(screwCost)}
+            </p>
+            {pinQty > 0 && (
+              <p>
+                {SHELF_PIN.name}: <strong>{pinQty} бр.</strong>
+                {' · '}
+                {formatEur(SHELF_PIN.unitPriceEur, 2)}/бр.
+                {' · '}
+                {formatEur(pinCost)}
+              </p>
+            )}
+            <p>
+              ПДЧ: {formatEur(chipboardTotal)}
+              {hardboardTotal > 0 ? ` · Фазер: ${formatEur(hardboardTotal)}` : ''}
+              {' · '}
+              Кант: {formatEur(edgeTotal)}
+              {' · '}
+              Фурнитура: {formatEur(hardwareTotal)}
+            </p>
+            <p>
+              Рязане: {formatMinutes(cuttingMinutes)} (40 мин / плоча)
+              {' · '}
+              Кантиране: {formatMinutes(edgingMinutes)} (30 мин / плоча ПДЧ)
+            </p>
+            <p>
+              {laborTotal == null
+                ? 'Труд: задай ставка €/ден по-горе, за да влезе в сметката'
+                : `Труд: ${formatEur(laborTotal)} — пресметнат при ${formatEur(dailyRateEur)}/ден (${WORK_HOURS_PER_DAY} ч · ${formatEur(hourly)}/ч)`}
+            </p>
+            <p>
+              Обща цена: <strong>{formatEur(grandTotal)}</strong>
+            </p>
+          </div>
+        </div>
       )}
 
       <CabinetDialog
@@ -147,6 +237,8 @@ export function CabinetsPanel({
         open={open}
         onOpenChange={setOpen}
         editing={editing}
+        sheets={sheets}
+        dailyRateEur={dailyRateEur}
         onSave={(input) => {
           if (editing) applyUpdate(editing.id, input)
           else applyAdd(input)

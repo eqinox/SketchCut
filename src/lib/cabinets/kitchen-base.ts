@@ -1,12 +1,30 @@
-import { KITCHEN_BASE_JOINERY, measureCarcass } from './joinery'
+import { parsePartColors, DEFAULT_PART_COLORS } from './colors'
+import {
+  fastenerLine,
+  KITCHEN_BASE_SCREWS_BOTTOM,
+  KITCHEN_BASE_SCREWS_RAILS,
+  KITCHEN_BASE_SCREWS_TOTAL,
+  pricedLine,
+  SCREW_5X60,
+  SHELF_PIN,
+  SHELF_PINS_PER_SHELF,
+} from './hardware'
+import { evenShelfBottoms, KITCHEN_BASE_JOINERY, measureCarcass } from './joinery'
+import {
+  DEFAULT_HARDBOARD_THICKNESS,
+  doorCutSize,
+  parseDoorCount,
+} from './materials'
 import {
   DEFAULT_LEG_HEIGHT,
   DEFAULT_PANEL_THICKNESS,
   DEFAULT_RAIL_WIDTH,
+  DEFAULT_SHELF_FRONT_INSET,
   emptyLabor,
   edges,
   type CabinetGeneratorResult,
   type CabinetTypeDefinition,
+  type GeneratedPanel,
   type KitchenBaseParams,
 } from './types'
 
@@ -20,6 +38,9 @@ export const DEFAULT_KITCHEN_BASE_PARAMS: KitchenBaseParams = {
   legHeight: DEFAULT_LEG_HEIGHT,
   railWidth: DEFAULT_RAIL_WIDTH,
   shelfCount: 0,
+  hasBack: true,
+  doorCount: 0,
+  colors: { ...DEFAULT_PART_COLORS },
 }
 
 export function parseKitchenBaseParams(raw: Record<string, unknown>): KitchenBaseParams {
@@ -36,8 +57,17 @@ export function parseKitchenBaseParams(raw: Record<string, unknown>): KitchenBas
     thickness: num('thickness', d.thickness),
     legHeight: leg === 150 ? 150 : 100,
     railWidth: num('railWidth', d.railWidth),
-    shelfCount: Math.max(0, Math.floor(num('shelfCount', 0))),
+    shelfCount: parseShelfCount(raw.shelfCount),
+    hasBack: typeof raw.hasBack === 'boolean' ? raw.hasBack : false,
+    doorCount: parseDoorCount(raw.doorCount),
+    colors: parsePartColors(raw.colors),
   }
+}
+
+function parseShelfCount(value: unknown): number {
+  const n = typeof value === 'number' ? value : Number.parseInt(String(value ?? ''), 10)
+  if (!Number.isFinite(n) || n <= 0) return 0
+  return Math.min(3, Math.floor(n))
 }
 
 export function generateKitchenBase(raw: Record<string, unknown>): CabinetGeneratorResult {
@@ -52,52 +82,124 @@ export function generateKitchenBase(raw: Record<string, unknown>): CabinetGenera
     `Крачета ${p.legHeight} мм — обща височина от пода ${p.height + p.legHeight} мм.`,
     'Дъното покрива страниците: страниците сядат върху дъното, винтовете се виждат отдолу.',
     'Царгите влизат между страниците горе — по една отпред и отзад.',
+    `Сглобяване с винтове ${SCREW_5X60.name}: ${KITCHEN_BASE_SCREWS_BOTTOM} на дъното и ${KITCHEN_BASE_SCREWS_RAILS} за царгите (${KITCHEN_BASE_SCREWS_TOTAL} бр.).`,
   ]
 
   if (p.depth < p.railWidth * 2) {
     notes.push('Внимание: дълбочината е по-малка от двете царги една до друга.')
   }
 
+  const hardware = [
+    { name: `Краче ${p.legHeight} мм`, quantity: 4 },
+    fastenerLine(SCREW_5X60, KITCHEN_BASE_SCREWS_BOTTOM, 'Дъно — винтове отдолу'),
+    fastenerLine(SCREW_5X60, KITCHEN_BASE_SCREWS_RAILS, 'Царги горе'),
+  ]
+  const panels: GeneratedPanel[] = [
+    {
+      role: 'bottom' as const,
+      name: 'Дъно',
+      width: m.bottomW,
+      height: m.bottomD,
+      quantity: 1,
+      canRotate: false,
+      edges: edges({ top: true, left: true, right: true }),
+      note: 'Кант: предна + двете страни. Задната не се кантира.',
+    },
+    {
+      role: 'side' as const,
+      name: 'Страница',
+      width: m.sideD,
+      height: m.sideH,
+      quantity: 2,
+      canRotate: false,
+      edges: edges({ top: true, left: true }),
+      note: 'Кант: предна и горна. Долната сяда в дъното, задната не се вижда.',
+    },
+    {
+      role: 'rail' as const,
+      name: 'Царга',
+      width: m.railLength,
+      height: p.railWidth,
+      quantity: 2,
+      canRotate: false,
+      edges: edges({ top: true }),
+      note: 'Кант: едната дълга страна. Предна и задна царга са еднакви.',
+    },
+  ]
+
+  if (p.shelfCount > 0) {
+    const bottoms = evenShelfBottoms(m.innerH, p.shelfCount, p.thickness)
+    const gap = bottoms[0] ?? 0
+    const shelfDepth = m.sideD - DEFAULT_SHELF_FRONT_INSET
+    notes.push(
+      `${p.shelfCount} ${p.shelfCount === 1 ? 'рафт' : 'рафта'} с еднакви празнини по ${Math.round(gap)} мм.`,
+    )
+    notes.push(
+      `Рафтът е с ${DEFAULT_SHELF_FRONT_INSET} мм по-къс от дълбочината (${shelfDepth} мм) — започва на 5 см отпред и стига дозад.`,
+    )
+    notes.push(
+      `Рафтоносачи: ${p.shelfCount * SHELF_PINS_PER_SHELF} бр. (по ${SHELF_PINS_PER_SHELF} на рафт, 5 цента/бр.).`,
+    )
+    hardware.push(
+      pricedLine(
+        SHELF_PIN,
+        p.shelfCount * SHELF_PINS_PER_SHELF,
+        `по ${SHELF_PINS_PER_SHELF} на рафт`,
+      ),
+    )
+    panels.push({
+      role: 'shelf',
+      name: 'Рафт',
+      width: m.innerW,
+      height: shelfDepth,
+      quantity: p.shelfCount,
+      canRotate: false,
+      edges: edges({ top: true }),
+      note: `Кант: предната видима страна. Дълбочина ${shelfDepth} мм (корпусът минус 50 мм отпред).`,
+    })
+  }
+
+  if (p.hasBack) {
+    notes.push(
+      `Фазер ${DEFAULT_HARDBOARD_THICKNESS} мм на гърба: ${m.innerW} × ${m.sideH} мм, отделен разкрой.`,
+    )
+    panels.push({
+      role: 'back',
+      name: 'Фазер',
+      width: m.innerW,
+      height: m.sideH,
+      quantity: 1,
+      canRotate: true,
+      edges: edges({}),
+      material: 'hardboard',
+      note: `Фазер ${DEFAULT_HARDBOARD_THICKNESS} мм. Без кант. Разкроява се отделно от ПДЧ.`,
+    })
+  }
+
+  if (p.doorCount === 1 || p.doorCount === 2) {
+    const door = doorCutSize(p.width, p.height, p.doorCount)
+    const doorWord = p.doorCount === 1 ? 'една врата' : 'две врати'
+    notes.push(
+      `${p.doorCount === 1 ? 'Една врата' : 'Две врати'}: рязане ${Math.round(door.width)} × ${Math.round(door.height)} мм (фуги 3 мм, по 1,5 мм горе/долу, кант 2 мм от 4 страни).`,
+    )
+    panels.push({
+      role: 'door',
+      name: p.doorCount === 1 ? 'Врата' : 'Врата',
+      width: door.width,
+      height: door.height,
+      quantity: p.doorCount,
+      canRotate: false,
+      edges: edges({ top: true, bottom: true, left: true, right: true }),
+      note: `Кант 2 мм от 4 страни. ${doorWord}. Размерът е за рязане (без канта).`,
+    })
+  }
+
   return {
     joinery: KITCHEN_BASE_JOINERY,
     labor: emptyLabor(),
-    hardware: [{ name: `Краче ${p.legHeight} мм`, quantity: 4 }],
+    hardware,
     notes,
-    panels: [
-      {
-        role: 'bottom',
-        name: 'Дъно',
-        width: m.bottomW,
-        height: m.bottomD,
-        quantity: 1,
-        canRotate: false,
-        // width = cabinet width (front edge), height = depth (left/right edges)
-        edges: edges({ top: true, left: true, right: true }),
-        note: 'Кант: предна + двете страни. Задната не се кантира.',
-      },
-      {
-        role: 'side',
-        name: 'Страница',
-        width: m.sideD,
-        height: m.sideH,
-        quantity: 2,
-        canRotate: false,
-        // width = depth (top edge of the panel), height = side height (front edge)
-        edges: edges({ top: true, left: true }),
-        note: 'Кант: предна и горна. Долната сяда в дъното, задната не се вижда.',
-      },
-      {
-        role: 'rail',
-        name: 'Царга',
-        width: m.railLength,
-        height: p.railWidth,
-        quantity: 2,
-        canRotate: false,
-        // one long side only (the visible long edge)
-        edges: edges({ top: true }),
-        note: 'Кант: едната дълга страна. Предна и задна царга са еднакви.',
-      },
-    ],
+    panels,
   }
 }
 
@@ -106,7 +208,7 @@ export const kitchenBaseType: CabinetTypeDefinition = {
   name: 'Долен кухненски шкаф',
   category: 'kitchen-base',
   description:
-    'Корпус на крачета, без врата. Дъно под страниците, две царги по 10 см отпред и отзад горе.',
+    'Корпус на крачета. По избор фазер на гърба и една или две врати.',
   defaultParams: { ...DEFAULT_KITCHEN_BASE_PARAMS },
   generate: generateKitchenBase,
 }

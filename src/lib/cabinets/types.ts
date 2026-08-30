@@ -1,4 +1,5 @@
-import type { EdgeBandingSides } from '@/types'
+import type { BoardKind, EdgeBandingSides } from '@/types'
+import type { CabinetPartColors } from './colors'
 
 /** Actual working hours counted per day (breaks are not billed). */
 export const WORK_HOURS_PER_DAY = 7
@@ -6,6 +7,8 @@ export const WORK_HOURS_PER_DAY = 7
 export const DEFAULT_PANEL_THICKNESS = 18
 export const DEFAULT_RAIL_WIDTH = 100
 export const DEFAULT_LEG_HEIGHT = 100
+/** Lower kitchen shelves start this far back from the front edge. */
+export const DEFAULT_SHELF_FRONT_INSET = 50
 
 export type CabinetCategory = 'kitchen-base' | 'kitchen-wall' | 'wardrobe' | 'other'
 
@@ -77,16 +80,23 @@ export interface GeneratedPanel {
   canRotate: boolean
   edges: PanelEdgePlan
   note?: string
+  /** Defaults to chipboard (ПДЧ). */
+  material?: BoardKind
 }
 
 export interface HardwareItem {
+  /** Catalog id when the item is priced (e.g. screw-5x60). */
+  id?: string
   name: string
   quantity: number
+  /** EUR per piece; omit until the workshop price is known. */
+  unitPriceEur?: number
+  note?: string
 }
 
 /**
- * Minutes per cabinet. Null until the workshop times are filled in.
- * Cutting, edging and assembly are tracked separately so later types can differ.
+ * Minutes per cabinet. Cutting and edging are derived from sheet usage
+ * (40 min and 30 min per full plate). Assembly stays null until set.
  */
 export interface LaborEstimate {
   cuttingMinutes: number | null
@@ -120,8 +130,13 @@ export interface KitchenBaseParams {
   legHeight: number
   /** Front/back top rail depth, mm (the 10 cm царги) */
   railWidth: number
-  /** Reserved for later */
+  /** 0–3 evenly spaced shelves */
   shelfCount: number
+  /** 3 mm hardboard back. */
+  hasBack: boolean
+  /** 0 = no doors, otherwise 1 or 2. */
+  doorCount: 0 | 1 | 2
+  colors: CabinetPartColors
   [key: string]: unknown
 }
 

@@ -1,8 +1,14 @@
+export type BoardKind = 'chipboard' | 'hardboard'
+
 export interface Sheet {
   id: string
   width: number
   height: number
   quantity: number
+  /** Defaults to chipboard (ПДЧ). Hardboard (фазер) is nested separately. */
+  kind?: BoardKind
+  /** Price of one full sheet. Defaults to 86 € for chipboard. */
+  priceEur?: number
 }
 
 export interface Part {
@@ -14,6 +20,8 @@ export interface Part {
   label: string
   /** Set when the part was generated from a cabinet */
   cabinetId?: string
+  /** Defaults to chipboard. Hardboard parts nest on фазер sheets. */
+  kind?: BoardKind
 }
 
 export interface CabinetInstance {

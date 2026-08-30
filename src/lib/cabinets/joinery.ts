@@ -13,6 +13,8 @@ export interface CarcassMeasures {
   sideD: number
   /** Length of a top rail / top panel along the cabinet width */
   railLength: number
+  /** Clear height inside: above the bottom, below the top rails */
+  innerH: number
 }
 
 /**
@@ -44,7 +46,19 @@ export function measureCarcass(dims: CabinetDimensions, joinery: JoineryConfig):
     sideH,
     sideD,
     railLength,
+    innerH: H - 2 * T,
   }
+}
+
+/**
+ * Distances from the inner floor (top of the bottom) to the bottom face of each shelf.
+ * Gaps above, between and below are equal.
+ */
+export function evenShelfBottoms(innerH: number, count: number, thickness: number): number[] {
+  if (count < 1) return []
+  const free = innerH - count * thickness
+  const gap = free / (count + 1)
+  return Array.from({ length: count }, (_, i) => gap * (i + 1) + thickness * i)
 }
 
 export const KITCHEN_BASE_JOINERY: JoineryConfig = {
