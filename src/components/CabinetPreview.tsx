@@ -259,17 +259,17 @@ function Front3DView({ p, m }: { p: KitchenBaseParams; m: ReturnType<typeof meas
   const L = p.legHeight
   const R = p.railWidth
 
-  const pad = 60
+  const pad = 70
   const depthScale = 0.5
   const depthAngle = 30
   const dx = D * depthScale * Math.cos((depthAngle * Math.PI) / 180)
   const dy = -D * depthScale * Math.sin((depthAngle * Math.PI) / 180)
 
   const totalH = H + L
-  const vbW = W + dx + pad * 2
-  const vbH = totalH + Math.abs(dy) + pad * 2
+  const vbW = W + dx + pad * 2.5
+  const vbH = totalH + Math.abs(dy) + pad * 2.5
   const ox = pad
-  const floor = pad + totalH
+  const floor = pad * 1.3 + totalH
 
   const legW = Math.max(18, T * 1.2)
   const legInset = Math.max(28, W * 0.08)
