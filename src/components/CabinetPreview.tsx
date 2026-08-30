@@ -55,10 +55,10 @@ function ViewCard({ title, children }: { title: string; children: ReactNode }) {
 
 /** 3D front view with depth extending to the right (cavalier projection). Shows 2 front legs and how parts overlap. */
 function Front3DView({ p, m }: { p: KitchenBaseParams; m: ReturnType<typeof measureCarcass> }) {
-  const T = p.thickness
-  const W = p.width
-  const H = p.height
-  const D = p.depth
+  const T = m.thickness
+  const W = m.outerW
+  const H = m.outerH
+  const D = m.outerD
   const L = p.legHeight
   const R = p.railWidth
 
