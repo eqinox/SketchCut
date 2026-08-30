@@ -420,9 +420,15 @@ function Front3DView({ p, m }: { p: KitchenBaseParams; m: ReturnType<typeof meas
       />
 
       {/* === DIMENSIONS === */}
+      {/* Width at top */}
       <DimH x1={ox} x2={ox + W} y={18} label={mm(W)} />
-      <DimH x1={ox + W + 8} x2={ox + W + 8 + dx} y={floor - L - H / 2} label={mm(D)} />
+      {/* Depth along right side panel from front to back edge */}
+      <DimH x1={ox + W} x2={ox + W + dx} y={floor - L - T - 20} label={mm(D)} />
+      {/* Rail width on front rail */}
+      <DimH x1={ox + T} x2={ox + T + dxR} y={floor - L - H - 15} label={mm(R)} color="#6a9a6a" />
+      {/* Cabinet height */}
       <DimV x={12} y1={floor - L - H} y2={floor - L} label={mm(H)} />
+      {/* Leg height */}
       <DimV x={vbW - 12} y1={floor - L} y2={floor} label={mm(L)} />
     </svg>
   )
@@ -441,12 +447,17 @@ function DimH({
   label: string
   color?: string
 }) {
+  const arrowSize = 8
   return (
     <g stroke={color} fill={color}>
+      {/* Main line */}
       <line x1={x1} y1={y} x2={x2} y2={y} strokeWidth={2} />
-      <line x1={x1} y1={y - 6} x2={x1} y2={y + 6} strokeWidth={2} />
-      <line x1={x2} y1={y - 6} x2={x2} y2={y + 6} strokeWidth={2} />
-      <text x={(x1 + x2) / 2} y={y - 10} textAnchor="middle" fontSize={20} fontWeight="700" stroke="none" fill={color}>
+      {/* Left arrow */}
+      <polygon points={`${x1},${y} ${x1 + arrowSize},${y - arrowSize / 2} ${x1 + arrowSize},${y + arrowSize / 2}`} />
+      {/* Right arrow */}
+      <polygon points={`${x2},${y} ${x2 - arrowSize},${y - arrowSize / 2} ${x2 - arrowSize},${y + arrowSize / 2}`} />
+      {/* Label */}
+      <text x={(x1 + x2) / 2} y={y - 12} textAnchor="middle" fontSize={20} fontWeight="700" stroke="none" fill={color}>
         {label}
       </text>
     </g>
@@ -464,11 +475,16 @@ function DimV({
   y2: number
   label: string
 }) {
+  const arrowSize = 8
   return (
     <g stroke={DIM} fill={DIM}>
+      {/* Main line */}
       <line x1={x} y1={y1} x2={x} y2={y2} strokeWidth={2} />
-      <line x1={x - 6} y1={y1} x2={x + 6} y2={y1} strokeWidth={2} />
-      <line x1={x - 6} y1={y2} x2={x + 6} y2={y2} strokeWidth={2} />
+      {/* Top arrow */}
+      <polygon points={`${x},${y1} ${x - arrowSize / 2},${y1 + arrowSize} ${x + arrowSize / 2},${y1 + arrowSize}`} />
+      {/* Bottom arrow */}
+      <polygon points={`${x},${y2} ${x - arrowSize / 2},${y2 - arrowSize} ${x + arrowSize / 2},${y2 - arrowSize}`} />
+      {/* Label */}
       <text
         x={x}
         y={(y1 + y2) / 2}
