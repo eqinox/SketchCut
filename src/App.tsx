@@ -8,15 +8,21 @@ import { PartsPanel } from '@/components/PartsPanel'
 import { CuttingLayout } from '@/components/CuttingLayout'
 import { EdgeBandingDialog } from '@/components/EdgeBandingDialog'
 import { AuthDialog, HeaderActions, ProjectDialog } from '@/components/AuthDialog'
+import { CabinetsPanel } from '@/components/CabinetsPanel'
 import { optimizeAllVariants, type PackingVariantOption } from '@/lib/packing/optimizer'
 import { syncEdgeBanding } from '@/lib/edge-banding'
+import {
+  addCabinetAndLabel,
+  removeCabinetAndLabel,
+  updateCabinetAndLabel,
+} from '@/lib/cabinets'
 import { subscribeAuth, saveProject, loadProjects, getFirebaseInitError } from '@/lib/firebase'
 import { saveDraft, readInitialDraft, setLastProjectId } from '@/lib/draft-storage'
 import { generateId } from '@/lib/utils'
 import { formatFirebaseError } from '@/lib/firebase-errors'
 import { getMissingClientEnvKeys } from '@/lib/env'
 import { DbErrorBanner, type DbErrorDetails } from '@/components/DbErrorBanner'
-import type { Part, PartEdgeBanding, PackingResult, SavedProject, Sheet } from '@/types'
+import type { CabinetInstance, Part, PartEdgeBanding, PackingResult, SavedProject, Sheet } from '@/types'
 
 const initialDraft = readInitialDraft()
 
@@ -25,6 +31,8 @@ function App() {
   const [sheets, setSheets] = useState<Sheet[]>(initialDraft.sheets)
   const [parts, setParts] = useState<Part[]>(initialDraft.parts)
   const [edgeBanding, setEdgeBanding] = useState<PartEdgeBanding[]>(initialDraft.edgeBanding)
+  const [cabinets, setCabinets] = useState<CabinetInstance[]>(initialDraft.cabinets)
+  const [dailyRateEur, setDailyRateEur] = useState(initialDraft.dailyRateEur)
   const [packingVariants, setPackingVariants] = useState<PackingVariantOption[]>([])
   const [selectedVariantIndex, setSelectedVariantIndex] = useState(0)
   const [packingResult, setPackingResult] = useState<PackingResult | null>(null)
@@ -45,6 +53,8 @@ function App() {
     setSheets(project.sheets.map((s) => ({ ...s, quantity: s.quantity ?? 1 })))
     setParts(project.parts)
     setEdgeBanding(project.edgeBanding)
+    setCabinets(project.cabinets ?? [])
+    setDailyRateEur(project.dailyRateEur ?? 0)
     setPackingResult(null)
     setPackingVariants([])
     setSelectedVariantIndex(0)
@@ -115,8 +125,8 @@ function App() {
 
   useEffect(() => {
     if (!saveReadyRef.current) return
-    saveDraft({ sheets, parts, edgeBanding })
-  }, [sheets, parts, edgeBanding])
+    saveDraft({ sheets, parts, edgeBanding, cabinets, dailyRateEur })
+  }, [sheets, parts, edgeBanding, cabinets, dailyRateEur])
 
   const loadUserProjects = useCallback(async () => {
     if (!user) return
@@ -169,11 +179,13 @@ function App() {
         sheets,
         parts,
         edgeBanding,
+        cabinets,
+        dailyRateEur,
         updatedAt: Date.now(),
       }
       await saveProject(user.uid, project)
       setLastProjectId(project.id)
-      saveDraft({ sheets, parts, edgeBanding })
+      saveDraft({ sheets, parts, edgeBanding, cabinets, dailyRateEur })
       await loadUserProjects()
       setDbError(null)
     } catch (e) {
@@ -187,7 +199,49 @@ function App() {
     if (!project) return
     applyProjectData(project)
     setLastProjectId(id)
-    saveDraft({ sheets: project.sheets, parts: project.parts, edgeBanding: project.edgeBanding })
+    saveDraft({
+      sheets: project.sheets,
+      parts: project.parts,
+      edgeBanding: project.edgeBanding,
+      cabinets: project.cabinets ?? [],
+      dailyRateEur: project.dailyRateEur ?? 0,
+    })
+  }
+
+  const cabinetState = { cabinets, parts, edgeBanding }
+
+  const handleAddCabinet = (input: {
+    typeId: string
+    params: Record<string, unknown>
+    quantity: number
+  }) => {
+    const next = addCabinetAndLabel(cabinetState, input)
+    setCabinets(next.cabinets)
+    setParts(next.parts)
+    setEdgeBanding(next.edgeBanding)
+    setPackingResult(null)
+    setPackingVariants([])
+  }
+
+  const handleUpdateCabinet = (
+    cabinetId: string,
+    input: { typeId: string; params: Record<string, unknown>; quantity: number },
+  ) => {
+    const next = updateCabinetAndLabel(cabinetState, cabinetId, input)
+    setCabinets(next.cabinets)
+    setParts(next.parts)
+    setEdgeBanding(next.edgeBanding)
+    setPackingResult(null)
+    setPackingVariants([])
+  }
+
+  const handleRemoveCabinet = (cabinetId: string) => {
+    const next = removeCabinetAndLabel(cabinetState, cabinetId)
+    setCabinets(next.cabinets)
+    setParts(next.parts)
+    setEdgeBanding(next.edgeBanding)
+    setPackingResult(null)
+    setPackingVariants([])
   }
 
   const variantLabel = packingVariants[selectedVariantIndex]?.label ?? ''
@@ -225,6 +279,15 @@ function App() {
           <SheetsPanel sheets={sheets} onChange={setSheets} />
           <PartsPanel parts={parts} onChange={setParts} />
         </div>
+
+        <CabinetsPanel
+          cabinets={cabinets}
+          dailyRateEur={dailyRateEur}
+          onDailyRateChange={setDailyRateEur}
+          applyAdd={handleAddCabinet}
+          applyUpdate={handleUpdateCabinet}
+          applyRemove={handleRemoveCabinet}
+        />
 
         <div className="flex flex-wrap gap-3">
           <Button size="lg" onClick={handleGenerate} disabled={parts.length === 0 || sheets.length === 0}>

@@ -221,6 +221,7 @@ export function EdgeBandingDialog({
                   <EdgePreview part={part} mm2={band.mm2} mm05={band.mm05} />
                   <div>
                     <p className="font-medium">
+                      {part.label !== `${part.width}×${part.height}` ? `${part.label} · ` : ''}
                       {part.width} × {part.height} мм
                     </p>
                     <p className="text-xs text-[var(--color-muted-foreground)]">

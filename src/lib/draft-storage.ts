@@ -1,4 +1,4 @@
-import type { Part, PartEdgeBanding, Sheet } from '@/types'
+import type { CabinetInstance, Part, PartEdgeBanding, Sheet } from '@/types'
 import { generateId } from '@/lib/utils'
 
 const DRAFT_KEY = 'sketchcut:draft'
@@ -9,6 +9,8 @@ export interface DraftData {
   sheets: Sheet[]
   parts: Part[]
   edgeBanding: PartEdgeBanding[]
+  cabinets: CabinetInstance[]
+  dailyRateEur: number
   updatedAt: number
 }
 
@@ -43,6 +45,8 @@ export function loadDraft(): DraftData | null {
       ...parsed,
       sheets: parsed.sheets.map((s) => ({ ...s, quantity: s.quantity ?? 1 })),
       edgeBanding: parsed.edgeBanding ?? [],
+      cabinets: parsed.cabinets ?? [],
+      dailyRateEur: parsed.dailyRateEur ?? 0,
     }
   } catch {
     return null
@@ -54,15 +58,19 @@ export function readInitialDraft(): {
   sheets: Sheet[]
   parts: Part[]
   edgeBanding: PartEdgeBanding[]
+  cabinets: CabinetInstance[]
+  dailyRateEur: number
 } {
   const draft = loadDraft()
   if (!draft) {
-    return { sheets: [DEFAULT_SHEET()], parts: [], edgeBanding: [] }
+    return { sheets: [DEFAULT_SHEET()], parts: [], edgeBanding: [], cabinets: [], dailyRateEur: 0 }
   }
   return {
     sheets: draft.sheets.length > 0 ? draft.sheets : [DEFAULT_SHEET()],
     parts: draft.parts,
     edgeBanding: draft.edgeBanding,
+    cabinets: draft.cabinets ?? [],
+    dailyRateEur: draft.dailyRateEur ?? 0,
   }
 }
 

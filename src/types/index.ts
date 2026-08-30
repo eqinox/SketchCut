@@ -12,6 +12,17 @@ export interface Part {
   quantity: number
   canRotate: boolean
   label: string
+  /** Set when the part was generated from a cabinet */
+  cabinetId?: string
+}
+
+export interface CabinetInstance {
+  id: string
+  typeId: string
+  name: string
+  quantity: number
+  params: Record<string, unknown>
+  partIds: string[]
 }
 
 export type EdgeSide = 'top' | 'bottom' | 'left' | 'right'
@@ -64,6 +75,8 @@ export interface SavedProject {
   sheets: Sheet[]
   parts: Part[]
   edgeBanding: PartEdgeBanding[]
+  cabinets?: CabinetInstance[]
+  dailyRateEur?: number
   updatedAt: number
 }
 

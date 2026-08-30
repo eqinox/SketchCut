@@ -87,7 +87,10 @@ export function PartsPanel({ parts, onChange }: PartsPanelProps) {
         if (p.id !== id) return p
         const updated = { ...p, [field]: value }
         if (field === 'width' || field === 'height') {
-          updated.label = `${updated.width}×${updated.height}`
+          const wasDefault = p.label === `${p.width}×${p.height}`
+          if (wasDefault) {
+            updated.label = `${updated.width}×${updated.height}`
+          }
         }
         return updated
       }),
@@ -190,6 +193,7 @@ export function PartsPanel({ parts, onChange }: PartsPanelProps) {
             <thead>
               <tr className="border-b border-[var(--color-border)] text-left text-xs text-[var(--color-muted-foreground)]">
                 <th className="pb-2 w-6"></th>
+                <th className="pb-2 pr-1">Име</th>
                 <th className="pb-2 pr-1">Ширина</th>
                 <th className="pb-2 pr-1">Дължина</th>
                 <th className="pb-2 pr-1">Брой</th>
@@ -212,6 +216,9 @@ export function PartsPanel({ parts, onChange }: PartsPanelProps) {
                 >
                   <td className="py-2 pr-1">
                     <GripVertical className="h-4 w-4 cursor-grab text-[var(--color-muted-foreground)] active:cursor-grabbing" />
+                  </td>
+                  <td className="max-w-[5.5rem] truncate py-2 pr-1 text-xs text-[var(--color-muted-foreground)]" title={part.label}>
+                    {part.label !== `${part.width}×${part.height}` ? part.label : '—'}
                   </td>
                   <td className="py-2 pr-1">
                     <Input
