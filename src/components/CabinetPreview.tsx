@@ -77,8 +77,6 @@ function Front3DView({ p, m }: { p: KitchenBaseParams; m: ReturnType<typeof meas
   const legW = Math.max(18, T * 1.2)
   const legInset = Math.max(28, W * 0.08)
 
-  const dxT = T * depthScale * Math.cos((depthAngle * Math.PI) / 180)
-  const dyT = -T * depthScale * Math.sin((depthAngle * Math.PI) / 180)
   const dxR = R * depthScale * Math.cos((depthAngle * Math.PI) / 180)
   const dyR = -R * depthScale * Math.sin((depthAngle * Math.PI) / 180)
 
@@ -136,9 +134,6 @@ function Front3DView({ p, m }: { p: KitchenBaseParams; m: ReturnType<typeof meas
         strokeWidth={1}
       />
 
-      {/* Screws from below into sides */}
-      <circle cx={ox + T / 2} cy={floor - L - T / 2} r={2.5} fill="#0f172a" />
-      <circle cx={ox + W - T / 2} cy={floor - L - T / 2} r={2.5} fill="#0f172a" />
 
       {/* === LEFT SIDE (sits on bottom) === */}
       {/* Left side - front face */}
@@ -155,9 +150,9 @@ function Front3DView({ p, m }: { p: KitchenBaseParams; m: ReturnType<typeof meas
         stroke="#1e293b"
         strokeWidth={1}
       />
-      {/* Left side - top edge */}
+      {/* Left side - top edge (with edging/kant visible) */}
       <polygon
-        points={`${ox},${floor - L - H} ${ox + dxT},${floor - L - H + dyT} ${ox + T + dxT},${floor - L - H + dyT} ${ox + T},${floor - L - H}`}
+        points={`${ox},${floor - L - H} ${ox + dx},${floor - L - H + dy} ${ox + T + dx},${floor - L - H + dy} ${ox + T},${floor - L - H}`}
         fill={WOOD_TOP}
         stroke="#1e293b"
         strokeWidth={1}
@@ -178,10 +173,33 @@ function Front3DView({ p, m }: { p: KitchenBaseParams; m: ReturnType<typeof meas
         stroke="#1e293b"
         strokeWidth={1}
       />
-      {/* Right side - top edge */}
+      {/* Right side - top edge (with edging/kant visible) */}
       <polygon
-        points={`${ox + W - T},${floor - L - H} ${ox + W - T + dxT},${floor - L - H + dyT} ${ox + W + dxT},${floor - L - H + dyT} ${ox + W},${floor - L - H}`}
+        points={`${ox + W - T},${floor - L - H} ${ox + W - T + dx},${floor - L - H + dy} ${ox + W + dx},${floor - L - H + dy} ${ox + W},${floor - L - H}`}
         fill={WOOD_TOP}
+        stroke="#1e293b"
+        strokeWidth={1}
+      />
+
+      {/* === BACK RAIL (fits between sides at back) === */}
+      {/* Back rail - top surface visible from depth */}
+      <polygon
+        points={`${ox + T + dx - dxR},${floor - L - H + dy - dyR} ${ox + W - T + dx - dxR},${floor - L - H + dy - dyR} ${ox + W - T + dx},${floor - L - H + dy} ${ox + T + dx},${floor - L - H + dy}`}
+        fill="#b7d7b7"
+        stroke="#1e293b"
+        strokeWidth={1}
+      />
+      {/* Back rail - front edge (thickness visible) */}
+      <polygon
+        points={`${ox + T + dx - dxR},${floor - L - H + dy - dyR} ${ox + T + dx - dxR},${floor - L - H + T + dy - dyR} ${ox + W - T + dx - dxR},${floor - L - H + T + dy - dyR} ${ox + W - T + dx - dxR},${floor - L - H + dy - dyR}`}
+        fill={RAIL}
+        stroke="#1e293b"
+        strokeWidth={1}
+      />
+      {/* Back rail - right edge (chipboard thickness) */}
+      <polygon
+        points={`${ox + W - T + dx - dxR},${floor - L - H + dy - dyR} ${ox + W - T + dx},${floor - L - H + dy} ${ox + W - T + dx},${floor - L - H + T + dy} ${ox + W - T + dx - dxR},${floor - L - H + T + dy - dyR}`}
+        fill={RAIL_DARK}
         stroke="#1e293b"
         strokeWidth={1}
       />
@@ -201,31 +219,12 @@ function Front3DView({ p, m }: { p: KitchenBaseParams; m: ReturnType<typeof meas
         stroke="#1e293b"
         strokeWidth={1}
       />
-      {/* Front rail - right edge */}
+      {/* Front rail - right edge (chipboard thickness visible) */}
       <polygon
         points={`${ox + W - T},${floor - L - H} ${ox + W - T + dxR},${floor - L - H + dyR} ${ox + W - T + dxR},${floor - L - H + T + dyR} ${ox + W - T},${floor - L - H + T}`}
         fill={RAIL_DARK}
         stroke="#1e293b"
         strokeWidth={1}
-      />
-
-      {/* === BACK RAIL (not visible from front but show depth indicator) === */}
-      {/* Back rail - top surface (only the back edge visible) */}
-      <line
-        x1={ox + T + dx}
-        y1={floor - L - H + dy}
-        x2={ox + W - T + dx}
-        y2={floor - L - H + dy}
-        stroke="#6a9a6a"
-        strokeWidth={2}
-      />
-      <line
-        x1={ox + T + dxR + dx - dxR}
-        y1={floor - L - H + dyR + dy - dyR}
-        x2={ox + W - T + dxR + dx - dxR}
-        y2={floor - L - H + dyR + dy - dyR}
-        stroke="#8fbc8f"
-        strokeWidth={1.5}
       />
 
       {/* === DIMENSIONS === */}
@@ -252,10 +251,10 @@ function DimH({
 }) {
   return (
     <g stroke={color} fill={color}>
-      <line x1={x1} y1={y} x2={x2} y2={y} strokeWidth={1} />
-      <line x1={x1} y1={y - 4} x2={x1} y2={y + 4} strokeWidth={1} />
-      <line x1={x2} y1={y - 4} x2={x2} y2={y + 4} strokeWidth={1} />
-      <text x={(x1 + x2) / 2} y={y - 5} textAnchor="middle" fontSize={11} stroke="none" fill={color}>
+      <line x1={x1} y1={y} x2={x2} y2={y} strokeWidth={1.5} />
+      <line x1={x1} y1={y - 5} x2={x1} y2={y + 5} strokeWidth={1.5} />
+      <line x1={x2} y1={y - 5} x2={x2} y2={y + 5} strokeWidth={1.5} />
+      <text x={(x1 + x2) / 2} y={y - 8} textAnchor="middle" fontSize={16} fontWeight="600" stroke="none" fill={color}>
         {label}
       </text>
     </g>
@@ -275,14 +274,15 @@ function DimV({
 }) {
   return (
     <g stroke={DIM} fill={DIM}>
-      <line x1={x} y1={y1} x2={x} y2={y2} strokeWidth={1} />
-      <line x1={x - 4} y1={y1} x2={x + 4} y2={y1} strokeWidth={1} />
-      <line x1={x - 4} y1={y2} x2={x + 4} y2={y2} strokeWidth={1} />
+      <line x1={x} y1={y1} x2={x} y2={y2} strokeWidth={1.5} />
+      <line x1={x - 5} y1={y1} x2={x + 5} y2={y1} strokeWidth={1.5} />
+      <line x1={x - 5} y1={y2} x2={x + 5} y2={y2} strokeWidth={1.5} />
       <text
         x={x}
         y={(y1 + y2) / 2}
         textAnchor="middle"
-        fontSize={11}
+        fontSize={16}
+        fontWeight="600"
         stroke="none"
         fill={DIM}
         transform={`rotate(-90 ${x} ${(y1 + y2) / 2})`}
