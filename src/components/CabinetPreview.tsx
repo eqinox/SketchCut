@@ -21,7 +21,7 @@ function mm(n: number) {
   return `${Math.round(n)}`
 }
 
-/** Front + side orthographic views with dimensions, plus isometric carcass. */
+/** Single 3D front view with depth extending to the right. */
 export function CabinetPreview({ params, className }: CabinetPreviewProps) {
   const p = parseKitchenBaseParams(params)
   const m = measureCarcass(
@@ -30,17 +30,11 @@ export function CabinetPreview({ params, className }: CabinetPreviewProps) {
   )
 
   return (
-    <div className={cn('grid gap-3 sm:grid-cols-3', className)}>
-      <ViewCard title="Отпред">
-        <FrontView p={p} m={m} />
+    <div className={cn('flex flex-col gap-3', className)}>
+      <ViewCard title="3D Изглед отпред">
+        <Front3DView p={p} m={m} />
       </ViewCard>
-      <ViewCard title="Отстрани">
-        <SideView p={p} m={m} />
-      </ViewCard>
-      <ViewCard title="3D">
-        <IsoView p={p} m={m} />
-      </ViewCard>
-      <p className="text-center text-[11px] text-[var(--color-muted-foreground)] sm:col-span-3">
+      <p className="text-center text-[11px] text-[var(--color-muted-foreground)]">
         <span className="mr-3" style={{ color: WOOD_DARK }}>■ Дъно</span>
         <span className="mr-3" style={{ color: WOOD }}>■ Страници</span>
         <span style={{ color: RAIL }}>■ Царги 10 см</span>
@@ -59,206 +53,186 @@ function ViewCard({ title, children }: { title: string; children: ReactNode }) {
   )
 }
 
-function FrontView({ p, m }: { p: KitchenBaseParams; m: ReturnType<typeof measureCarcass> }) {
+/** 3D front view with depth extending to the right (cavalier projection). Shows 2 front legs and how parts overlap. */
+function Front3DView({ p, m }: { p: KitchenBaseParams; m: ReturnType<typeof measureCarcass> }) {
   const T = p.thickness
   const W = p.width
   const H = p.height
+  const D = p.depth
   const L = p.legHeight
-  const pad = 56
+  const R = p.railWidth
+
+  const pad = 60
+  const depthScale = 0.5
+  const depthAngle = 30
+  const dx = D * depthScale * Math.cos((depthAngle * Math.PI) / 180)
+  const dy = -D * depthScale * Math.sin((depthAngle * Math.PI) / 180)
+
   const totalH = H + L
-  const vbW = W + pad * 2
-  const vbH = totalH + pad * 1.4
+  const vbW = W + dx + pad * 2
+  const vbH = totalH + Math.abs(dy) + pad * 2
   const ox = pad
-  const floor = pad * 0.55 + totalH
+  const floor = pad + totalH
 
   const legW = Math.max(18, T * 1.2)
   const legInset = Math.max(28, W * 0.08)
 
+  const dxT = T * depthScale * Math.cos((depthAngle * Math.PI) / 180)
+  const dyT = -T * depthScale * Math.sin((depthAngle * Math.PI) / 180)
+  const dxR = R * depthScale * Math.cos((depthAngle * Math.PI) / 180)
+  const dyR = -R * depthScale * Math.sin((depthAngle * Math.PI) / 180)
+
   return (
-    <svg viewBox={`0 0 ${vbW} ${vbH}`} className="h-44 w-full" role="img" aria-label="Изглед отпред">
-      <line x1={ox} y1={floor} x2={ox + W} y2={floor} stroke={INK} strokeWidth={1} />
+    <svg viewBox={`0 0 ${vbW} ${vbH}`} className="w-full" style={{ height: '400px' }} role="img" aria-label="3D изглед отпред">
+      <defs>
+        <filter id="shadow">
+          <feDropShadow dx="1" dy="1" stdDeviation="1.5" floodOpacity="0.3" />
+        </filter>
+      </defs>
 
-      {/* legs */}
-      <rect x={ox + legInset} y={floor - L} width={legW} height={L} fill={LEG} rx={2} />
-      <rect x={ox + W - legInset - legW} y={floor - L} width={legW} height={L} fill={LEG} rx={2} />
+      {/* Floor reference line */}
+      <line x1={ox} y1={floor} x2={ox + W + dx} y2={floor + dy} stroke={INK} strokeWidth={1} strokeDasharray="3,3" />
 
-      {/* bottom — full width, sides sit on it */}
-      <rect x={ox} y={floor - L - T} width={W} height={T} fill={WOOD_DARK} stroke="#1e293b" strokeWidth={1} />
+      {/* === LEGS (only 2 front ones) === */}
+      {/* Left front leg */}
+      <g filter="url(#shadow)">
+        <polygon
+          points={`${ox + legInset},${floor - L} ${ox + legInset + legW},${floor - L} ${ox + legInset + legW},${floor} ${ox + legInset},${floor}`}
+          fill={LEG}
+          stroke="#1e293b"
+          strokeWidth={1}
+        />
+      </g>
+      {/* Right front leg */}
+      <g filter="url(#shadow)">
+        <polygon
+          points={`${ox + W - legInset - legW},${floor - L} ${ox + W - legInset},${floor - L} ${ox + W - legInset},${floor} ${ox + W - legInset - legW},${floor}`}
+          fill={LEG}
+          stroke="#1e293b"
+          strokeWidth={1}
+        />
+      </g>
 
-      {/* sides on top of bottom */}
-      <rect
-        x={ox}
-        y={floor - L - H}
-        width={T}
-        height={m.sideH}
-        fill={WOOD}
+      {/* === BOTTOM (full width, full depth - sides will sit on it) === */}
+      {/* Bottom - front face */}
+      <polygon
+        points={`${ox},${floor - L - T} ${ox + W},${floor - L - T} ${ox + W},${floor - L} ${ox},${floor - L}`}
+        fill={WOOD_DARK}
+        stroke="#1e293b"
+        strokeWidth={1.2}
+      />
+      {/* Bottom - top surface (visible depth) */}
+      <polygon
+        points={`${ox},${floor - L - T} ${ox + dx},${floor - L - T + dy} ${ox + W + dx},${floor - L - T + dy} ${ox + W},${floor - L - T}`}
+        fill="#8a6a3e"
         stroke="#1e293b"
         strokeWidth={1}
       />
-      <rect
-        x={ox + W - T}
-        y={floor - L - H}
-        width={T}
-        height={m.sideH}
-        fill={WOOD}
+      {/* Bottom - right edge */}
+      <polygon
+        points={`${ox + W},${floor - L - T} ${ox + W + dx},${floor - L - T + dy} ${ox + W + dx},${floor - L + dy} ${ox + W},${floor - L}`}
+        fill="#9a7a4e"
         stroke="#1e293b"
         strokeWidth={1}
       />
 
-      {/* front rail between sides, 18 mm edge facing us */}
-      <rect
-        x={ox + T}
-        y={floor - L - H}
-        width={m.railLength}
-        height={T}
+      {/* Screws from below into sides */}
+      <circle cx={ox + T / 2} cy={floor - L - T / 2} r={2.5} fill="#0f172a" />
+      <circle cx={ox + W - T / 2} cy={floor - L - T / 2} r={2.5} fill="#0f172a" />
+
+      {/* === LEFT SIDE (sits on bottom) === */}
+      {/* Left side - front face */}
+      <polygon
+        points={`${ox},${floor - L - H} ${ox + T},${floor - L - H} ${ox + T},${floor - L - T} ${ox},${floor - L - T}`}
+        fill={WOOD}
+        stroke="#1e293b"
+        strokeWidth={1.2}
+      />
+      {/* Left side - right edge (depth) */}
+      <polygon
+        points={`${ox + T},${floor - L - H} ${ox + T + dx},${floor - L - H + dy} ${ox + T + dx},${floor - L - T + dy} ${ox + T},${floor - L - T}`}
+        fill={WOOD_DARK}
+        stroke="#1e293b"
+        strokeWidth={1}
+      />
+      {/* Left side - top edge */}
+      <polygon
+        points={`${ox},${floor - L - H} ${ox + dxT},${floor - L - H + dyT} ${ox + T + dxT},${floor - L - H + dyT} ${ox + T},${floor - L - H}`}
+        fill={WOOD_TOP}
+        stroke="#1e293b"
+        strokeWidth={1}
+      />
+
+      {/* === RIGHT SIDE (sits on bottom) === */}
+      {/* Right side - front face */}
+      <polygon
+        points={`${ox + W - T},${floor - L - H} ${ox + W},${floor - L - H} ${ox + W},${floor - L - T} ${ox + W - T},${floor - L - T}`}
+        fill={WOOD}
+        stroke="#1e293b"
+        strokeWidth={1.2}
+      />
+      {/* Right side - right edge (depth) */}
+      <polygon
+        points={`${ox + W},${floor - L - H} ${ox + W + dx},${floor - L - H + dy} ${ox + W + dx},${floor - L - T + dy} ${ox + W},${floor - L - T}`}
+        fill={WOOD_DARK}
+        stroke="#1e293b"
+        strokeWidth={1}
+      />
+      {/* Right side - top edge */}
+      <polygon
+        points={`${ox + W - T},${floor - L - H} ${ox + W - T + dxT},${floor - L - H + dyT} ${ox + W + dxT},${floor - L - H + dyT} ${ox + W},${floor - L - H}`}
+        fill={WOOD_TOP}
+        stroke="#1e293b"
+        strokeWidth={1}
+      />
+
+      {/* === FRONT RAIL (fits between sides at top) === */}
+      {/* Front rail - front face (18mm edge visible) */}
+      <polygon
+        points={`${ox + T},${floor - L - H} ${ox + W - T},${floor - L - H} ${ox + W - T},${floor - L - H + T} ${ox + T},${floor - L - H + T}`}
         fill={RAIL}
         stroke="#1e293b"
+        strokeWidth={1.2}
+      />
+      {/* Front rail - top surface */}
+      <polygon
+        points={`${ox + T},${floor - L - H} ${ox + T + dxR},${floor - L - H + dyR} ${ox + W - T + dxR},${floor - L - H + dyR} ${ox + W - T},${floor - L - H}`}
+        fill="#b7d7b7"
+        stroke="#1e293b"
+        strokeWidth={1}
+      />
+      {/* Front rail - right edge */}
+      <polygon
+        points={`${ox + W - T},${floor - L - H} ${ox + W - T + dxR},${floor - L - H + dyR} ${ox + W - T + dxR},${floor - L - H + T + dyR} ${ox + W - T},${floor - L - H + T}`}
+        fill={RAIL_DARK}
+        stroke="#1e293b"
         strokeWidth={1}
       />
 
-      {/* screws from below into the sides */}
-      <circle cx={ox + T / 2} cy={floor - L - T / 2} r={2.2} fill="#1e293b" />
-      <circle cx={ox + W - T / 2} cy={floor - L - T / 2} r={2.2} fill="#1e293b" />
+      {/* === BACK RAIL (not visible from front but show depth indicator) === */}
+      {/* Back rail - top surface (only the back edge visible) */}
+      <line
+        x1={ox + T + dx}
+        y1={floor - L - H + dy}
+        x2={ox + W - T + dx}
+        y2={floor - L - H + dy}
+        stroke="#6a9a6a"
+        strokeWidth={2}
+      />
+      <line
+        x1={ox + T + dxR + dx - dxR}
+        y1={floor - L - H + dyR + dy - dyR}
+        x2={ox + W - T + dxR + dx - dxR}
+        y2={floor - L - H + dyR + dy - dyR}
+        stroke="#8fbc8f"
+        strokeWidth={1.5}
+      />
 
-      {/* width dim */}
-      <DimH x1={ox} x2={ox + W} y={12} label={mm(W)} />
-      {/* carcass height */}
-      <DimV x={14} y1={floor - L - H} y2={floor - L} label={mm(H)} />
-      {/* legs */}
-      <DimV x={vbW - 14} y1={floor - L} y2={floor} label={mm(L)} />
-    </svg>
-  )
-}
-
-function SideView({ p, m }: { p: KitchenBaseParams; m: ReturnType<typeof measureCarcass> }) {
-  const T = p.thickness
-  const D = p.depth
-  const H = p.height
-  const L = p.legHeight
-  const R = p.railWidth
-  const pad = 56
-  const totalH = H + L
-  const vbW = D + pad * 2
-  const vbH = totalH + pad * 1.4
-  const ox = pad
-  const floor = pad * 0.55 + totalH
-  const top = floor - L - H
-
-  const legW = Math.max(18, T * 1.2)
-  const legInset = Math.max(28, D * 0.1)
-
-  return (
-    <svg viewBox={`0 0 ${vbW} ${vbH}`} className="h-44 w-full" role="img" aria-label="Изглед отстрани">
-      <line x1={ox} y1={floor} x2={ox + D} y2={floor} stroke={INK} strokeWidth={1} />
-
-      <rect x={ox + legInset} y={floor - L} width={legW} height={L} fill={LEG} rx={2} />
-      <rect x={ox + D - legInset - legW} y={floor - L} width={legW} height={L} fill={LEG} rx={2} />
-
-      {/* bottom full depth */}
-      <rect x={ox} y={floor - L - T} width={D} height={T} fill={WOOD_DARK} stroke="#1e293b" strokeWidth={1} />
-
-      {/* side panel sitting on bottom */}
-      <rect x={ox} y={top} width={D} height={m.sideH} fill={WOOD} stroke="#1e293b" strokeWidth={1} opacity={0.92} />
-
-      {/* front rail — 10 cm from front, lying flat */}
-      <rect x={ox} y={top} width={R} height={T} fill={RAIL} stroke="#1e293b" strokeWidth={1} />
-      {/* back rail */}
-      <rect x={ox + D - R} y={top} width={R} height={T} fill={RAIL} stroke="#1e293b" strokeWidth={1} />
-
-      <DimH x1={ox} x2={ox + D} y={12} label={mm(D)} />
-      <DimH x1={ox} x2={ox + R} y={28} label={mm(R)} color={RAIL_DARK} />
-      <DimV x={14} y1={top} y2={floor - L} label={mm(H)} />
-      <DimV x={vbW - 14} y1={floor - L} y2={floor} label={mm(L)} />
-    </svg>
-  )
-}
-
-function iso(x: number, y: number, z: number) {
-  return {
-    x: (x - z) * 0.866,
-    y: -y + (x + z) * 0.5,
-  }
-}
-
-function path(pts: { x: number; y: number }[]) {
-  return pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ') + ' Z'
-}
-
-function boxFaces(
-  x: number,
-  y: number,
-  z: number,
-  w: number,
-  h: number,
-  d: number,
-  fill: string,
-  fillSide: string,
-  fillTop: string,
-) {
-  const P = (px: number, py: number, pz: number) => iso(px, py, pz)
-  const front = [P(x, y, z), P(x + w, y, z), P(x + w, y + h, z), P(x, y + h, z)]
-  const right = [P(x + w, y, z), P(x + w, y, z + d), P(x + w, y + h, z + d), P(x + w, y + h, z)]
-  const top = [P(x, y + h, z), P(x + w, y + h, z), P(x + w, y + h, z + d), P(x, y + h, z + d)]
-  return { front, right, top, fill, fillSide, fillTop }
-}
-
-function Face({
-  pts,
-  fill,
-}: {
-  pts: { x: number; y: number }[]
-  fill: string
-}) {
-  return <path d={path(pts)} fill={fill} stroke="#1e293b" strokeWidth={0.8} strokeLinejoin="round" />
-}
-
-function IsoView({ p, m }: { p: KitchenBaseParams; m: ReturnType<typeof measureCarcass> }) {
-  const T = p.thickness
-  const W = p.width
-  const H = p.height
-  const D = p.depth
-  const L = p.legHeight
-  const R = p.railWidth
-
-  const boxes: ReturnType<typeof boxFaces>[] = []
-
-  const inset = Math.max(36, Math.min(W, D) * 0.08)
-  const legS = Math.max(22, T * 1.3)
-
-  const addLeg = (lx: number, lz: number) =>
-    boxes.push(boxFaces(lx, -L, lz, legS, L, legS, '#1e293b', '#0f172a', '#334155'))
-
-  addLeg(inset, D - inset - 24)
-  addLeg(W - inset - 24, D - inset - 24)
-  boxes.push(boxFaces(T, H - T, D - R, m.railLength, T, R, RAIL, RAIL_DARK, '#b7d7b7'))
-  boxes.push(boxFaces(0, T, 0, T, m.sideH, m.sideD, WOOD, WOOD_DARK, WOOD_TOP))
-  boxes.push(boxFaces(0, 0, 0, m.bottomW, T, m.bottomD, WOOD_DARK, '#8a6a3e', WOOD))
-  boxes.push(boxFaces(W - T, T, 0, T, m.sideH, m.sideD, WOOD, WOOD_DARK, WOOD_TOP))
-  addLeg(inset, inset)
-  addLeg(W - inset - 24, inset)
-  boxes.push(boxFaces(T, H - T, 0, m.railLength, T, R, RAIL, RAIL_DARK, '#b7d7b7'))
-
-  const allPts = boxes.flatMap((b) => [...b.front, ...b.right, ...b.top])
-  const minX = Math.min(...allPts.map((pt) => pt.x))
-  const maxX = Math.max(...allPts.map((pt) => pt.x))
-  const minY = Math.min(...allPts.map((pt) => pt.y))
-  const maxY = Math.max(...allPts.map((pt) => pt.y))
-  const pad = 16
-
-  return (
-    <svg
-      viewBox={`${minX - pad} ${minY - pad} ${maxX - minX + pad * 2} ${maxY - minY + pad * 2}`}
-      className="h-44 w-full"
-      role="img"
-      aria-label="Изометричен изглед"
-    >
-      {boxes.map((b, i) => (
-        <g key={i}>
-          <Face pts={b.right} fill={b.fillSide} />
-          <Face pts={b.front} fill={b.fill} />
-          <Face pts={b.top} fill={b.fillTop} />
-        </g>
-      ))}
+      {/* === DIMENSIONS === */}
+      <DimH x1={ox} x2={ox + W} y={18} label={mm(W)} />
+      <DimH x1={ox + W + 8} x2={ox + W + 8 + dx} y={floor - L - H / 2} label={mm(D)} />
+      <DimV x={12} y1={floor - L - H} y2={floor - L} label={mm(H)} />
+      <DimV x={vbW - 12} y1={floor - L} y2={floor} label={mm(L)} />
     </svg>
   )
 }
