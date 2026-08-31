@@ -368,34 +368,32 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                   </tr>
                 </thead>
                 <tbody>
-                  {result.panels.map((panel, idx) => (
-                    <tr 
-                      key={`${panel.role}-${idx}`} 
-                      className="border-b border-[var(--color-border)]/50"
-                      style={
-                        panel.highlightColor === 'red' 
-                          ? { 
-                              backgroundColor: 'rgba(254, 226, 226, 0.5)', 
-                              borderLeft: '4px solid rgb(239, 68, 68)',
-                            } 
-                          : undefined
-                      }
-                    >
-                      <td 
-                        className="px-3 py-2 font-medium"
-                        style={panel.highlightColor === 'red' ? { color: 'rgb(185, 28, 28)' } : undefined}
+                  {result.panels.map((panel, idx) => {
+                    console.log('Panel:', panel.name, 'highlight:', panel.highlightColor, 'exclude:', panel.excludeFromCutting)
+                    return (
+                      <tr 
+                        key={`${panel.role}-${idx}`} 
+                        className={cn(
+                          "border-b border-[var(--color-border)]/50",
+                          panel.highlightColor === 'red' && "bg-red-50 border-l-4 border-l-red-500"
+                        )}
                       >
-                        {panel.name}
-                      </td>
-                      <td className="px-3 py-2 tabular-nums">
-                        {panel.width} × {panel.height} мм
-                      </td>
-                      <td className="px-3 py-2">{panel.quantity}</td>
-                      <td className="px-3 py-2 text-xs text-[var(--color-muted-foreground)]">
-                        {panel.note}
-                      </td>
-                    </tr>
-                  ))}
+                        <td className={cn(
+                          "px-3 py-2 font-medium",
+                          panel.highlightColor === 'red' && "text-red-700"
+                        )}>
+                          {panel.name}
+                        </td>
+                        <td className="px-3 py-2 tabular-nums">
+                          {panel.width} × {panel.height} мм
+                        </td>
+                        <td className="px-3 py-2">{panel.quantity}</td>
+                        <td className="px-3 py-2 text-xs text-[var(--color-muted-foreground)]">
+                          {panel.note}
+                        </td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>

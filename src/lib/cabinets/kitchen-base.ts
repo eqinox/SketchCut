@@ -236,7 +236,7 @@ export function generateKitchenBase(
           name: '🔴 Чело+Врата (комбинирано)',
           width: drawerFront.width,
           height: combinedHeight,
-          quantity: p.doorCount, // One combined piece per door
+          quantity: 1, // One combined piece (contains both drawer and one door)
           canRotate: false,
           edges: edges({ top: true, bottom: true, left: true, right: true }),
           note: `ПЪРВО РЯЗАНЕ от една плоча за продължена фладера. След кантиране се разрязва на 2 парчета.`,
