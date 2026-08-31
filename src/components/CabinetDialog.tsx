@@ -371,15 +371,20 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                   {result.panels.map((panel, idx) => (
                     <tr 
                       key={`${panel.role}-${idx}`} 
-                      className={cn(
-                        "border-b border-[var(--color-border)]/50",
-                        panel.highlightColor === 'red' && "bg-red-50 border-l-4 border-l-red-500"
-                      )}
+                      className="border-b border-[var(--color-border)]/50"
+                      style={
+                        panel.highlightColor === 'red' 
+                          ? { 
+                              backgroundColor: 'rgba(254, 226, 226, 0.5)', 
+                              borderLeft: '4px solid rgb(239, 68, 68)',
+                            } 
+                          : undefined
+                      }
                     >
-                      <td className={cn(
-                        "px-3 py-2 font-medium",
-                        panel.highlightColor === 'red' && "text-red-700"
-                      )}>
+                      <td 
+                        className="px-3 py-2 font-medium"
+                        style={panel.highlightColor === 'red' ? { color: 'rgb(185, 28, 28)' } : undefined}
+                      >
                         {panel.name}
                       </td>
                       <td className="px-3 py-2 tabular-nums">
