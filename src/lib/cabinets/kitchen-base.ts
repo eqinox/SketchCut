@@ -9,10 +9,10 @@ import {
   SHELF_PIN,
   SHELF_PINS_PER_SHELF,
   HINGE_SOFT_CLOSE,
+  HINGE_NORMAL,
   HINGE_SCREW,
   SCREWS_PER_HINGE,
   HINGES_PER_SMALL_DOOR,
-  fastenerUnitPriceEur,
 } from './hardware'
 import { evenShelfBottoms, KITCHEN_BASE_JOINERY, measureCarcass } from './joinery'
 import {
@@ -34,6 +34,8 @@ import {
   type GeneratedPanel,
   type KitchenBaseParams,
 } from './types'
+import type { HardwareSettings } from '@/lib/settings'
+import { DEFAULT_HARDWARE_SETTINGS } from '@/lib/settings'
 
 export const KITCHEN_BASE_TYPE_ID = 'kitchen-base'
 
@@ -81,7 +83,11 @@ function parseShelfCount(value: unknown): number {
   return Math.min(3, Math.floor(n))
 }
 
-export function generateKitchenBase(raw: Record<string, unknown>): CabinetGeneratorResult {
+export function generateKitchenBase(
+  raw: Record<string, unknown>,
+  settings?: unknown,
+): CabinetGeneratorResult {
+  const hardwareSettings = (settings as HardwareSettings | undefined) ?? DEFAULT_HARDWARE_SETTINGS
   const p = parseKitchenBaseParams(raw)
   const m = measureCarcass(
     { width: p.width, height: p.height, depth: p.depth, thickness: p.thickness },
@@ -102,8 +108,16 @@ export function generateKitchenBase(raw: Record<string, unknown>): CabinetGenera
 
   const hardware = [
     { name: `Краче ${p.legHeight} мм`, quantity: 4 },
-    fastenerLine(SCREW_5X60, KITCHEN_BASE_SCREWS_BOTTOM, 'Дъно — винтове отдолу'),
-    fastenerLine(SCREW_5X60, KITCHEN_BASE_SCREWS_RAILS, 'Царги горе'),
+    fastenerLine(
+      { ...SCREW_5X60, packPriceEur: hardwareSettings.screw5x60_500PackEur },
+      KITCHEN_BASE_SCREWS_BOTTOM,
+      'Дъно — винтове отдолу',
+    ),
+    fastenerLine(
+      { ...SCREW_5X60, packPriceEur: hardwareSettings.screw5x60_500PackEur },
+      KITCHEN_BASE_SCREWS_RAILS,
+      'Царги горе',
+    ),
   ]
   const panels: GeneratedPanel[] = [
     {
@@ -153,7 +167,7 @@ export function generateKitchenBase(raw: Record<string, unknown>): CabinetGenera
     )
     hardware.push(
       pricedLine(
-        SHELF_PIN,
+        { ...SHELF_PIN, unitPriceEur: hardwareSettings.shelfPinEur },
         p.shelfCount * SHELF_PINS_PER_SHELF,
         `по ${SHELF_PINS_PER_SHELF} на рафт`,
       ),
@@ -195,7 +209,9 @@ export function generateKitchenBase(raw: Record<string, unknown>): CabinetGenera
     const doorWord = p.doorCount === 1 ? 'една врата' : 'две врати'
     const totalHinges = p.doorCount * HINGES_PER_SMALL_DOOR
     const totalScrews = totalHinges * SCREWS_PER_HINGE
-    const screwUnitPrice = fastenerUnitPriceEur(HINGE_SCREW)
+    const screwUnitPrice = hardwareSettings.hingeScrew1000PackEur / 1000
+    const hingePrice = hardwareSettings.useNormalHinge ? hardwareSettings.hingeNormalEur : hardwareSettings.hingeSoftCloseEur
+    const hingeName = hardwareSettings.useNormalHinge ? 'Панта нормално прибиране' : 'Панта плавно прибиране'
     
     if (hasDrawer) {
       const drawerFront = drawerFrontCutSize(p.width, p.drawerFrontHeight)
@@ -235,7 +251,7 @@ export function generateKitchenBase(raw: Record<string, unknown>): CabinetGenera
     
     hardware.push(
       pricedLine(
-        HINGE_SOFT_CLOSE,
+        { id: hardwareSettings.useNormalHinge ? HINGE_NORMAL.id : HINGE_SOFT_CLOSE.id, name: hingeName, unitPriceEur: hingePrice },
         totalHinges,
         `по ${HINGES_PER_SMALL_DOOR} на врата`,
       ),

@@ -14,12 +14,13 @@ export function getCabinetType(id: string): CabinetTypeDefinition | undefined {
 export function generateCabinet(
   typeId: string,
   params: Record<string, unknown>,
+  settings?: unknown,
 ): CabinetGeneratorResult {
   const type = getCabinetType(typeId)
   if (!type) {
     throw new Error(`Непознат тип шкаф: ${typeId}`)
   }
-  return type.generate({ ...type.defaultParams, ...params })
+  return type.generate({ ...type.defaultParams, ...params }, settings)
 }
 
 export function scaleCabinetResult(

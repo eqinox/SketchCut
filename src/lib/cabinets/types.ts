@@ -118,7 +118,7 @@ export interface CabinetTypeDefinition {
   category: CabinetCategory
   description: string
   defaultParams: Record<string, unknown>
-  generate: (params: Record<string, unknown>) => CabinetGeneratorResult
+  generate: (params: Record<string, unknown>, settings?: unknown) => CabinetGeneratorResult
 }
 
 export interface KitchenBaseParams {
