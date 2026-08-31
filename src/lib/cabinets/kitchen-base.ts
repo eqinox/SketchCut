@@ -18,6 +18,8 @@ import { evenShelfBottoms, KITCHEN_BASE_JOINERY, measureCarcass } from './joiner
 import {
   DEFAULT_HARDBOARD_THICKNESS,
   doorCutSize,
+  drawerFrontCutSize,
+  doorWithDrawerCutSize,
   parseDoorCount,
 } from './materials'
 import {
@@ -45,6 +47,8 @@ export const DEFAULT_KITCHEN_BASE_PARAMS: KitchenBaseParams = {
   shelfCount: 0,
   hasBack: true,
   doorCount: 0,
+  drawerFrontHeight: 0,
+  cutFromOneBoard: false,
   colors: { ...DEFAULT_PART_COLORS },
 }
 
@@ -65,6 +69,8 @@ export function parseKitchenBaseParams(raw: Record<string, unknown>): KitchenBas
     shelfCount: parseShelfCount(raw.shelfCount),
     hasBack: typeof raw.hasBack === 'boolean' ? raw.hasBack : false,
     doorCount: parseDoorCount(raw.doorCount),
+    drawerFrontHeight: typeof raw.drawerFrontHeight === 'number' && raw.drawerFrontHeight >= 0 ? raw.drawerFrontHeight : 0,
+    cutFromOneBoard: typeof raw.cutFromOneBoard === 'boolean' ? raw.cutFromOneBoard : false,
     colors: parsePartColors(raw.colors),
   }
 }
@@ -182,15 +188,47 @@ export function generateKitchenBase(raw: Record<string, unknown>): CabinetGenera
   }
 
   if (p.doorCount === 1 || p.doorCount === 2) {
-    const door = doorCutSize(p.width, p.height, p.doorCount)
+    const hasDrawer = p.drawerFrontHeight > 0
+    const door = hasDrawer 
+      ? doorWithDrawerCutSize(p.width, p.height, p.drawerFrontHeight, p.doorCount)
+      : doorCutSize(p.width, p.height, p.doorCount)
     const doorWord = p.doorCount === 1 ? 'една врата' : 'две врати'
     const totalHinges = p.doorCount * HINGES_PER_SMALL_DOOR
     const totalScrews = totalHinges * SCREWS_PER_HINGE
     const screwUnitPrice = fastenerUnitPriceEur(HINGE_SCREW)
     
-    notes.push(
-      `${p.doorCount === 1 ? 'Една врата' : 'Две врати'}: рязане ${Math.round(door.width)} × ${Math.round(door.height)} мм (фуга 5 мм само отгоре, кант 2 мм от 4 страни).`,
-    )
+    if (hasDrawer) {
+      const drawerFront = drawerFrontCutSize(p.width, p.drawerFrontHeight)
+      
+      if (p.cutFromOneBoard) {
+        notes.push(
+          `Чекмедже + врата: рязане от една плоча за продължена фладера. Първо рязане: ${Math.round(drawerFront.width)} × ${Math.round(drawerFront.height + door.height + 3)} мм. След кантиране се реже отново.`,
+        )
+      }
+      
+      notes.push(
+        `Чело на чекмедже: рязане ${Math.round(drawerFront.width)} × ${Math.round(drawerFront.height)} мм (кант 2 мм от 4 страни).`,
+      )
+      notes.push(
+        `${p.doorCount === 1 ? 'Една врата' : 'Две врати'}: рязане ${Math.round(door.width)} × ${Math.round(door.height)} мм (фуга 5 мм отгоре, 3 мм между чело и врата, кант 2 мм от 4 страни).`,
+      )
+      
+      panels.push({
+        role: 'drawer-front',
+        name: 'Чело на чекмедже',
+        width: drawerFront.width,
+        height: drawerFront.height,
+        quantity: 1,
+        canRotate: false,
+        edges: edges({ top: true, bottom: true, left: true, right: true }),
+        note: `Кант 2 мм от 4 страни. Размерът е за рязане (без канта).`,
+      })
+    } else {
+      notes.push(
+        `${p.doorCount === 1 ? 'Една врата' : 'Две врати'}: рязане ${Math.round(door.width)} × ${Math.round(door.height)} мм (фуга 5 мм само отгоре, кант 2 мм от 4 страни).`,
+      )
+    }
+    
     notes.push(
       `Панти: ${totalHinges} бр. (по ${HINGES_PER_SMALL_DOOR} на врата) · винтчета ${totalScrews} бр. (по ${SCREWS_PER_HINGE} на панта).`,
     )

@@ -25,7 +25,6 @@ import {
   SHELF_PINS_PER_SHELF,
   WORK_HOURS_PER_DAY,
   cabinetPrice,
-  doorCutSize,
   estimateFromPanels,
   fastenerUnitPriceEur,
   formatArea,
@@ -66,6 +65,8 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
   const [shelfCount, setShelfCount] = useState(initial.shelfCount)
   const [hasBack, setHasBack] = useState(initial.hasBack)
   const [doorCount, setDoorCount] = useState(initial.doorCount)
+  const [drawerFrontHeight, setDrawerFrontHeight] = useState(String(initial.drawerFrontHeight || ''))
+  const [cutFromOneBoard, setCutFromOneBoard] = useState(initial.cutFromOneBoard)
   const [quantity, setQuantity] = useState(String(editing?.quantity ?? 1))
   const [showDimLines, setShowDimLines] = useState(false)
   const [colors, setColors] = useState<CabinetPartColors>({
@@ -85,9 +86,11 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
         shelfCount,
         hasBack,
         doorCount,
+        drawerFrontHeight: parseInt(drawerFrontHeight, 10) || 0,
+        cutFromOneBoard,
         colors,
       }),
-    [width, height, depth, thickness, legHeight, shelfCount, hasBack, doorCount, colors],
+    [width, height, depth, thickness, legHeight, shelfCount, hasBack, doorCount, drawerFrontHeight, cutFromOneBoard, colors],
   )
 
   const qty = Math.max(1, parseInt(quantity, 10) || 1)
@@ -249,11 +252,65 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
             {doorCount === 0
               ? 'Без врати'
               : (() => {
-                  const d = doorCutSize(params.width, params.height, doorCount)
+                  const drawerH = parseInt(drawerFrontHeight, 10) || 0
+                  const d = drawerH > 0 
+                    ? { width: params.width / doorCount - 3 - 4, height: params.height - 5 - drawerH - 3 - 4 }
+                    : { width: params.width / doorCount - 3 - 4, height: params.height - 5 - 4 }
                   return `Рязане ${Math.round(d.width)} × ${Math.round(d.height)} мм · кант 2 мм от 4 страни`
                 })()}
           </p>
         </div>
+
+        {doorCount > 0 && (
+          <>
+            <div>
+              <Label htmlFor="drawer-front-height">Чело на чекмедже (мм)</Label>
+              <Input
+                id="drawer-front-height"
+                type="number"
+                inputMode="numeric"
+                min={0}
+                value={drawerFrontHeight}
+                onChange={(e) => setDrawerFrontHeight(e.target.value)}
+                placeholder="Например 150"
+              />
+              <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
+                {drawerFrontHeight && parseInt(drawerFrontHeight, 10) > 0
+                  ? `Чекмедже отгоре ${drawerFrontHeight} мм, врата отдолу. Фуга 3 мм между тях.`
+                  : 'Остави 0 за само врата без чекмедже'}
+              </p>
+            </div>
+
+            {drawerFrontHeight && parseInt(drawerFrontHeight, 10) > 0 && (
+              <div>
+                <Label>Рязане</Label>
+                <div className="mt-1 flex gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={cutFromOneBoard ? 'default' : 'outline'}
+                    onClick={() => setCutFromOneBoard(true)}
+                  >
+                    От една плоча
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={!cutFromOneBoard ? 'default' : 'outline'}
+                    onClick={() => setCutFromOneBoard(false)}
+                  >
+                    Отделно
+                  </Button>
+                </div>
+                <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
+                  {cutFromOneBoard
+                    ? 'Реже се от една плоча за продължена фладера, кантира се, после се реже отново.'
+                    : 'Челото и вратата се режат отделно.'}
+                </p>
+              </div>
+            )}
+          </>
+        )}
 
         <div>
           <Label>Цветове</Label>
