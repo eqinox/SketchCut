@@ -213,12 +213,16 @@ export function generateKitchenBase(
     const hingePrice = hardwareSettings.useNormalHinge ? hardwareSettings.hingeNormalEur : hardwareSettings.hingeSoftCloseEur
     const hingeName = hardwareSettings.useNormalHinge ? 'Панта нормално прибиране' : 'Панта плавно прибиране'
     
+    let combinedGroupId: string | undefined
+    
     if (hasDrawer) {
       const drawerFront = drawerFrontCutSize(p.width, p.drawerFrontHeight)
       
       if (p.cutFromOneBoard) {
         // Combined piece: drawer + door + 6mm buffer
         const combinedHeight = drawerFront.height + door.height + 6
+        combinedGroupId = `combined-${Date.now()}`
+        
         notes.push(
           `Чекмедже + врата от една плоча: Първо рязане ${Math.round(drawerFront.width)} × ${Math.round(combinedHeight)} мм (${Math.round(drawerFront.height)} + ${Math.round(door.height)} + 6 мм буфер).`,
         )
@@ -229,25 +233,31 @@ export function generateKitchenBase(
         // Add the combined panel that needs to be cut first
         panels.push({
           role: 'drawer-front',
-          name: 'Чело+Врата (комбинирано)',
+          name: '🔴 Чело+Врата (комбинирано)',
           width: drawerFront.width,
           height: combinedHeight,
           quantity: p.doorCount, // One combined piece per door
           canRotate: false,
           edges: edges({ top: true, bottom: true, left: true, right: true }),
           note: `ПЪРВО РЯЗАНЕ от една плоча за продължена фладера. След кантиране се разрязва на 2 парчета.`,
+          groupId: combinedGroupId,
+          highlightColor: 'red',
         })
         
         // Add the individual pieces with notes that they come from the combined piece
+        // These are for reference only and should NOT be included in cutting
         panels.push({
           role: 'drawer-front',
-          name: 'Чело (след разрязване)',
+          name: '  ↳ Чело (след разрязване)',
           width: drawerFront.width,
           height: drawerFront.height,
           quantity: 1,
           canRotate: false,
           edges: edges({}), // Already edged as part of combined piece
           note: `⚠️ НЕ СЕ РЕЖЕ ОТДЕЛНО - произлиза от комбинираното парче след разрязване.`,
+          groupId: combinedGroupId,
+          excludeFromCutting: true,
+          highlightColor: 'red',
         })
       } else {
         notes.push(
@@ -295,7 +305,7 @@ export function generateKitchenBase(
     
     panels.push({
       role: 'door',
-      name: p.doorCount === 1 ? 'Врата' : 'Врата',
+      name: hasDrawer && p.cutFromOneBoard ? '  ↳ Врата (след разрязване)' : (p.doorCount === 1 ? 'Врата' : 'Врата'),
       width: door.width,
       height: door.height,
       quantity: p.doorCount,
@@ -304,6 +314,9 @@ export function generateKitchenBase(
       note: hasDrawer && p.cutFromOneBoard 
         ? `⚠️ НЕ СЕ РЕЖЕ ОТДЕЛНО - произлиза от комбинираното парче след разрязване.`
         : `Кант 2 мм от 4 страни. ${doorWord}. Размерът е за рязане (без канта).`,
+      groupId: combinedGroupId,
+      excludeFromCutting: hasDrawer && p.cutFromOneBoard,
+      highlightColor: hasDrawer && p.cutFromOneBoard ? 'red' : undefined,
     })
   }
 

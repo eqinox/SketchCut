@@ -82,6 +82,12 @@ export interface GeneratedPanel {
   note?: string
   /** Defaults to chipboard (ПДЧ). */
   material?: BoardKind
+  /** Group ID for visually related panels (e.g., combined cutting) */
+  groupId?: string
+  /** If true, this panel is for reference only and should not be included in cutting layout */
+  excludeFromCutting?: boolean
+  /** Visual highlight color for grouping (e.g., 'red', 'blue') */
+  highlightColor?: string
 }
 
 export interface HardwareItem {

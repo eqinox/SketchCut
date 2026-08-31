@@ -65,6 +65,9 @@ function insertGenerated(
   const newBanding: PartEdgeBanding[] = []
 
   result.panels.forEach((panel, i) => {
+    // Skip panels that are marked as reference only (excludeFromCutting)
+    if (panel.excludeFromCutting) return
+    
     const { part, banding } = panelToPart(panel, cabinet.id, i, reuseIds[i])
     partIds.push(part.id)
     newParts.push(part)
