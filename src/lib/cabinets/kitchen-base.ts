@@ -8,11 +8,18 @@ import {
   SCREW_5X60,
   SHELF_PIN,
   SHELF_PINS_PER_SHELF,
+  HINGE_SOFT_CLOSE,
+  HINGE_NORMAL,
+  HINGE_SCREW,
+  SCREWS_PER_HINGE,
+  HINGES_PER_SMALL_DOOR,
 } from './hardware'
 import { evenShelfBottoms, KITCHEN_BASE_JOINERY, measureCarcass } from './joinery'
 import {
   DEFAULT_HARDBOARD_THICKNESS,
   doorCutSize,
+  drawerFrontCutSize,
+  doorWithDrawerCutSize,
   parseDoorCount,
 } from './materials'
 import {
@@ -27,6 +34,8 @@ import {
   type GeneratedPanel,
   type KitchenBaseParams,
 } from './types'
+import type { HardwareSettings } from '@/lib/settings'
+import { DEFAULT_HARDWARE_SETTINGS } from '@/lib/settings'
 
 export const KITCHEN_BASE_TYPE_ID = 'kitchen-base'
 
@@ -40,6 +49,8 @@ export const DEFAULT_KITCHEN_BASE_PARAMS: KitchenBaseParams = {
   shelfCount: 0,
   hasBack: true,
   doorCount: 0,
+  drawerFrontHeight: 0,
+  cutFromOneBoard: false,
   colors: { ...DEFAULT_PART_COLORS },
 }
 
@@ -60,6 +71,8 @@ export function parseKitchenBaseParams(raw: Record<string, unknown>): KitchenBas
     shelfCount: parseShelfCount(raw.shelfCount),
     hasBack: typeof raw.hasBack === 'boolean' ? raw.hasBack : false,
     doorCount: parseDoorCount(raw.doorCount),
+    drawerFrontHeight: typeof raw.drawerFrontHeight === 'number' && raw.drawerFrontHeight >= 0 ? raw.drawerFrontHeight : 0,
+    cutFromOneBoard: typeof raw.cutFromOneBoard === 'boolean' ? raw.cutFromOneBoard : false,
     colors: parsePartColors(raw.colors),
   }
 }
@@ -70,7 +83,11 @@ function parseShelfCount(value: unknown): number {
   return Math.min(3, Math.floor(n))
 }
 
-export function generateKitchenBase(raw: Record<string, unknown>): CabinetGeneratorResult {
+export function generateKitchenBase(
+  raw: Record<string, unknown>,
+  settings?: unknown,
+): CabinetGeneratorResult {
+  const hardwareSettings = (settings as HardwareSettings | undefined) ?? DEFAULT_HARDWARE_SETTINGS
   const p = parseKitchenBaseParams(raw)
   const m = measureCarcass(
     { width: p.width, height: p.height, depth: p.depth, thickness: p.thickness },
@@ -91,8 +108,16 @@ export function generateKitchenBase(raw: Record<string, unknown>): CabinetGenera
 
   const hardware = [
     { name: `Краче ${p.legHeight} мм`, quantity: 4 },
-    fastenerLine(SCREW_5X60, KITCHEN_BASE_SCREWS_BOTTOM, 'Дъно — винтове отдолу'),
-    fastenerLine(SCREW_5X60, KITCHEN_BASE_SCREWS_RAILS, 'Царги горе'),
+    fastenerLine(
+      { ...SCREW_5X60, packPriceEur: hardwareSettings.screw5x60_500PackEur },
+      KITCHEN_BASE_SCREWS_BOTTOM,
+      'Дъно — винтове отдолу',
+    ),
+    fastenerLine(
+      { ...SCREW_5X60, packPriceEur: hardwareSettings.screw5x60_500PackEur },
+      KITCHEN_BASE_SCREWS_RAILS,
+      'Царги горе',
+    ),
   ]
   const panels: GeneratedPanel[] = [
     {
@@ -142,7 +167,7 @@ export function generateKitchenBase(raw: Record<string, unknown>): CabinetGenera
     )
     hardware.push(
       pricedLine(
-        SHELF_PIN,
+        { ...SHELF_PIN, unitPriceEur: hardwareSettings.shelfPinEur },
         p.shelfCount * SHELF_PINS_PER_SHELF,
         `по ${SHELF_PINS_PER_SHELF} на рафт`,
       ),
@@ -177,11 +202,68 @@ export function generateKitchenBase(raw: Record<string, unknown>): CabinetGenera
   }
 
   if (p.doorCount === 1 || p.doorCount === 2) {
-    const door = doorCutSize(p.width, p.height, p.doorCount)
+    const hasDrawer = p.drawerFrontHeight > 0
+    const door = hasDrawer 
+      ? doorWithDrawerCutSize(p.width, p.height, p.drawerFrontHeight, p.doorCount)
+      : doorCutSize(p.width, p.height, p.doorCount)
     const doorWord = p.doorCount === 1 ? 'една врата' : 'две врати'
+    const totalHinges = p.doorCount * HINGES_PER_SMALL_DOOR
+    const totalScrews = totalHinges * SCREWS_PER_HINGE
+    const screwUnitPrice = hardwareSettings.hingeScrew1000PackEur / 1000
+    const hingePrice = hardwareSettings.useNormalHinge ? hardwareSettings.hingeNormalEur : hardwareSettings.hingeSoftCloseEur
+    const hingeName = hardwareSettings.useNormalHinge ? 'Панта нормално прибиране' : 'Панта плавно прибиране'
+    
+    if (hasDrawer) {
+      const drawerFront = drawerFrontCutSize(p.width, p.drawerFrontHeight)
+      
+      if (p.cutFromOneBoard) {
+        notes.push(
+          `Чекмедже + врата: рязане от една плоча за продължена фладера. Първо рязане: ${Math.round(drawerFront.width)} × ${Math.round(drawerFront.height + door.height + 3)} мм. След кантиране се реже отново.`,
+        )
+      }
+      
+      notes.push(
+        `Чело на чекмедже: рязане ${Math.round(drawerFront.width)} × ${Math.round(drawerFront.height)} мм (кант 2 мм от 4 страни).`,
+      )
+      notes.push(
+        `${p.doorCount === 1 ? 'Една врата' : 'Две врати'}: рязане ${Math.round(door.width)} × ${Math.round(door.height)} мм (фуга 5 мм отгоре, 3 мм между чело и врата, кант 2 мм от 4 страни).`,
+      )
+      
+      panels.push({
+        role: 'drawer-front',
+        name: 'Чело на чекмедже',
+        width: drawerFront.width,
+        height: drawerFront.height,
+        quantity: 1,
+        canRotate: false,
+        edges: edges({ top: true, bottom: true, left: true, right: true }),
+        note: `Кант 2 мм от 4 страни. Размерът е за рязане (без канта).`,
+      })
+    } else {
+      notes.push(
+        `${p.doorCount === 1 ? 'Една врата' : 'Две врати'}: рязане ${Math.round(door.width)} × ${Math.round(door.height)} мм (фуга 5 мм само отгоре, кант 2 мм от 4 страни).`,
+      )
+    }
+    
     notes.push(
-      `${p.doorCount === 1 ? 'Една врата' : 'Две врати'}: рязане ${Math.round(door.width)} × ${Math.round(door.height)} мм (фуги 3 мм, по 1,5 мм горе/долу, кант 2 мм от 4 страни).`,
+      `Панти: ${totalHinges} бр. (по ${HINGES_PER_SMALL_DOOR} на врата) · винтчета ${totalScrews} бр. (по ${SCREWS_PER_HINGE} на панта).`,
     )
+    
+    hardware.push(
+      pricedLine(
+        { id: hardwareSettings.useNormalHinge ? HINGE_NORMAL.id : HINGE_SOFT_CLOSE.id, name: hingeName, unitPriceEur: hingePrice },
+        totalHinges,
+        `по ${HINGES_PER_SMALL_DOOR} на врата`,
+      ),
+    )
+    hardware.push(
+      pricedLine(
+        { id: HINGE_SCREW.id, name: HINGE_SCREW.name, unitPriceEur: screwUnitPrice },
+        totalScrews,
+        `по ${SCREWS_PER_HINGE} на панта`,
+      ),
+    )
+    
     panels.push({
       role: 'door',
       name: p.doorCount === 1 ? 'Врата' : 'Врата',

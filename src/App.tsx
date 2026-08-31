@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { User } from 'firebase/auth'
-import { Sparkles, Layers } from 'lucide-react'
+import { Sparkles, Layers, Settings } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { SheetsPanel } from '@/components/SheetsPanel'
@@ -9,6 +9,7 @@ import { CuttingLayout } from '@/components/CuttingLayout'
 import { EdgeBandingDialog } from '@/components/EdgeBandingDialog'
 import { AuthDialog, HeaderActions, ProjectDialog } from '@/components/AuthDialog'
 import { CabinetsPanel } from '@/components/CabinetsPanel'
+import { SettingsDialog } from '@/components/SettingsDialog'
 import { optimizeAllVariants, type PackingVariantOption } from '@/lib/packing/optimizer'
 import { syncEdgeBanding } from '@/lib/edge-banding'
 import {
@@ -24,6 +25,7 @@ import {
 } from '@/lib/cabinets'
 import { subscribeAuth, saveProject, loadProjects, getFirebaseInitError } from '@/lib/firebase'
 import { saveDraft, readInitialDraft, setLastProjectId } from '@/lib/draft-storage'
+import { loadSettings, saveSettings, resetSettings, type HardwareSettings } from '@/lib/settings'
 import { generateId } from '@/lib/utils'
 import { formatFirebaseError } from '@/lib/firebase-errors'
 import { getMissingClientEnvKeys } from '@/lib/env'
@@ -49,10 +51,12 @@ function App() {
 
   const [authOpen, setAuthOpen] = useState(false)
   const [edgeOpen, setEdgeOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const [projectOpen, setProjectOpen] = useState(false)
   const [projectMode, setProjectMode] = useState<'save' | 'load'>('save')
   const [savedProjects, setSavedProjects] = useState<SavedProject[]>([])
   const [dbError, setDbError] = useState<DbErrorDetails | null>(null)
+  const [settings, setSettings] = useState<HardwareSettings>(loadSettings())
 
   const showDbError = useCallback((title: string, message: string, source?: string) => {
     setDbError({ title, message, source })
@@ -277,7 +281,7 @@ function App() {
     params: Record<string, unknown>
     quantity: number
   }) => {
-    const next = addCabinetAndLabel(cabinetState, input)
+    const next = addCabinetAndLabel(cabinetState, input, settings)
     setCabinets(next.cabinets)
     setParts(next.parts)
     setEdgeBanding(next.edgeBanding)
@@ -289,7 +293,7 @@ function App() {
     cabinetId: string,
     input: { typeId: string; params: Record<string, unknown>; quantity: number },
   ) => {
-    const next = updateCabinetAndLabel(cabinetState, cabinetId, input)
+    const next = updateCabinetAndLabel(cabinetState, cabinetId, input, settings)
     setCabinets(next.cabinets)
     setParts(next.parts)
     setEdgeBanding(next.edgeBanding)
@@ -298,11 +302,24 @@ function App() {
   }
 
   const handleRemoveCabinet = (cabinetId: string) => {
-    const next = removeCabinetAndLabel(cabinetState, cabinetId)
+    const next = removeCabinetAndLabel(cabinetState, cabinetId, settings)
     setCabinets(next.cabinets)
     setParts(next.parts)
     setEdgeBanding(next.edgeBanding)
     resetPacking()
+  }
+
+  const handleSaveSettings = (newSettings: HardwareSettings) => {
+    setSettings(newSettings)
+    saveSettings(newSettings)
+    resetPacking()
+  }
+
+  const handleResetSettings = () => {
+    const defaults = resetSettings()
+    setSettings(defaults)
+    resetPacking()
+    return defaults
   }
 
   const variantLabel = packingVariants[selectedVariantIndex]?.label ?? ''
@@ -376,6 +393,11 @@ function App() {
             </Button>
           )}
 
+          <Button size="lg" variant="outline" onClick={() => setSettingsOpen(true)}>
+            <Settings className="h-4 w-4" />
+            Настройки
+          </Button>
+
           {hardboardPartCount > 0 && hardboardSheetCount === 0 && (
             <p className="self-center text-sm text-[var(--color-destructive)]">
               Има фазер, но няма плоча фазер — добавете от панела Плочи
@@ -427,6 +449,14 @@ function App() {
         parts={parts}
         edgeBanding={edgeBanding}
         onChange={setEdgeBanding}
+      />
+
+      <SettingsDialog
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+        settings={settings}
+        onSave={handleSaveSettings}
+        onReset={handleResetSettings}
       />
 
       <AuthDialog open={authOpen} onOpenChange={setAuthOpen} user={user} />

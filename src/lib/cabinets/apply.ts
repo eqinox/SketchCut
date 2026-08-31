@@ -53,9 +53,10 @@ function insertGenerated(
   state: CabinetState,
   cabinet: Omit<CabinetInstance, 'partIds' | 'name'> & { name?: string },
   reuseIds: string[] = [],
+  settings?: unknown,
 ): CabinetState {
   const result = scaleCabinetResult(
-    generateCabinet(cabinet.typeId, cabinet.params),
+    generateCabinet(cabinet.typeId, cabinet.params, settings),
     cabinet.quantity,
   )
   const name = cabinet.name ?? cabinetDisplayName(cabinet.typeId, cabinet.params)
@@ -95,19 +96,21 @@ function insertGenerated(
 export function addCabinet(
   state: CabinetState,
   input: { typeId: string; params: Record<string, unknown>; quantity: number },
+  settings?: unknown,
 ): CabinetState {
   return insertGenerated(state, {
     id: generateId(),
     typeId: input.typeId,
     quantity: Math.max(1, Math.floor(input.quantity) || 1),
     params: input.params,
-  })
+  }, [], settings)
 }
 
 export function updateCabinet(
   state: CabinetState,
   cabinetId: string,
   input: { typeId: string; params: Record<string, unknown>; quantity: number },
+  settings?: unknown,
 ): CabinetState {
   const existing = state.cabinets.find((c) => c.id === cabinetId)
   if (!existing) return state
@@ -121,6 +124,7 @@ export function updateCabinet(
       params: input.params,
     },
     existing.partIds,
+    settings,
   )
 }
 
@@ -134,15 +138,15 @@ export function removeCabinet(state: CabinetState, cabinetId: string): CabinetSt
   }
 }
 
-/** Renumber labels after add/remove so they stay Ш-free sequential: "1 Дъно", "2 Страница". */
-export function relabelCabinetParts(state: CabinetState): CabinetState {
+/** Renumber labels after add/remove so they stay free sequential: "1 Дъно", "2 Страница". */
+export function relabelCabinetParts(state: CabinetState, settings?: unknown): CabinetState {
   const parts = state.parts.map((p) => {
     if (!p.cabinetId) return p
     const cabinet = state.cabinets.find((c) => c.id === p.cabinetId)
     if (!cabinet) return p
     const idx = cabinet.partIds.indexOf(p.id)
     if (idx < 0) return p
-    const result = generateCabinet(cabinet.typeId, cabinet.params)
+    const result = generateCabinet(cabinet.typeId, cabinet.params, settings)
     const panel = result.panels[idx]
     if (!panel) return p
     const prefix = state.cabinets.length > 1 ? `${cabinetShortIndex(state.cabinets, cabinet.id)} ` : ''
@@ -159,18 +163,20 @@ function cabinetShortIndex(cabinets: CabinetInstance[], id: string): string {
 export function addCabinetAndLabel(
   state: CabinetState,
   input: { typeId: string; params: Record<string, unknown>; quantity: number },
+  settings?: unknown,
 ): CabinetState {
-  return relabelCabinetParts(addCabinet(state, input))
+  return relabelCabinetParts(addCabinet(state, input, settings), settings)
 }
 
 export function updateCabinetAndLabel(
   state: CabinetState,
   cabinetId: string,
   input: { typeId: string; params: Record<string, unknown>; quantity: number },
+  settings?: unknown,
 ): CabinetState {
-  return relabelCabinetParts(updateCabinet(state, cabinetId, input))
+  return relabelCabinetParts(updateCabinet(state, cabinetId, input, settings), settings)
 }
 
-export function removeCabinetAndLabel(state: CabinetState, cabinetId: string): CabinetState {
-  return relabelCabinetParts(removeCabinet(state, cabinetId))
+export function removeCabinetAndLabel(state: CabinetState, cabinetId: string, settings?: unknown): CabinetState {
+  return relabelCabinetParts(removeCabinet(state, cabinetId), settings)
 }

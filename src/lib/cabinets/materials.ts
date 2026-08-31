@@ -21,10 +21,14 @@ export const CUTTING_MINUTES_PER_SHEET = 40
 /** Edgebander time for one full chipboard sheet (hardboard is not edged). */
 export const EDGING_MINUTES_PER_SHEET = 30
 
-/** Gap above and below a door, mm. */
-export const DOOR_CLEARANCE_Y = 1.5
+/** Gap at the top of a door, mm. */
+export const DOOR_CLEARANCE_TOP = 5
+/** Gap at the bottom of a door, mm. */
+export const DOOR_CLEARANCE_BOTTOM = 0
 /** Gaps (фуги) subtracted from each door's share of the cabinet width, mm. */
 export const DOOR_GAP_X = 3
+/** Gap between drawer front and door (фуга), mm. */
+export const DRAWER_DOOR_GAP = 3
 /** 2 mm banding on both opposite edges. */
 export const DOOR_EDGE_BOTH = 4
 
@@ -132,7 +136,31 @@ export function doorCutSize(
 ): { width: number; height: number } {
   return {
     width: cabinetWidth / doorCount - DOOR_GAP_X - DOOR_EDGE_BOTH,
-    height: cabinetHeight - DOOR_CLEARANCE_Y * 2 - DOOR_EDGE_BOTH,
+    height: cabinetHeight - DOOR_CLEARANCE_TOP - DOOR_CLEARANCE_BOTTOM - DOOR_EDGE_BOTH,
+  }
+}
+
+/** Calculate drawer front size (before edging) */
+export function drawerFrontCutSize(
+  cabinetWidth: number,
+  frontHeight: number,
+): { width: number; height: number } {
+  return {
+    width: cabinetWidth - DOOR_GAP_X - DOOR_EDGE_BOTH,
+    height: frontHeight - DOOR_EDGE_BOTH,
+  }
+}
+
+/** Calculate door size when combined with drawer above (before edging) */
+export function doorWithDrawerCutSize(
+  cabinetWidth: number,
+  cabinetHeight: number,
+  drawerFrontHeight: number,
+  doorCount: 1 | 2,
+): { width: number; height: number } {
+  return {
+    width: cabinetWidth / doorCount - DOOR_GAP_X - DOOR_EDGE_BOTH,
+    height: cabinetHeight - DOOR_CLEARANCE_TOP - drawerFrontHeight - DRAWER_DOOR_GAP - DOOR_EDGE_BOTH,
   }
 }
 

@@ -118,7 +118,7 @@ export interface CabinetTypeDefinition {
   category: CabinetCategory
   description: string
   defaultParams: Record<string, unknown>
-  generate: (params: Record<string, unknown>) => CabinetGeneratorResult
+  generate: (params: Record<string, unknown>, settings?: unknown) => CabinetGeneratorResult
 }
 
 export interface KitchenBaseParams {
@@ -136,6 +136,10 @@ export interface KitchenBaseParams {
   hasBack: boolean
   /** 0 = no doors, otherwise 1 or 2. */
   doorCount: 0 | 1 | 2
+  /** Drawer front height in mm (if > 0, adds a drawer above the door) */
+  drawerFrontHeight: number
+  /** Cut drawer front and door from one board for continuous grain */
+  cutFromOneBoard: boolean
   colors: CabinetPartColors
   [key: string]: unknown
 }
