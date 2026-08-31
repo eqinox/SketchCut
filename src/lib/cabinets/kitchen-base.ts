@@ -8,6 +8,11 @@ import {
   SCREW_5X60,
   SHELF_PIN,
   SHELF_PINS_PER_SHELF,
+  HINGE_SOFT_CLOSE,
+  HINGE_SCREW,
+  SCREWS_PER_HINGE,
+  HINGES_PER_SMALL_DOOR,
+  fastenerUnitPriceEur,
 } from './hardware'
 import { evenShelfBottoms, KITCHEN_BASE_JOINERY, measureCarcass } from './joinery'
 import {
@@ -179,9 +184,32 @@ export function generateKitchenBase(raw: Record<string, unknown>): CabinetGenera
   if (p.doorCount === 1 || p.doorCount === 2) {
     const door = doorCutSize(p.width, p.height, p.doorCount)
     const doorWord = p.doorCount === 1 ? 'една врата' : 'две врати'
+    const totalHinges = p.doorCount * HINGES_PER_SMALL_DOOR
+    const totalScrews = totalHinges * SCREWS_PER_HINGE
+    const screwUnitPrice = fastenerUnitPriceEur(HINGE_SCREW)
+    
     notes.push(
-      `${p.doorCount === 1 ? 'Една врата' : 'Две врати'}: рязане ${Math.round(door.width)} × ${Math.round(door.height)} мм (фуги 3 мм, по 1,5 мм горе/долу, кант 2 мм от 4 страни).`,
+      `${p.doorCount === 1 ? 'Една врата' : 'Две врати'}: рязане ${Math.round(door.width)} × ${Math.round(door.height)} мм (фуга 5 мм само отгоре, кант 2 мм от 4 страни).`,
     )
+    notes.push(
+      `Панти: ${totalHinges} бр. (по ${HINGES_PER_SMALL_DOOR} на врата) · винтчета ${totalScrews} бр. (по ${SCREWS_PER_HINGE} на панта).`,
+    )
+    
+    hardware.push(
+      pricedLine(
+        HINGE_SOFT_CLOSE,
+        totalHinges,
+        `по ${HINGES_PER_SMALL_DOOR} на врата`,
+      ),
+    )
+    hardware.push(
+      pricedLine(
+        { id: HINGE_SCREW.id, name: HINGE_SCREW.name, unitPriceEur: screwUnitPrice },
+        totalScrews,
+        `по ${SCREWS_PER_HINGE} на панта`,
+      ),
+    )
+    
     panels.push({
       role: 'door',
       name: p.doorCount === 1 ? 'Врата' : 'Врата',

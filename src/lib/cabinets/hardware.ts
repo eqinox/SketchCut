@@ -30,6 +30,31 @@ export const SHELF_PIN = {
 
 export const SHELF_PINS_PER_SHELF = 4
 
+/** Soft-close hinge for doors */
+export const HINGE_SOFT_CLOSE = {
+  id: 'hinge-soft-close',
+  name: 'Панта плавно прибиране',
+  unitPriceEur: 0.70,
+} as const
+
+/** Normal hinge for doors */
+export const HINGE_NORMAL = {
+  id: 'hinge-normal',
+  name: 'Панта нормално прибиране',
+  unitPriceEur: 0.20,
+} as const
+
+/** Small screws for hinges: 5 EUR per 1000 pieces */
+export const HINGE_SCREW = {
+  id: 'hinge-screw',
+  name: 'Винтче за панти',
+  packQty: 1000,
+  packPriceEur: 5,
+} as const
+
+export const SCREWS_PER_HINGE = 4
+export const HINGES_PER_SMALL_DOOR = 2
+
 /** Lower kitchen cabinet: 6 through the bottom, 8 for the two top rails. */
 export const KITCHEN_BASE_SCREWS_BOTTOM = 6
 export const KITCHEN_BASE_SCREWS_RAILS = 8
