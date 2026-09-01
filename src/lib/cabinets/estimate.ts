@@ -1,9 +1,13 @@
 import type { Part, PartEdgeBanding, Sheet } from '@/types'
 import { calculateEdgeBandingTotals } from '@/lib/edge-banding'
+import type { HardwareSettings } from '@/lib/settings'
+import { DEFAULT_HARDWARE_SETTINGS } from '@/lib/settings'
 import { hardwareCostEur } from './hardware'
 import {
   CUTTING_MINUTES_PER_SHEET,
   EDGING_MINUTES_PER_SHEET,
+  EDGE_PRICE_MM2_EUR,
+  EDGE_PRICE_MM05_EUR,
   edgeBandingCostEur,
   referenceSheet,
   sheetFraction,
@@ -148,6 +152,7 @@ export function cabinetPrice(
   dailyRateEur: number,
   panels: GeneratedPanel[],
   sheets: Sheet[],
+  settings: HardwareSettings = DEFAULT_HARDWARE_SETTINGS,
 ): CabinetPrice {
   const computed = laborFromPanels(panels, sheets, labor.assemblyMinutes)
   const hardwareEur = hardwareCostEur(hardware)
@@ -167,7 +172,10 @@ export function cabinetPrice(
     hardboard.priceEur,
   )
   const edge = panelsEdgeMeters(panels)
-  const edgeEur = edgeBandingCostEur(edge.mm2, edge.mm05)
+  const edgeEur = edgeBandingCostEur(edge.mm2, edge.mm05, {
+    mm2: settings.edgeMm2Eur ?? EDGE_PRICE_MM2_EUR,
+    mm05: settings.edgeMm05Eur ?? EDGE_PRICE_MM05_EUR,
+  })
   const minutes = laborMinutes(computed) ?? 0
   return {
     hardwareEur,

@@ -6,6 +6,7 @@ import {
   labelableWasteRects,
   visibleWasteRects,
   edgeLabelsSvgMarkup,
+  wasteRectsSvgMarkup,
 } from '@/lib/layout-drawing'
 
 const PAGE_W = 297
@@ -75,12 +76,7 @@ export function printCuttingPlan(result: PackingResult, variantLabel: string): v
       const displayW = sheet.sheetWidth * scale
       const displayH = sheet.sheetHeight * scale
 
-      const wasteRects = visibleWasteRects(sheet.wasteRects)
-        .map(
-          (r) =>
-            `<rect x="${r.x}" y="${r.y}" width="${r.width}" height="${r.height}" fill="url(#waste-hatch-${i})" stroke="#64748b" stroke-width="2"/>`,
-        )
-        .join('')
+      const wasteRects = wasteRectsSvgMarkup(sheet.wasteRects, `waste-${i}`)
 
       const wasteLabels = visibleWasteRects(sheet.wasteRects)
         .map((r) => edgeLabelsSvgMarkup(r.x, r.y, r.width, r.height, '#475569'))
@@ -102,12 +98,6 @@ export function printCuttingPlan(result: PackingResult, variantLabel: string): v
           <p class="meta">Фира: ${sheet.wastePercent.toFixed(1)}% · ${sheet.placed.length} детайла · ${variantLabel}</p>
           ${wasteSummary ? `<p class="meta">Фири: ${wasteSummary} мм</p>` : ''}
           <svg width="${displayW}" height="${displayH}" viewBox="0 0 ${sheet.sheetWidth} ${sheet.sheetHeight}">
-            <defs>
-              <pattern id="waste-hatch-${i}" patternUnits="userSpaceOnUse" width="16" height="16" patternTransform="rotate(45)">
-                <rect width="16" height="16" fill="#f1f5f9"/>
-                <line x1="0" y1="0" x2="0" y2="16" stroke="#94a3b8" stroke-width="1.2"/>
-              </pattern>
-            </defs>
             <rect width="${sheet.sheetWidth}" height="${sheet.sheetHeight}" fill="#fff"/>
             ${wasteRects}
             ${wasteLabels}

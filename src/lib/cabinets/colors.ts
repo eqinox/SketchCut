@@ -24,7 +24,7 @@ export const DEFAULT_PART_COLORS: CabinetPartColors = {
 export const PART_COLOR_FIELDS: { key: CabinetPartColorKey; label: string }[] = [
   { key: 'bottom', label: 'Дъно' },
   { key: 'side', label: 'Страници' },
-  { key: 'rail', label: 'Царги' },
+  { key: 'rail', label: 'Бленди' },
   { key: 'shelf', label: 'Рафтове' },
   { key: 'leg', label: 'Крачета' },
 ]

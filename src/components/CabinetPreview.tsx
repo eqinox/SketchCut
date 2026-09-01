@@ -1,6 +1,26 @@
 import React, { type ReactNode } from 'react'
 import { evenShelfBottoms, KITCHEN_BASE_JOINERY, measureCarcass } from '@/lib/cabinets/joinery'
-import { parseKitchenBaseParams, partFaces, DEFAULT_SHELF_FRONT_INSET, DEFAULT_HARDBOARD_COLOR, type KitchenBaseParams } from '@/lib/cabinets'
+import {
+  parseKitchenBaseParams,
+  DEFAULT_SHELF_FRONT_INSET,
+  DEFAULT_HARDBOARD_COLOR,
+  drawerBoxRails,
+  isSoftCloseSlide,
+  type KitchenBaseParams,
+  type DrawerBoxRails,
+} from '@/lib/cabinets'
+import {
+  BETWEEN_FACES,
+  Board,
+  BOX_FACES,
+  DimLine,
+  DimText,
+  SIDE_LEFT_BODY,
+  SIDE_LEFT_TOP,
+  SIDE_RIGHT,
+  SketchSvg,
+  createDrawCam,
+} from '@/lib/cabinets/draw-3d'
 import { cn } from '@/lib/utils'
 
 interface CabinetPreviewProps {
@@ -10,7 +30,10 @@ interface CabinetPreviewProps {
   showDimLines?: boolean
 }
 
-const DIM = '#60a5fa'
+const SLIDE_METAL = '#7b8a99'
+const SLIDE_PROFILE_H = 18
+const SLIDE_FRONT_INSET = 28
+const SLIDE_STROKE = 10
 
 function mm(n: number) {
   return `${Math.round(n)}`
@@ -24,23 +47,37 @@ export function CabinetPreview({ params, className, showDimLines = false }: Cabi
     KITCHEN_BASE_JOINERY,
   )
   const { colors } = p
+  const box =
+    p.drawerFrontHeight > 0
+      ? drawerBoxRails(p.width, p.thickness, p.drawerFrontHeight, p.slideLength, isSoftCloseSlide(p.slideKind))
+      : null
 
   return (
     <div className={cn('flex flex-col gap-3', className)}>
       <ViewCard title="3D Изглед отпред">
         <ZoomableView>
-          <Front3DView p={p} m={m} showDimLines={showDimLines} />
+          <Front3DView p={p} m={m} box={box} showDimLines={showDimLines} />
         </ZoomableView>
       </ViewCard>
+      {box && (
+        <ViewCard title="Чекмедже">
+          <ZoomableView>
+            <Drawer3DView p={p} box={box} />
+          </ZoomableView>
+        </ViewCard>
+      )}
       <p className="text-center text-[11px] text-[var(--color-muted-foreground)]">
         <span className="mr-3" style={{ color: colors.bottom }}>■ Дъно</span>
         <span className="mr-3" style={{ color: colors.side }}>■ Страници</span>
-        <span className="mr-3" style={{ color: colors.rail }}>■ Царги</span>
+        <span className="mr-3" style={{ color: colors.rail }}>■ Бленди</span>
         {p.shelfCount > 0 && (
           <span className="mr-3" style={{ color: colors.shelf }}>■ Рафтове</span>
         )}
         {p.hasBack && (
           <span className="mr-3" style={{ color: DEFAULT_HARDBOARD_COLOR }}>■ Фазер</span>
+        )}
+        {box && (
+          <span className="mr-3" style={{ color: SLIDE_METAL }}>■ Водачи</span>
         )}
         <span style={{ color: colors.leg }}>■ Крачета</span>
         {p.doorCount > 0 && (
@@ -264,10 +301,12 @@ function ZoomableView({ children }: { children: ReactNode }) {
 function Front3DView({
   p,
   m,
+  box,
   showDimLines,
 }: {
   p: KitchenBaseParams
   m: ReturnType<typeof measureCarcass>
+  box: DrawerBoxRails | null
   showDimLines: boolean
 }) {
   const T = m.thickness
@@ -277,10 +316,9 @@ function Front3DView({
   const L = p.legHeight
   const R = p.railWidth
 
-  const depthScale = 0.5
-  const depthAngle = 30
-  const dx = D * depthScale * Math.cos((depthAngle * Math.PI) / 180)
-  const dy = -D * depthScale * Math.sin((depthAngle * Math.PI) / 180)
+  const cam = createDrawCam({ ox: 0, oy: 0 })
+  const { x: dx, y: dy } = cam.depthDelta(D)
+  const { x: dxR, y: dyR } = cam.depthDelta(R)
 
   const font = Math.max(72, Math.min(W, H) * 0.13)
   const railFont = Math.max(48, Math.min(R * 0.5, m.railLength * 0.1))
@@ -295,15 +333,14 @@ function Front3DView({
   const vbH = padT + totalH + padB
   const ox = padL
   const floor = padT + totalH
+  const topY = floor - L - H
+  const botY = floor - L
+
+  const view = createDrawCam({ ox, oy: 0 })
 
   const legW = Math.max(18, T * 1.2)
   const legInset = Math.max(28, W * 0.08)
 
-  const dxR = R * depthScale * Math.cos((depthAngle * Math.PI) / 180)
-  const dyR = -R * depthScale * Math.sin((depthAngle * Math.PI) / 180)
-
-  const topY = floor - L - H
-  const botY = floor - L
   const depthLen = Math.hypot(dx, dy) || 1
   const nx = dy / depthLen
   const ny = -dx / depthLen
@@ -322,13 +359,6 @@ function Front3DView({
   const sideLabelX = ox + W + dx / 2
   const sideLabelY = (topY + floor - L - T) / 2 + dy / 2
 
-  const ang = (depthAngle * Math.PI) / 180
-  const proj = (x: number, y: number, z: number) => ({
-    x: ox + x + z * depthScale * Math.cos(ang),
-    y: y + z * depthScale * -Math.sin(ang),
-  })
-  const poly = (...p: { x: number; y: number }[]) => p.map((pt) => `${pt.x},${pt.y}`).join(' ')
-
   const xInnerL = T
   const xInnerR = W - T
   const zRailFront = D - R
@@ -339,196 +369,126 @@ function Front3DView({
   const topShelfOff = shelfOffs.length > 0 ? shelfOffs[shelfOffs.length - 1] : 0
   const shelfLabelPt =
     shelfOffs.length > 0
-      ? proj(W / 2, floor - L - T - topShelfOff - T, zShelfFront + shelfDepth / 2)
+      ? view.proj(W / 2, floor - L - T - topShelfOff - T, zShelfFront + shelfDepth / 2)
       : null
 
-  const bottomC = partFaces(p.colors.bottom)
-  const sideC = partFaces(p.colors.side)
-  const railC = partFaces(p.colors.rail)
-  const shelfC = partFaces(p.colors.shelf)
-  const legC = p.colors.leg
+  const wood = p.colors
+  const sideH = H - T
+  const sideY = topY
 
   return (
-    <svg 
-      viewBox={`0 0 ${vbW} ${vbH}`} 
-      className="w-full select-none" 
-      style={{
-        height: '460px',
-      }} 
-      role="img" 
-      aria-label="3D изглед отпред"
-    >
+    <SketchSvg vbW={vbW} vbH={vbH} height={460} label="3D изглед отпред">
       <defs>
         <filter id="shadow">
           <feDropShadow dx="1" dy="1" stdDeviation="1.5" floodOpacity="0.3" />
         </filter>
       </defs>
 
-      {/* === LEGS (only 2 front ones) === */}
-      {/* Left front leg */}
       <g filter="url(#shadow)">
         <polygon
           points={`${ox + legInset},${floor - L} ${ox + legInset + legW},${floor - L} ${ox + legInset + legW},${floor} ${ox + legInset},${floor}`}
-          fill={legC}
+          fill={wood.leg}
           stroke="#1e293b"
           strokeWidth={1}
         />
       </g>
-      {/* Right front leg */}
       <g filter="url(#shadow)">
         <polygon
           points={`${ox + W - legInset - legW},${floor - L} ${ox + W - legInset},${floor - L} ${ox + W - legInset},${floor} ${ox + W - legInset - legW},${floor}`}
-          fill={legC}
+          fill={wood.leg}
           stroke="#1e293b"
           strokeWidth={1}
         />
       </g>
 
-      {/* === BOTTOM (full width, full depth - sides will sit on it) === */}
-      <polygon
-        points={`${ox},${floor - L - T} ${ox + W},${floor - L - T} ${ox + W},${floor - L} ${ox},${floor - L}`}
-        fill={bottomC.front}
-        stroke="#1e293b"
-        strokeWidth={1.2}
-      />
-      <polygon
-        points={`${ox},${floor - L - T} ${ox + dx},${floor - L - T + dy} ${ox + W + dx},${floor - L - T + dy} ${ox + W},${floor - L - T}`}
-        fill={bottomC.top}
-        stroke="#1e293b"
-        strokeWidth={1}
-      />
-      <polygon
-        points={`${ox + W},${floor - L - T} ${ox + W + dx},${floor - L - T + dy} ${ox + W + dx},${floor - L + dy} ${ox + W},${floor - L}`}
-        fill={bottomC.side}
-        stroke="#1e293b"
-        strokeWidth={1}
-      />
+      <Board x={0} y={floor - L - T} w={W} h={T} d={D} color={wood.bottom} cam={view} faces={BOX_FACES} />
 
       {p.hasBack && (
-        <polygon
-          points={poly(
-            proj(xInnerL, topY, zBack),
-            proj(xInnerR, topY, zBack),
-            proj(xInnerR, floor - L - T, zBack),
-            proj(xInnerL, floor - L - T, zBack),
-          )}
-          fill={partFaces(DEFAULT_HARDBOARD_COLOR).front}
-          stroke="#1e293b"
+        <Board
+          x={xInnerL}
+          y={topY}
+          z={zBack}
+          w={xInnerR - xInnerL}
+          h={sideH}
+          d={1}
+          color={DEFAULT_HARDBOARD_COLOR}
+          cam={view}
+          faces={{ front: true }}
           strokeWidth={0.8}
         />
       )}
 
-      {/* === LEFT SIDE (sits on bottom) === */}
-      <polygon
-        points={`${ox},${floor - L - H} ${ox + T},${floor - L - H} ${ox + T},${floor - L - T} ${ox},${floor - L - T}`}
-        fill={sideC.front}
-        stroke="#1e293b"
-        strokeWidth={1.2}
-      />
-      <polygon
-        points={`${ox + T},${floor - L - H} ${ox + T + dx},${floor - L - H + dy} ${ox + T + dx},${floor - L - T + dy} ${ox + T},${floor - L - T}`}
-        fill={sideC.side}
-        stroke="#1e293b"
-        strokeWidth={1}
-      />
+      <Board x={0} y={sideY} w={T} h={sideH} d={D} color={wood.side} cam={view} faces={SIDE_LEFT_BODY} />
 
       {shelfOffs.map((off, i) => {
         const yBot = floor - L - T - off
         const yTop = yBot - T
         return (
-          <g key={`shelf-${i}`}>
-            <polygon
-              points={poly(
-                proj(xInnerL, yTop, zShelfFront),
-                proj(xInnerR, yTop, zShelfFront),
-                proj(xInnerR, yBot, zShelfFront),
-                proj(xInnerL, yBot, zShelfFront),
-              )}
-              fill={shelfC.front}
-              stroke="#1e293b"
-              strokeWidth={1}
-            />
-            <polygon
-              points={poly(
-                proj(xInnerL, yTop, zShelfFront),
-                proj(xInnerR, yTop, zShelfFront),
-                proj(xInnerR, yTop, zBack),
-                proj(xInnerL, yTop, zBack),
-              )}
-              fill={shelfC.top}
-              stroke="#1e293b"
-              strokeWidth={1}
-            />
-          </g>
+          <Board
+            key={`shelf-${i}`}
+            x={xInnerL}
+            y={yTop}
+            z={zShelfFront}
+            w={m.innerW}
+            h={T}
+            d={shelfDepth}
+            color={wood.shelf}
+            cam={view}
+            faces={BETWEEN_FACES}
+          />
         )
       })}
 
-      {/* === BACK RAIL — between the sides, 10 cm at the back, does not cover side kants === */}
-      <polygon
-        points={poly(
-          proj(xInnerL, topY, zRailFront),
-          proj(xInnerR, topY, zRailFront),
-          proj(xInnerR, topY + T, zRailFront),
-          proj(xInnerL, topY + T, zRailFront),
-        )}
-        fill={railC.front}
-        stroke="#1e293b"
-        strokeWidth={1}
-      />
-      <polygon
-        points={poly(
-          proj(xInnerL, topY, zRailFront),
-          proj(xInnerR, topY, zRailFront),
-          proj(xInnerR, topY, zBack),
-          proj(xInnerL, topY, zBack),
-        )}
-        fill={railC.top}
-        stroke="#1e293b"
-        strokeWidth={1}
+      <Board
+        x={xInnerL}
+        y={topY}
+        z={zRailFront}
+        w={m.railLength}
+        h={T}
+        d={R}
+        color={wood.rail}
+        cam={view}
+        faces={BETWEEN_FACES}
       />
 
-      <polygon
-        points={`${ox},${floor - L - H} ${ox + dx},${floor - L - H + dy} ${ox + T + dx},${floor - L - H + dy} ${ox + T},${floor - L - H}`}
-        fill={sideC.top}
-        stroke="#1e293b"
-        strokeWidth={1.5}
+      <Board x={0} y={sideY} w={T} h={sideH} d={D} color={wood.side} cam={view} faces={SIDE_LEFT_TOP} />
+
+      {box &&
+        (() => {
+          const z0 = SLIDE_FRONT_INSET
+          const z1 = z0 + p.slideLength
+          const yBot = topY + T + box.outer.height
+          const yTopS = yBot - SLIDE_PROFILE_H
+          const a0 = view.proj(T, yTopS, z0)
+          const a1 = view.proj(T, yTopS, z1)
+          const b0 = view.proj(T, yBot, z0)
+          const b1 = view.proj(T, yBot, z1)
+          const mid = view.proj(T, yTopS, z0 + p.slideLength / 2)
+          const slideFont = Math.max(32, Math.min(p.slideLength * 0.1, 56))
+          return (
+            <g>
+              <g stroke={SLIDE_METAL} fill="none" strokeWidth={SLIDE_STROKE} strokeLinecap="butt">
+                <line x1={a0.x} y1={a0.y} x2={a1.x} y2={a1.y} />
+                <line x1={b0.x} y1={b0.y} x2={b1.x} y2={b1.y} />
+              </g>
+              <DimText x={mid.x + 18} y={mid.y - 8} label={mm(p.slideLength)} fontSize={slideFont} fill={SLIDE_METAL} />
+            </g>
+          )
+        })()}
+
+      <Board x={W - T} y={sideY} w={T} h={sideH} d={D} color={wood.side} cam={view} faces={SIDE_RIGHT} />
+
+      <Board
+        x={T}
+        y={topY}
+        w={m.railLength}
+        h={T}
+        d={R}
+        color={wood.rail}
+        cam={view}
+        faces={BETWEEN_FACES}
       />
 
-      {/* === RIGHT SIDE (sits on bottom) === */}
-      <polygon
-        points={`${ox + W - T},${floor - L - H} ${ox + W},${floor - L - H} ${ox + W},${floor - L - T} ${ox + W - T},${floor - L - T}`}
-        fill={sideC.front}
-        stroke="#1e293b"
-        strokeWidth={1.2}
-      />
-      <polygon
-        points={`${ox + W},${floor - L - H} ${ox + W + dx},${floor - L - H + dy} ${ox + W + dx},${floor - L - T + dy} ${ox + W},${floor - L - T}`}
-        fill={sideC.side}
-        stroke="#1e293b"
-        strokeWidth={1.2}
-      />
-      <polygon
-        points={`${ox + W - T},${floor - L - H} ${ox + W - T + dx},${floor - L - H + dy} ${ox + W + dx},${floor - L - H + dy} ${ox + W},${floor - L - H}`}
-        fill={sideC.top}
-        stroke="#1e293b"
-        strokeWidth={1.5}
-      />
-
-      {/* === FRONT RAIL (inside between sides at top) === */}
-      <polygon
-        points={`${ox + T},${floor - L - H} ${ox + W - T},${floor - L - H} ${ox + W - T},${floor - L - H + T} ${ox + T},${floor - L - H + T}`}
-        fill={railC.front}
-        stroke="#1e293b"
-        strokeWidth={1.2}
-      />
-      <polygon
-        points={`${ox + T},${floor - L - H} ${ox + T + dxR},${floor - L - H + dyR} ${ox + W - T + dxR},${floor - L - H + dyR} ${ox + W - T},${floor - L - H}`}
-        fill={railC.top}
-        stroke="#1e293b"
-        strokeWidth={1}
-      />
-
-      {/* === SIZES (no lines unless asked) === */}
       <DimText x={heightX} y={heightY} label={mm(H)} fontSize={font} rotate={-90} />
       <DimText x={depthMx} y={depthMy} label={mm(D)} fontSize={font} rotate={depthRot} />
       <DimText x={backMx} y={backMy} label={mm(W)} fontSize={font} />
@@ -552,73 +512,67 @@ function Front3DView({
           <DimLine x1={ox + dx} y1={topY + dy - font * 0.2} x2={ox + W + dx} y2={topY + dy - font * 0.2} />
         </g>
       )}
-    </svg>
+    </SketchSvg>
   )
 }
 
-function DimText({
-  x,
-  y,
-  label,
-  fontSize,
-  rotate = 0,
-  fill = DIM,
-}: {
-  x: number
-  y: number
-  label: string
-  fontSize: number
-  rotate?: number
-  fill?: string
-}) {
-  return (
-    <text
-      x={x}
-      y={y}
-      textAnchor="middle"
-      dominantBaseline="middle"
-      fontSize={fontSize}
-      fontWeight="800"
-      fill={fill}
-      stroke="#0f172a"
-      strokeWidth={Math.max(4, fontSize * 0.06)}
-      paintOrder="stroke"
-      strokeLinejoin="round"
-      transform={rotate ? `rotate(${rotate} ${x} ${y})` : undefined}
-    >
-      {label}
-    </text>
-  )
-}
+function Drawer3DView({ p, box }: { p: KitchenBaseParams; box: DrawerBoxRails }) {
+  const T = p.thickness
+  const Wd = box.drawerOuterW
+  const Hd = box.outer.height
+  const Dd = box.outer.width
+  const Wi = box.inner.width
+  const Hi = box.inner.height
+  const innerY = Hd - Hi
 
-function DimLine({
-  x1,
-  y1,
-  x2,
-  y2,
-  color = DIM,
-}: {
-  x1: number
-  y1: number
-  x2: number
-  y2: number
-  color?: string
-}) {
-  const arrow = Math.min(14, Math.hypot(x2 - x1, y2 - y1) * 0.08)
-  const ang = Math.atan2(y2 - y1, x2 - x1)
-  const ax = Math.cos(ang)
-  const ay = Math.sin(ang)
-  const px = -ay
-  const py = ax
+  const hint = createDrawCam({ ox: 0, oy: 0 })
+  const { x: dx, y: dy } = hint.depthDelta(Dd)
+
+  const font = Math.max(40, Math.min(Wd, Hd) * 0.18)
+  const small = Math.max(32, font * 0.7)
+  const padL = font + 36
+  const padT = font + Math.abs(dy) + 24
+  const padR = font + 40
+  const padB = font + 28
+
+  const vbW = padL + Wd + dx + padR
+  const vbH = padT + Hd + padB
+  const cam = createDrawCam({ ox: padL, oy: padT })
+
+  const wood = p.colors.side
+  const innerFrontMid = cam.proj(T + Wi / 2, innerY + Hi / 2, T / 2)
+  const boxW = cam.proj(Wd / 2, 4, Dd)
+  const outerH = cam.proj(-10, Hd / 2, 0)
+  const outerL = cam.proj(T / 2, 6, Dd / 2)
+
   return (
-    <g stroke={color} fill={color}>
-      <line x1={x1} y1={y1} x2={x2} y2={y2} strokeWidth={2.5} />
-      <polygon
-        points={`${x1},${y1} ${x1 + ax * arrow + px * arrow * 0.4},${y1 + ay * arrow + py * arrow * 0.4} ${x1 + ax * arrow - px * arrow * 0.4},${y1 + ay * arrow - py * arrow * 0.4}`}
+    <SketchSvg vbW={vbW} vbH={vbH} height={400} label="Чекмедже с царги">
+      {/* Same order as the cabinet: left body → back between → left top → right → front between. */}
+      <Board x={0} y={0} w={T} h={Hd} d={Dd} color={wood} cam={cam} faces={SIDE_LEFT_BODY} />
+      <Board
+        x={T}
+        y={innerY}
+        z={Dd - T}
+        w={Wi}
+        h={Hi}
+        d={T}
+        color={wood}
+        cam={cam}
+        faces={BETWEEN_FACES}
       />
-      <polygon
-        points={`${x2},${y2} ${x2 - ax * arrow + px * arrow * 0.4},${y2 - ay * arrow + py * arrow * 0.4} ${x2 - ax * arrow - px * arrow * 0.4},${y2 - ay * arrow - py * arrow * 0.4}`}
+      <Board x={0} y={0} w={T} h={Hd} d={Dd} color={wood} cam={cam} faces={SIDE_LEFT_TOP} />
+      <Board x={Wd - T} y={0} w={T} h={Hd} d={Dd} color={wood} cam={cam} faces={SIDE_RIGHT} />
+      <Board x={T} y={innerY} z={0} w={Wi} h={Hi} d={T} color={wood} cam={cam} faces={BETWEEN_FACES} />
+
+      <DimText x={outerL.x} y={outerL.y} label={mm(Dd)} fontSize={small} />
+      <DimText x={outerH.x} y={outerH.y} label={mm(Hd)} fontSize={small} rotate={-90} />
+      <DimText
+        x={innerFrontMid.x}
+        y={innerFrontMid.y}
+        label={Hi !== Hd ? `${mm(Wi)}×${mm(Hi)}` : mm(Wi)}
+        fontSize={small}
       />
-    </g>
+      <DimText x={boxW.x} y={boxW.y} label={mm(Wd)} fontSize={small} />
+    </SketchSvg>
   )
 }

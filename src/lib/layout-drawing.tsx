@@ -2,7 +2,12 @@ import { useEffect, useId, useRef, useState } from 'react'
 import type { PackedSheet, PlacedPart } from '@/types'
 import { resolvePartPosition, type SnapGuide } from '@/lib/layout-edit'
 
-export const HATCH_PATTERN_ID = 'waste-hatch'
+export const WASTE_HATCH_SPACING = 150
+export const WASTE_HATCH_STROKE = 7
+export const WASTE_HATCH_DASH = 30
+export const WASTE_HATCH_GAP = 34
+export const WASTE_HATCH_COLOR = '#cbd5e1'
+
 
 /** Minimum side length (mm) to show a waste label */
 const MIN_WASTE_LABEL_SIDE = 80
@@ -232,44 +237,103 @@ export function labelableWasteRects(
   )
 }
 
-/** SVG diagonal hatch for waste */
-export function WasteHatchPattern() {
+export function wasteHatchLineEnds(
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+): { x1: number; y1: number; x2: number; y2: number }[] {
+  const lines: { x1: number; y1: number; x2: number; y2: number }[] = []
+  for (let d = 0; d < w + h; d += WASTE_HATCH_SPACING) {
+    lines.push({ x1: x + d, y1: y, x2: x + d - h, y2: y + h })
+  }
+  return lines
+}
+
+/** Each waste pocket: light fill + dashed diagonals + border */
+export function WasteRects({
+  rects,
+  idPrefix,
+}: {
+  rects: { x: number; y: number; width: number; height: number }[]
+  idPrefix: string
+}) {
+  const pockets = visibleWasteRects(rects)
   return (
-    <pattern
-      id={HATCH_PATTERN_ID}
-      patternUnits="userSpaceOnUse"
-      width="16"
-      height="16"
-      patternTransform="rotate(45)"
-    >
-      <rect width="16" height="16" fill="#f1f5f9" />
-      <line x1="0" y1="0" x2="0" y2="16" stroke="#94a3b8" strokeWidth="1.2" />
-    </pattern>
+    <>
+      <defs>
+        {pockets.map((r, i) => (
+          <clipPath key={`clip-${i}`} id={`${idPrefix}-clip-${i}`}>
+            <rect x={r.x} y={r.y} width={r.width} height={r.height} />
+          </clipPath>
+        ))}
+      </defs>
+      {pockets.map((r, i) => {
+        const clipId = `${idPrefix}-clip-${i}`
+        return (
+          <g key={`waste-rect-${i}`}>
+            <rect
+              x={r.x}
+              y={r.y}
+              width={r.width}
+              height={r.height}
+              fill="#f8fafc"
+            />
+            <g clipPath={`url(#${clipId})`}>
+              {wasteHatchLineEnds(r.x, r.y, r.width, r.height).map((l, li) => (
+                <line
+                  key={li}
+                  x1={l.x1}
+                  y1={l.y1}
+                  x2={l.x2}
+                  y2={l.y2}
+                  stroke={WASTE_HATCH_COLOR}
+                  strokeWidth={WASTE_HATCH_STROKE}
+                  strokeDasharray={`${WASTE_HATCH_DASH} ${WASTE_HATCH_GAP}`}
+                  strokeLinecap="butt"
+                />
+              ))}
+            </g>
+            <rect
+              x={r.x}
+              y={r.y}
+              width={r.width}
+              height={r.height}
+              fill="none"
+              stroke="#64748b"
+              strokeWidth={2}
+            />
+          </g>
+        )
+      })}
+    </>
   )
 }
 
-/** Each waste pocket with hatch fill + border (like parts) */
-export function WasteRects({
-  rects,
-}: {
-  rects: { x: number; y: number; width: number; height: number }[]
-}) {
-  return (
-    <>
-      {visibleWasteRects(rects).map((r, i) => (
-        <rect
-          key={`waste-rect-${i}`}
-          x={r.x}
-          y={r.y}
-          width={r.width}
-          height={r.height}
-          fill={`url(#${HATCH_PATTERN_ID})`}
-          stroke="#64748b"
-          strokeWidth={2}
-        />
-      ))}
-    </>
-  )
+export function wasteRectsSvgMarkup(
+  rects: { x: number; y: number; width: number; height: number }[],
+  idPrefix: string,
+): string {
+  const pockets = visibleWasteRects(rects)
+  const clips = pockets
+    .map(
+      (r, j) =>
+        `<clipPath id="${idPrefix}-c${j}"><rect x="${r.x}" y="${r.y}" width="${r.width}" height="${r.height}"/></clipPath>`,
+    )
+    .join('')
+  const bodies = pockets
+    .map((r, j) => {
+      const clipId = `${idPrefix}-c${j}`
+      const lines = wasteHatchLineEnds(r.x, r.y, r.width, r.height)
+        .map(
+          (l) =>
+            `<line x1="${l.x1}" y1="${l.y1}" x2="${l.x2}" y2="${l.y2}" stroke="${WASTE_HATCH_COLOR}" stroke-width="${WASTE_HATCH_STROKE}" stroke-dasharray="${WASTE_HATCH_DASH} ${WASTE_HATCH_GAP}" stroke-linecap="butt"/>`,
+        )
+        .join('')
+      return `<rect x="${r.x}" y="${r.y}" width="${r.width}" height="${r.height}" fill="#f8fafc"/><g clip-path="url(#${clipId})">${lines}</g><rect x="${r.x}" y="${r.y}" width="${r.width}" height="${r.height}" fill="none" stroke="#64748b" stroke-width="2"/>`
+    })
+    .join('')
+  return `<defs>${clips}</defs>${bodies}`
 }
 
 export function WasteLabels({
@@ -851,6 +915,7 @@ export function SheetSvg({
   editable?: boolean
   onPartMove?: (partIndex: number, x: number, y: number) => void
 }) {
+  const hatchId = `wh${useId().replace(/:/g, '')}`
   return (
     <svg
       width={displayWidth + 2}
@@ -860,11 +925,8 @@ export function SheetSvg({
       onContextMenu={editable ? (e) => e.preventDefault() : undefined}
       style={{ width: displayWidth, height: displayHeight }}
     >
-      <defs>
-        <WasteHatchPattern />
-      </defs>
       <rect x={0} y={0} width={sheet.sheetWidth} height={sheet.sheetHeight} fill="#ffffff" />
-      <WasteRects rects={sheet.wasteRects} />
+      <WasteRects rects={sheet.wasteRects} idPrefix={hatchId} />
       <WasteLabels rects={sheet.wasteRects} />
       <rect
         x={0}
@@ -892,22 +954,26 @@ export function drawHatchInRect(
   y: number,
   w: number,
   h: number,
-  spacing: number,
+  scale: number,
 ) {
   ctx.save()
   ctx.beginPath()
   ctx.rect(x, y, w, h)
   ctx.clip()
-  ctx.fillStyle = '#f1f5f9'
+  ctx.fillStyle = '#f8fafc'
   ctx.fillRect(x, y, w, h)
-  ctx.strokeStyle = '#94a3b8'
-  ctx.lineWidth = 0.8
-  for (let d = -h; d < w + h; d += spacing) {
+  ctx.strokeStyle = WASTE_HATCH_COLOR
+  ctx.lineWidth = Math.max(0.4, WASTE_HATCH_STROKE * scale)
+  ctx.setLineDash([WASTE_HATCH_DASH * scale, WASTE_HATCH_GAP * scale])
+  ctx.lineCap = 'butt'
+  const spacing = WASTE_HATCH_SPACING * scale
+  for (let d = 0; d < w + h; d += spacing) {
     ctx.beginPath()
     ctx.moveTo(x + d, y)
-    ctx.lineTo(x + d + h, y + h)
+    ctx.lineTo(x + d - h, y + h)
     ctx.stroke()
   }
+  ctx.setLineDash([])
   ctx.restore()
 }
 
@@ -931,7 +997,7 @@ export function drawSheetToCanvas(
     const ry = oy + r.y * scale
     const rw = r.width * scale
     const rh = r.height * scale
-    drawHatchInRect(ctx, rx, ry, rw, rh, 10)
+    drawHatchInRect(ctx, rx, ry, rw, rh, scale)
     ctx.strokeStyle = '#64748b'
     ctx.lineWidth = 1.5
     ctx.strokeRect(rx, ry, rw, rh)

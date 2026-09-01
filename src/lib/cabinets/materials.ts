@@ -32,6 +32,17 @@ export const DRAWER_DOOR_GAP = 3
 /** 2 mm banding on both opposite edges. */
 export const DOOR_EDGE_BOTH = 4
 
+/** Drawer box rails sit this much shorter than the drawer front, mm. */
+export const DRAWER_RAIL_BELOW_FRONT = 50
+/** Clearance each side of a roller slide, mm. */
+export const ROLLER_SLIDE_SIDE_GAP = 12.5
+/** Clearance each side of a soft-close slide, mm. */
+export const SOFT_SLIDE_SIDE_GAP = 5
+/** Soft-close outer rails are this much shorter than the slide, mm. */
+export const SOFT_SLIDE_OUTER_RAIL_SHORTEN = 10
+/** Soft-close inner rails are this much shorter in height than the outer rails (groove for the back). */
+export const SOFT_INNER_RAIL_HEIGHT_DROP = 14
+
 export function sheetKind(sheet: Pick<Sheet, 'kind'> | undefined): BoardKind {
   return sheet?.kind === 'hardboard' ? 'hardboard' : 'chipboard'
 }
@@ -75,8 +86,14 @@ export function usedBoardCostEur(
   return (usedAreaM2 / full) * sheetPriceEur
 }
 
-export function edgeBandingCostEur(mm2Meters: number, mm05Meters: number): number {
-  return mm2Meters * EDGE_PRICE_MM2_EUR + mm05Meters * EDGE_PRICE_MM05_EUR
+export function edgeBandingCostEur(
+  mm2Meters: number,
+  mm05Meters: number,
+  prices?: { mm2?: number; mm05?: number },
+): number {
+  const mm2 = prices?.mm2 ?? EDGE_PRICE_MM2_EUR
+  const mm05 = prices?.mm05 ?? EDGE_PRICE_MM05_EUR
+  return mm2Meters * mm2 + mm05Meters * mm05
 }
 
 export function createHardboardSheet(id: string): Sheet {
@@ -166,4 +183,42 @@ export function doorWithDrawerCutSize(
 
 export function boardKindLabel(kind: BoardKind): string {
   return kind === 'hardboard' ? 'Фазер' : 'ПДЧ'
+}
+
+export interface DrawerBoxRails {
+  /** Clear width between carcass sides. */
+  innerCarcassW: number
+  sideGapEach: number
+  /** Outer width of the drawer box (between slides). */
+  drawerOuterW: number
+  inner: { width: number; height: number }
+  outer: { width: number; height: number }
+}
+
+/** Cut sizes for the four drawer-box rails (царги) of one drawer. */
+export function drawerBoxRails(
+  cabinetWidth: number,
+  thickness: number,
+  drawerFrontHeight: number,
+  slideLength: number,
+  softClose: boolean,
+): DrawerBoxRails | null {
+  const outerHeight = drawerFrontHeight - DRAWER_RAIL_BELOW_FRONT
+  const innerHeight = softClose ? outerHeight - SOFT_INNER_RAIL_HEIGHT_DROP : outerHeight
+  if (outerHeight <= 0 || innerHeight <= 0 || thickness <= 0 || slideLength <= 0) return null
+
+  const innerCarcassW = cabinetWidth - 2 * thickness
+  const sideGapEach = softClose ? SOFT_SLIDE_SIDE_GAP : ROLLER_SLIDE_SIDE_GAP
+  const drawerOuterW = innerCarcassW - 2 * sideGapEach
+  const innerWidth = drawerOuterW - 2 * thickness
+  const outerLength = softClose ? slideLength - SOFT_SLIDE_OUTER_RAIL_SHORTEN : slideLength
+  if (innerWidth <= 0 || outerLength <= 0 || drawerOuterW <= 0) return null
+
+  return {
+    innerCarcassW,
+    sideGapEach,
+    drawerOuterW,
+    inner: { width: innerWidth, height: innerHeight },
+    outer: { width: outerLength, height: outerHeight },
+  }
 }

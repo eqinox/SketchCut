@@ -134,7 +134,7 @@ export interface KitchenBaseParams {
   thickness: number
   /** 100 or 150 typically */
   legHeight: number
-  /** Front/back top rail depth, mm (the 10 cm царги) */
+  /** Front/back top rail depth, mm (the 10 cm бленди) */
   railWidth: number
   /** 0–3 evenly spaced shelves */
   shelfCount: number
@@ -146,6 +146,10 @@ export interface KitchenBaseParams {
   drawerFrontHeight: number
   /** Cut drawer front and door from one board for continuous grain */
   cutFromOneBoard: boolean
+  /** Runner type when the cabinet has a drawer. */
+  slideKind: 'roller' | 'soft-full' | 'soft-partial'
+  /** Runner length in mm (must fit in carcass depth). */
+  slideLength: number
   colors: CabinetPartColors
   [key: string]: unknown
 }

@@ -6,13 +6,26 @@ import {
   KITCHEN_BASE_SCREWS_TOTAL,
   pricedLine,
   SCREW_5X60,
+  SCREW_4X16,
+  SCREW_4X20,
+  SCREW_35X16,
   SHELF_PIN,
   SHELF_PINS_PER_SHELF,
   HINGE_SOFT_CLOSE,
   HINGE_NORMAL,
-  HINGE_SCREW,
-  SCREWS_PER_HINGE,
   HINGES_PER_SMALL_DOOR,
+  SCREWS_4X16_PER_HINGE,
+  SCREWS_4X20_PER_HINGE,
+  SLIDES_PER_DRAWER,
+  SCREWS_35X16_PER_SLIDE,
+  SCREWS_35X16_PER_SLIDE_WING,
+  isSoftCloseSlide,
+  screws35x16PerSlide,
+  parseSlideKind,
+  parseSlideLength,
+  slideId,
+  slideName,
+  slideUnitPriceEur,
 } from './hardware'
 import { evenShelfBottoms, KITCHEN_BASE_JOINERY, measureCarcass } from './joinery'
 import {
@@ -21,6 +34,10 @@ import {
   drawerFrontCutSize,
   doorWithDrawerCutSize,
   parseDoorCount,
+  drawerBoxRails,
+  SOFT_SLIDE_OUTER_RAIL_SHORTEN,
+  DRAWER_RAIL_BELOW_FRONT,
+  SOFT_INNER_RAIL_HEIGHT_DROP,
 } from './materials'
 import {
   DEFAULT_LEG_HEIGHT,
@@ -51,6 +68,8 @@ export const DEFAULT_KITCHEN_BASE_PARAMS: KitchenBaseParams = {
   doorCount: 0,
   drawerFrontHeight: 0,
   cutFromOneBoard: false,
+  slideKind: 'roller',
+  slideLength: 500,
   colors: { ...DEFAULT_PART_COLORS },
 }
 
@@ -61,10 +80,12 @@ export function parseKitchenBaseParams(raw: Record<string, unknown>): KitchenBas
     return typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : fallback
   }
   const leg = num('legHeight', d.legHeight)
+  const depth = num('depth', d.depth)
+  const slideKind = parseSlideKind(raw.slideKind)
   return {
     width: num('width', d.width),
     height: num('height', d.height),
-    depth: num('depth', d.depth),
+    depth,
     thickness: num('thickness', d.thickness),
     legHeight: leg === 150 ? 150 : 100,
     railWidth: num('railWidth', d.railWidth),
@@ -73,6 +94,8 @@ export function parseKitchenBaseParams(raw: Record<string, unknown>): KitchenBas
     doorCount: parseDoorCount(raw.doorCount),
     drawerFrontHeight: typeof raw.drawerFrontHeight === 'number' && raw.drawerFrontHeight >= 0 ? raw.drawerFrontHeight : 0,
     cutFromOneBoard: typeof raw.cutFromOneBoard === 'boolean' ? raw.cutFromOneBoard : false,
+    slideKind,
+    slideLength: parseSlideLength(raw.slideLength, depth, slideKind),
     colors: parsePartColors(raw.colors),
   }
 }
@@ -98,12 +121,12 @@ export function generateKitchenBase(
     `Корпус ${p.width} × ${p.height} × ${p.depth} мм, плоскост ${p.thickness} мм.`,
     `Крачета ${p.legHeight} мм — обща височина от пода ${p.height + p.legHeight} мм.`,
     'Дъното покрива страниците: страниците сядат върху дъното, винтовете се виждат отдолу.',
-    'Царгите влизат между страниците горе — по една отпред и отзад.',
-    `Сглобяване с винтове ${SCREW_5X60.name}: ${KITCHEN_BASE_SCREWS_BOTTOM} на дъното и ${KITCHEN_BASE_SCREWS_RAILS} за царгите (${KITCHEN_BASE_SCREWS_TOTAL} бр.).`,
+    'Блендите влизат между страниците горе — по една отпред и отзад.',
+    `Сглобяване с винтове ${SCREW_5X60.name}: ${KITCHEN_BASE_SCREWS_BOTTOM} на дъното и ${KITCHEN_BASE_SCREWS_RAILS} за блендите (${KITCHEN_BASE_SCREWS_TOTAL} бр.).`,
   ]
 
   if (p.depth < p.railWidth * 2) {
-    notes.push('Внимание: дълбочината е по-малка от двете царги една до друга.')
+    notes.push('Внимание: дълбочината е по-малка от двете бленди една до друга.')
   }
 
   const hardware = [
@@ -116,7 +139,7 @@ export function generateKitchenBase(
     fastenerLine(
       { ...SCREW_5X60, packPriceEur: hardwareSettings.screw5x60_500PackEur },
       KITCHEN_BASE_SCREWS_RAILS,
-      'Царги горе',
+      'Бленди горе',
     ),
   ]
   const panels: GeneratedPanel[] = [
@@ -142,13 +165,13 @@ export function generateKitchenBase(
     },
     {
       role: 'rail' as const,
-      name: 'Царга',
+      name: 'Бленда',
       width: m.railLength,
       height: p.railWidth,
       quantity: 2,
       canRotate: false,
       edges: edges({ top: true }),
-      note: 'Кант: едната дълга страна. Предна и задна царга са еднакви.',
+      note: 'Кант: едната дълга страна. Предна и задна бленда са еднакви.',
     },
   ]
 
@@ -208,8 +231,8 @@ export function generateKitchenBase(
       : doorCutSize(p.width, p.height, p.doorCount)
     const doorWord = p.doorCount === 1 ? 'една врата' : 'две врати'
     const totalHinges = p.doorCount * HINGES_PER_SMALL_DOOR
-    const totalScrews = totalHinges * SCREWS_PER_HINGE
-    const screwUnitPrice = hardwareSettings.hingeScrew1000PackEur / 1000
+    const hinge4x16 = totalHinges * SCREWS_4X16_PER_HINGE
+    const hinge4x20 = totalHinges * SCREWS_4X20_PER_HINGE
     const hingePrice = hardwareSettings.useNormalHinge ? hardwareSettings.hingeNormalEur : hardwareSettings.hingeSoftCloseEur
     const hingeName = hardwareSettings.useNormalHinge ? 'Панта нормално прибиране' : 'Панта плавно прибиране'
     
@@ -274,6 +297,72 @@ export function generateKitchenBase(
           note: `Кант 2 мм от 4 страни. Размерът е за рязане (без канта).`,
         })
       }
+
+      const slideQty = SLIDES_PER_DRAWER
+      const perSlide = screws35x16PerSlide(p.slideKind)
+      const slideScrews = slideQty * perSlide
+      const slidePrice = slideUnitPriceEur(p.slideKind, p.slideLength, hardwareSettings)
+      const slideScrewNote = isSoftCloseSlide(p.slideKind)
+        ? `по ${SCREWS_35X16_PER_SLIDE} на водач + ${SCREWS_35X16_PER_SLIDE_WING} за перките`
+        : `по ${SCREWS_35X16_PER_SLIDE} на водач`
+      notes.push(
+        `Водачи: ${slideQty} бр. ${slideName(p.slideKind, p.slideLength)} (по ${SLIDES_PER_DRAWER} на чекмедже) · винтчета 3.5×16: ${slideScrews} бр. (${slideScrewNote}).`,
+      )
+
+      const box = drawerBoxRails(
+        p.width,
+        p.thickness,
+        p.drawerFrontHeight,
+        p.slideLength,
+        isSoftCloseSlide(p.slideKind),
+      )
+      if (box) {
+        const gapTotal = box.sideGapEach * 2
+        notes.push(
+          `Чекмедже: вътрешна ширина ${Math.round(box.innerCarcassW)} мм − ${gapTotal} мм луфт (${box.sideGapEach} мм от страна) = ${Math.round(box.drawerOuterW)} мм общо.`,
+        )
+        notes.push(
+          `Царги: вътрешни ${Math.round(box.inner.width)} × ${Math.round(box.inner.height)} мм (2 бр.), външни ${Math.round(box.outer.width)} × ${Math.round(box.outer.height)} мм (2 бр.${isSoftCloseSlide(p.slideKind) ? `, водачът минус ${SOFT_SLIDE_OUTER_RAIL_SHORTEN} мм, вътрешните с ${SOFT_INNER_RAIL_HEIGHT_DROP} мм по-ниски` : ', колкото водача'}). Височината на външните е с ${DRAWER_RAIL_BELOW_FRONT} мм по-малка от челото.`,
+        )
+        panels.push({
+          role: 'drawer-back',
+          name: 'Царга вътрешна',
+          width: box.inner.width,
+          height: box.inner.height,
+          quantity: 2,
+          canRotate: false,
+          edges: edges({ top: true }),
+          note: isSoftCloseSlide(p.slideKind)
+            ? `Предна и задна на кутията. ${Math.round(box.drawerOuterW)} − 2×${p.thickness} = ${Math.round(box.inner.width)} мм. С ${SOFT_INNER_RAIL_HEIGHT_DROP} мм по-ниски от външните заради канала за гърба. Кант: горната дълга страна.`
+            : `Предна и задна на кутията. ${Math.round(box.drawerOuterW)} − 2×${p.thickness} = ${Math.round(box.inner.width)} мм. Кант: горната дълга страна.`,
+        })
+        panels.push({
+          role: 'drawer-side',
+          name: 'Царга външна',
+          width: box.outer.width,
+          height: box.outer.height,
+          quantity: 2,
+          canRotate: false,
+          edges: edges({ top: true }),
+          note: isSoftCloseSlide(p.slideKind)
+            ? `Страници на кутията. Дължина = водач ${p.slideLength} − ${SOFT_SLIDE_OUTER_RAIL_SHORTEN} мм. Кант: горната дълга страна.`
+            : `Страници на кутията. Дължина = водач ${p.slideLength} мм. Кант: горната дълга страна.`,
+        })
+      }
+      hardware.push(
+        pricedLine(
+          { id: slideId(p.slideKind, p.slideLength), name: slideName(p.slideKind, p.slideLength), unitPriceEur: slidePrice },
+          slideQty,
+          `по ${SLIDES_PER_DRAWER} на чекмедже`,
+        ),
+      )
+      hardware.push(
+        fastenerLine(
+          { ...SCREW_35X16, packPriceEur: hardwareSettings.smallScrew1000PackEur },
+          slideScrews,
+          slideScrewNote,
+        ),
+      )
       
       notes.push(
         `${p.doorCount === 1 ? 'Една врата' : 'Две врати'}: рязане ${Math.round(door.width)} × ${Math.round(door.height)} мм (фуга 5 мм отгоре, 3 мм между чело и врата, кант 2 мм от 4 страни).`,
@@ -285,7 +374,7 @@ export function generateKitchenBase(
     }
     
     notes.push(
-      `Панти: ${totalHinges} бр. (по ${HINGES_PER_SMALL_DOOR} на врата) · винтчета ${totalScrews} бр. (по ${SCREWS_PER_HINGE} на панта).`,
+      `Панти: ${totalHinges} бр. (по ${HINGES_PER_SMALL_DOOR} на врата) · винтчета 4×16: ${hinge4x16} бр. и 4×20: ${hinge4x20} бр. (по ${SCREWS_4X16_PER_HINGE}+${SCREWS_4X20_PER_HINGE} на панта).`,
     )
     
     hardware.push(
@@ -296,10 +385,17 @@ export function generateKitchenBase(
       ),
     )
     hardware.push(
-      pricedLine(
-        { id: HINGE_SCREW.id, name: HINGE_SCREW.name, unitPriceEur: screwUnitPrice },
-        totalScrews,
-        `по ${SCREWS_PER_HINGE} на панта`,
+      fastenerLine(
+        { ...SCREW_4X16, packPriceEur: hardwareSettings.smallScrew1000PackEur },
+        hinge4x16,
+        `по ${SCREWS_4X16_PER_HINGE} на панта`,
+      ),
+    )
+    hardware.push(
+      fastenerLine(
+        { ...SCREW_4X20, packPriceEur: hardwareSettings.smallScrew1000PackEur },
+        hinge4x20,
+        `по ${SCREWS_4X20_PER_HINGE} на панта`,
       ),
     )
     

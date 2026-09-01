@@ -17,14 +17,15 @@ import {
   DEFAULT_KITCHEN_BASE_PARAMS,
   DEFAULT_PART_COLORS,
   DEFAULT_SHELF_FRONT_INSET,
-  EDGE_PRICE_MM2_EUR,
-  EDGE_PRICE_MM05_EUR,
   PART_COLOR_FIELDS,
   SCREW_5X60,
   SHELF_PIN,
   SHELF_PINS_PER_SHELF,
+  SLIDE_KIND_LABEL,
+  SLIDES_PER_DRAWER,
   WORK_HOURS_PER_DAY,
   cabinetPrice,
+  eligibleSlideLengths,
   estimateFromPanels,
   fastenerUnitPriceEur,
   formatArea,
@@ -33,11 +34,18 @@ import {
   generateCabinet,
   hardwareQtyById,
   hourlyRateEur,
+  isSoftCloseSlide,
   parseKitchenBaseParams,
+  parseSlideKind,
   scaleCabinetResult,
+  slideUnitPriceEur,
+  drawerBoxRails,
   type CabinetInstance,
   type CabinetPartColors,
+  type SlideKind,
 } from '@/lib/cabinets'
+import type { HardwareSettings } from '@/lib/settings'
+import { DEFAULT_HARDWARE_SETTINGS } from '@/lib/settings'
 import type { Sheet } from '@/types'
 import { cn, formatMeters } from '@/lib/utils'
 
@@ -47,10 +55,11 @@ interface CabinetDialogProps {
   editing?: CabinetInstance | null
   sheets: Sheet[]
   dailyRateEur: number
+  settings?: HardwareSettings
   onSave: (input: { typeId: string; params: Record<string, unknown>; quantity: number }) => void
 }
 
-export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEur, onSave }: CabinetDialogProps) {
+export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEur, settings = DEFAULT_HARDWARE_SETTINGS, onSave }: CabinetDialogProps) {
   const isEdit = !!editing
   const initial = editing
     ? parseKitchenBaseParams(editing.params)
@@ -67,6 +76,8 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
   const [doorCount, setDoorCount] = useState(initial.doorCount)
   const [drawerFrontHeight, setDrawerFrontHeight] = useState(String(initial.drawerFrontHeight || ''))
   const [cutFromOneBoard, setCutFromOneBoard] = useState(initial.cutFromOneBoard)
+  const [slideKind, setSlideKind] = useState<SlideKind>(parseSlideKind(initial.slideKind))
+  const [slideLength, setSlideLength] = useState(initial.slideLength)
   const [quantity, setQuantity] = useState(String(editing?.quantity ?? 1))
   const [showDimLines, setShowDimLines] = useState(false)
   const [colors, setColors] = useState<CabinetPartColors>({
@@ -88,23 +99,25 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
         doorCount,
         drawerFrontHeight: parseInt(drawerFrontHeight, 10) || 0,
         cutFromOneBoard,
+        slideKind,
+        slideLength,
         colors,
       }),
-    [width, height, depth, thickness, legHeight, shelfCount, hasBack, doorCount, drawerFrontHeight, cutFromOneBoard, colors],
+    [width, height, depth, thickness, legHeight, shelfCount, hasBack, doorCount, drawerFrontHeight, cutFromOneBoard, slideKind, slideLength, colors],
   )
 
   const qty = Math.max(1, parseInt(quantity, 10) || 1)
   const result = useMemo(() => {
     try {
-      return scaleCabinetResult(generateCabinet(typeId, { ...params }), qty)
+      return scaleCabinetResult(generateCabinet(typeId, { ...params }, settings), qty)
     } catch {
       return null
     }
-  }, [typeId, params, qty])
+  }, [typeId, params, qty, settings])
 
   const estimate = result ? estimateFromPanels(result.panels) : null
-  const price = result ? cabinetPrice(result.hardware, result.labor, dailyRateEur, result.panels, sheets) : null
-  const screwUnit = fastenerUnitPriceEur(SCREW_5X60)
+  const price = result ? cabinetPrice(result.hardware, result.labor, dailyRateEur, result.panels, sheets, settings) : null
+  const screwUnit = fastenerUnitPriceEur({ ...SCREW_5X60, packPriceEur: settings.screw5x60_500PackEur })
   const pinQty = result ? hardwareQtyById(result.hardware, SHELF_PIN.id) : 0
   const hourly = hourlyRateEur(dailyRateEur)
   const error = validate(params)
@@ -202,7 +215,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
           <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
             {shelfCount === 0
               ? 'Без рафт'
-              : `${shelfCount} ${shelfCount === 1 ? 'рафт' : 'рафта'} · равни празнини · ${shelfCount * SHELF_PINS_PER_SHELF} рафтоносача · ${formatEur(SHELF_PIN.unitPriceEur)}/бр. · дълбочина ${params.depth - DEFAULT_SHELF_FRONT_INSET} мм`}
+              : `${shelfCount} ${shelfCount === 1 ? 'рафт' : 'рафта'} · равни празнини · ${shelfCount * SHELF_PINS_PER_SHELF} рафтоносача · ${formatEur(settings.shelfPinEur)}/бр. · дълбочина ${params.depth - DEFAULT_SHELF_FRONT_INSET} мм`}
           </p>
         </div>
 
@@ -282,6 +295,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
             </div>
 
             {drawerFrontHeight && parseInt(drawerFrontHeight, 10) > 0 && (
+              <>
               <div>
                 <Label>Рязане</Label>
                 <div className="mt-1 flex gap-2">
@@ -308,6 +322,72 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                     : 'Челото и вратата се режат отделно.'}
                 </p>
               </div>
+
+              <div>
+                <Label>Водачи</Label>
+                <div className="mt-1 flex flex-wrap gap-2">
+                  {(['roller', 'soft-full', 'soft-partial'] as const).map((kind) => (
+                    <Button
+                      key={kind}
+                      type="button"
+                      size="sm"
+                      variant={slideKind === kind ? 'default' : 'outline'}
+                      onClick={() => {
+                        setSlideKind(kind)
+                        const next = eligibleSlideLengths(params.depth, kind)
+                        if (!next.includes(slideLength)) setSlideLength(next[next.length - 1] ?? next[0])
+                      }}
+                    >
+                      {kind === 'roller' ? 'Ролкови' : kind === 'soft-full' ? 'Плавно пълно' : 'Плавно частично'}
+                    </Button>
+                  ))}
+                </div>
+                <p className="mt-2 text-xs text-[var(--color-muted-foreground)]">Дължина</p>
+                <div className="mt-1 flex flex-wrap gap-2">
+                  {eligibleSlideLengths(params.depth, slideKind).map((len) => (
+                    <Button
+                      key={len}
+                      type="button"
+                      size="sm"
+                      variant={params.slideLength === len ? 'default' : 'outline'}
+                      onClick={() => setSlideLength(len)}
+                    >
+                      {len}
+                    </Button>
+                  ))}
+                </div>
+                <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
+                  {SLIDE_KIND_LABEL[params.slideKind]} · {params.slideLength} мм · {SLIDES_PER_DRAWER} бр. ×{' '}
+                  {formatEur(slideUnitPriceEur(params.slideKind, params.slideLength, settings))} ={' '}
+                  <strong>
+                    {formatEur(slideUnitPriceEur(params.slideKind, params.slideLength, settings) * SLIDES_PER_DRAWER)}
+                  </strong>
+                  {eligibleSlideLengths(params.depth, slideKind).length === 0
+                    ? ' · няма водач, който да влезе в тази дълбочина'
+                    : ` · влиза в корпус ${params.depth} мм`}
+                  {params.slideKind === 'roller'
+                    ? ' · 3 винтчета 3.5×16 на водач'
+                    : ' · 3 винтчета 3.5×16 + 4 за перките на водач'}
+                </p>
+                {(() => {
+                  const box = drawerBoxRails(
+                    params.width,
+                    params.thickness,
+                    parseInt(drawerFrontHeight, 10) || 0,
+                    params.slideLength,
+                    isSoftCloseSlide(params.slideKind),
+                  )
+                  if (!box) return null
+                  return (
+                    <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
+                      Царги: вътрешни {Math.round(box.inner.width)}×{Math.round(box.inner.height)} мм (2 бр.) · външни{' '}
+                      {Math.round(box.outer.width)}×{Math.round(box.outer.height)} мм (2 бр.) · кутия {Math.round(box.drawerOuterW)} мм
+                      {isSoftCloseSlide(params.slideKind) ? ' · 5 мм луфт от страна' : ' · 12.5 мм луфт от страна'}
+                    </p>
+                  )
+                })()}
+              </div>
+              </>
             )}
           </>
         )}
@@ -358,39 +438,55 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
         {result && estimate && (
           <div className="space-y-3">
             <div className="overflow-x-auto rounded-md border border-[var(--color-border)]">
-              <table className="w-full text-sm">
+              <table className="w-full border-separate border-spacing-0 text-sm">
                 <thead>
-                  <tr className="border-b border-[var(--color-border)] text-left text-xs text-[var(--color-muted-foreground)]">
-                    <th className="px-3 py-2">Детайл</th>
-                    <th className="px-3 py-2">Размер</th>
-                    <th className="px-3 py-2">Бр.</th>
-                    <th className="px-3 py-2">Кант</th>
+                  <tr className="text-left text-xs text-[var(--color-muted-foreground)]">
+                    <th className="border-b border-[var(--color-border)] px-3 py-2">Детайл</th>
+                    <th className="border-b border-[var(--color-border)] px-3 py-2">Размер</th>
+                    <th className="border-b border-[var(--color-border)] px-3 py-2">Бр.</th>
+                    <th className="border-b border-[var(--color-border)] px-3 py-2">Кант</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {result.panels.map((panel, idx) => (
-                    <tr 
-                      key={`${panel.role}-${idx}`} 
-                      className={cn(
-                        "border-b border-[var(--color-border)]/50",
-                        panel.highlightColor === 'red' && "bg-red-50 border-l-4 border-l-red-500"
-                      )}
+                  {result.panels.map((panel, idx) => {
+                    const isRed = panel.highlightColor === 'red'
+                    const prevRed = idx > 0 && result.panels[idx - 1].highlightColor === 'red'
+                    const nextRed = idx < result.panels.length - 1 && result.panels[idx + 1].highlightColor === 'red'
+                    const isGroupStart = isRed && !prevRed
+                    const isGroupEnd = isRed && !nextRed
+                    const groupEdge = (side: 'first' | 'mid' | 'last') =>
+                      cn(
+                        !isRed && 'border-b border-[var(--color-border)]/50',
+                        isRed && '!border-red-500',
+                        isRed && side === 'first' && 'border-l-2',
+                        isRed && side === 'last' && 'border-r-2',
+                        isGroupStart && 'border-t-2',
+                        isGroupEnd && 'border-b-2',
+                      )
+                    return (
+                    <tr
+                      key={`${panel.role}-${idx}`}
+                      className={cn(isRed && 'text-red-400')}
                     >
-                      <td className={cn(
-                        "px-3 py-2 font-medium",
-                        panel.highlightColor === 'red' && "text-red-700"
-                      )}>
+                      <td className={cn('px-3 py-2 font-medium', groupEdge('first'))}>
                         {panel.name}
                       </td>
-                      <td className="px-3 py-2 tabular-nums">
+                      <td className={cn('px-3 py-2 tabular-nums', groupEdge('mid'))}>
                         {panel.width} × {panel.height} мм
                       </td>
-                      <td className="px-3 py-2">{panel.quantity}</td>
-                      <td className="px-3 py-2 text-xs text-[var(--color-muted-foreground)]">
+                      <td className={cn('px-3 py-2', groupEdge('mid'))}>
+                        {panel.quantity}
+                      </td>
+                      <td className={cn(
+                        'px-3 py-2 text-xs',
+                        isRed ? 'text-red-400/70' : 'text-[var(--color-muted-foreground)]',
+                        groupEdge('last'),
+                      )}>
                         {panel.note}
                       </td>
                     </tr>
-                  ))}
+                    )
+                  })}
                 </tbody>
               </table>
             </div>
@@ -454,12 +550,12 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
             {price && (
               <div className="flex flex-wrap items-baseline gap-3 rounded-md bg-[var(--color-secondary)] px-3 py-2 text-sm">
                 <span>
-                  Винтове {SCREW_5X60.name}: кутия {SCREW_5X60.packQty} бр. = {formatEur(SCREW_5X60.packPriceEur)}{' '}
+                  Винтове {SCREW_5X60.name}: кутия {SCREW_5X60.packQty} бр. = {formatEur(settings.screw5x60_500PackEur)}{' '}
                   · {formatEur(screwUnit, 3)}/бр.
                 </span>
                 {pinQty > 0 && (
                   <span>
-                    {SHELF_PIN.name}: {pinQty} бр. · {formatEur(SHELF_PIN.unitPriceEur)}/бр.
+                    {SHELF_PIN.name}: {pinQty} бр. · {formatEur(settings.shelfPinEur)}/бр.
                   </span>
                 )}
                 <span>
@@ -471,7 +567,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                   </span>
                 )}
                 <span>
-                  Кант ({formatEur(EDGE_PRICE_MM2_EUR, 2)}/м дебел, {formatEur(EDGE_PRICE_MM05_EUR, 2)}/м
+                  Кант ({formatEur(settings.edgeMm2Eur, 2)}/м дебел, {formatEur(settings.edgeMm05Eur, 2)}/м
                   обикновен): <strong>{formatEur(price.edgeEur)}</strong>
                 </span>
                 <span>

@@ -375,6 +375,7 @@ function App() {
           cabinets={cabinets}
           sheets={sheets}
           dailyRateEur={dailyRateEur}
+          settings={settings}
           onDailyRateChange={setDailyRateEur}
           applyAdd={handleAddCabinet}
           applyUpdate={handleUpdateCabinet}

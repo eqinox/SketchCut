@@ -7,6 +7,9 @@ import { CabinetDialog } from '@/components/CabinetDialog'
 import {
   WORK_HOURS_PER_DAY,
   SCREW_5X60,
+  SCREW_4X16,
+  SCREW_4X20,
+  SCREW_35X16,
   SHELF_PIN,
   cabinetPrice,
   formatEur,
@@ -20,12 +23,15 @@ import {
   scaleCabinetResult,
   type CabinetInstance,
 } from '@/lib/cabinets'
+import type { HardwareSettings } from '@/lib/settings'
+import { DEFAULT_HARDWARE_SETTINGS } from '@/lib/settings'
 import type { Sheet } from '@/types'
 
 interface CabinetsPanelProps {
   cabinets: CabinetInstance[]
   sheets: Sheet[]
   dailyRateEur: number
+  settings?: HardwareSettings
   onDailyRateChange: (value: number) => void
   applyAdd: (input: { typeId: string; params: Record<string, unknown>; quantity: number }) => void
   applyUpdate: (
@@ -39,6 +45,7 @@ export function CabinetsPanel({
   cabinets,
   sheets,
   dailyRateEur,
+  settings = DEFAULT_HARDWARE_SETTINGS,
   onDailyRateChange,
   applyAdd,
   applyUpdate,
@@ -50,12 +57,12 @@ export function CabinetsPanel({
   const hourly = hourlyRateEur(dailyRateEur)
   const priced = cabinets.flatMap((c) => {
     try {
-      const result = scaleCabinetResult(generateCabinet(c.typeId, c.params), c.quantity)
+      const result = scaleCabinetResult(generateCabinet(c.typeId, c.params, settings), c.quantity)
       return [
         {
           cabinet: c,
           result,
-          price: cabinetPrice(result.hardware, result.labor, dailyRateEur, result.panels, sheets),
+          price: cabinetPrice(result.hardware, result.labor, dailyRateEur, result.panels, sheets, settings),
         },
       ]
     } catch {
@@ -76,6 +83,8 @@ export function CabinetsPanel({
   const screwCost = priced.reduce((s, row) => s + hardwareCostById(row.result.hardware, SCREW_5X60.id), 0)
   const pinQty = priced.reduce((s, row) => s + hardwareQtyById(row.result.hardware, SHELF_PIN.id), 0)
   const pinCost = priced.reduce((s, row) => s + hardwareCostById(row.result.hardware, SHELF_PIN.id), 0)
+  const qtyOf = (id: string) => priced.reduce((s, row) => s + hardwareQtyById(row.result.hardware, id), 0)
+  const costOf = (id: string) => priced.reduce((s, row) => s + hardwareCostById(row.result.hardware, id), 0)
 
   const openAdd = () => {
     setEditing(null)
@@ -171,6 +180,7 @@ export function CabinetsPanel({
                         : ''}
                       {p.hasBack ? ' · фазер' : ''}
                       {p.doorCount === 1 ? ' · 1 врата' : p.doorCount === 2 ? ' · 2 врати' : ''}
+                      {p.drawerFrontHeight > 0 ? ` · чекмедже · водачи ${p.slideLength}` : ''}
                     </p>
                   </div>
                   <div className="flex shrink-0 items-center gap-1">
@@ -194,15 +204,33 @@ export function CabinetsPanel({
             <p>
               Винтове {SCREW_5X60.name}: <strong>{screwQty} бр.</strong>
               {' · '}
-              кутия {SCREW_5X60.packQty} бр. = {formatEur(SCREW_5X60.packPriceEur)}
+              кутия {SCREW_5X60.packQty} бр. = {formatEur(settings.screw5x60_500PackEur)}
               {' · '}
               {formatEur(screwCost)}
             </p>
+            {qtyOf(SCREW_4X16.id) > 0 && (
+              <p>
+                {SCREW_4X16.name}: <strong>{qtyOf(SCREW_4X16.id)} бр.</strong>
+                {' · '}
+                {formatEur(costOf(SCREW_4X16.id))}
+                {' · '}
+                {SCREW_4X20.name}: <strong>{qtyOf(SCREW_4X20.id)} бр.</strong>
+                {' · '}
+                {formatEur(costOf(SCREW_4X20.id))}
+              </p>
+            )}
+            {qtyOf(SCREW_35X16.id) > 0 && (
+              <p>
+                {SCREW_35X16.name}: <strong>{qtyOf(SCREW_35X16.id)} бр.</strong>
+                {' · '}
+                {formatEur(costOf(SCREW_35X16.id))}
+              </p>
+            )}
             {pinQty > 0 && (
               <p>
                 {SHELF_PIN.name}: <strong>{pinQty} бр.</strong>
                 {' · '}
-                {formatEur(SHELF_PIN.unitPriceEur, 2)}/бр.
+                {formatEur(settings.shelfPinEur, 2)}/бр.
                 {' · '}
                 {formatEur(pinCost)}
               </p>
@@ -239,6 +267,7 @@ export function CabinetsPanel({
         editing={editing}
         sheets={sheets}
         dailyRateEur={dailyRateEur}
+        settings={settings}
         onSave={(input) => {
           if (editing) applyUpdate(editing.id, input)
           else applyAdd(input)

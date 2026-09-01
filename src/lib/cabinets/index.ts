@@ -37,19 +37,42 @@ export {
 export type { CabinetPrice } from './estimate'
 export {
   SCREW_5X60,
+  SCREW_4X16,
+  SCREW_4X20,
+  SCREW_35X16,
   SHELF_PIN,
   SHELF_PINS_PER_SHELF,
   FASTENERS,
   KITCHEN_BASE_SCREWS_BOTTOM,
   KITCHEN_BASE_SCREWS_RAILS,
   KITCHEN_BASE_SCREWS_TOTAL,
+  HINGES_PER_SMALL_DOOR,
+  SLIDES_PER_DRAWER,
+  SCREWS_4X16_PER_HINGE,
+  SCREWS_4X20_PER_HINGE,
+  SCREWS_35X16_PER_SLIDE,
+  SCREWS_35X16_PER_SLIDE_WING,
+  isSoftCloseSlide,
+  screws35x16PerSlide,
+  SLIDE_KIND_LABEL,
+  SLIDE_KIND_SHORT,
+  SLIDE_LENGTHS,
+  ALL_SLIDE_LENGTHS,
   fastenerUnitPriceEur,
   fastenerLine,
   pricedLine,
   hardwareCostEur,
   hardwareQtyById,
   hardwareCostById,
+  parseSlideKind,
+  parseSlideLength,
+  eligibleSlideLengths,
+  defaultSlideLength,
+  slideUnitPriceEur,
+  slideId,
+  slideName,
 } from './hardware'
+export type { SlideKind } from './hardware'
 export {
   DEFAULT_CHIPBOARD_PRICE_EUR,
   DEFAULT_CHIPBOARD_WIDTH,
@@ -66,6 +89,11 @@ export {
   DOOR_CLEARANCE_BOTTOM,
   DOOR_GAP_X,
   DRAWER_DOOR_GAP,
+  DRAWER_RAIL_BELOW_FRONT,
+  ROLLER_SLIDE_SIDE_GAP,
+  SOFT_SLIDE_SIDE_GAP,
+  SOFT_SLIDE_OUTER_RAIL_SHORTEN,
+  SOFT_INNER_RAIL_HEIGHT_DROP,
   DOOR_EDGE_BOTH,
   sheetKind,
   partKind,
@@ -77,17 +105,20 @@ export {
   doorCutSize,
   drawerFrontCutSize,
   doorWithDrawerCutSize,
+  drawerBoxRails,
   parseDoorCount,
   boardKindLabel,
   createHardboardSheet,
 } from './materials'
-export type { BoardKind, DoorCount } from './materials'
+export type { BoardKind, DoorCount, DrawerBoxRails } from './materials'
 export {
   addCabinetAndLabel,
   updateCabinetAndLabel,
   removeCabinetAndLabel,
   type CabinetState,
 } from './apply'
+export { createDrawCam, Board, BETWEEN_FACES, SIDE_LEFT_BODY, SIDE_LEFT_TOP, SIDE_RIGHT, BOX_FACES } from './draw-3d'
+export type { DrawCam, DrawFaces } from './draw-3d'
 export type { CabinetPartColors, CabinetPartColorKey } from './colors'
 export {
   DEFAULT_PART_COLORS,
