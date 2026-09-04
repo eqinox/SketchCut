@@ -524,9 +524,10 @@ export function generateKitchenBase(
     assemblyMinutes += assemblyTimeSettings.installDrawerGuidesMinutes
   }
   
-  // Add time for installing drawer front
-  if (drawerCount > 0) {
-    // This is already included in calculateDrawerAssemblyTime
+  // Add time for door installation (use the doorCount variable already defined above)
+  if (doorCount > 0) {
+    // Time per door includes: cleaning, measuring, drilling for hinges, installing
+    assemblyMinutes += doorCount * assemblyTimeSettings.installDoorMinutes
   }
 
   return {

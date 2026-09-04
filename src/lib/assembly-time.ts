@@ -41,6 +41,9 @@ export interface AssemblyTimeSettings {
   
   /** Time to install drawer front - drilling, attaching, adjusting gaps (minutes) */
   installDrawerFrontMinutes: number
+  
+  /** Time to install one door - cleaning, measuring, drilling for hinges, installing (minutes) */
+  installDoorMinutes: number
 }
 
 export const DEFAULT_ASSEMBLY_TIME_SETTINGS: AssemblyTimeSettings = {
@@ -58,6 +61,7 @@ export const DEFAULT_ASSEMBLY_TIME_SETTINGS: AssemblyTimeSettings = {
   attachDrawerBackMinutes: 4,
   attachDrawerRunnersMinutes: 4,
   installDrawerFrontMinutes: 15,
+  installDoorMinutes: 15,
 }
 
 const ASSEMBLY_TIME_SETTINGS_KEY = 'sketchcut-assembly-time-settings'
@@ -91,6 +95,7 @@ export function parseAssemblyTimeSettings(raw: unknown): AssemblyTimeSettings {
     attachDrawerBackMinutes: numPositive(src, 'attachDrawerBackMinutes', d.attachDrawerBackMinutes),
     attachDrawerRunnersMinutes: numPositive(src, 'attachDrawerRunnersMinutes', d.attachDrawerRunnersMinutes),
     installDrawerFrontMinutes: numPositive(src, 'installDrawerFrontMinutes', d.installDrawerFrontMinutes),
+    installDoorMinutes: numPositive(src, 'installDoorMinutes', d.installDoorMinutes),
   }
 }
 

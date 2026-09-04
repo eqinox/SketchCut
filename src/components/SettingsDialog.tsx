@@ -77,6 +77,7 @@ export function SettingsDialog({
   const [drawerBack, setDrawerBack] = useState('')
   const [drawerRunners, setDrawerRunners] = useState('')
   const [drawerFront, setDrawerFront] = useState('')
+  const [installDoor, setInstallDoor] = useState('')
 
   const applySettings = (s: HardwareSettings) => {
     setHingeSoftClose(String(s.hingeSoftCloseEur))
@@ -105,6 +106,7 @@ export function SettingsDialog({
     setDrawerBack(String(s.attachDrawerBackMinutes))
     setDrawerRunners(String(s.attachDrawerRunnersMinutes))
     setDrawerFront(String(s.installDrawerFrontMinutes))
+    setInstallDoor(String(s.installDoorMinutes))
   }
 
   useEffect(() => {
@@ -153,6 +155,7 @@ export function SettingsDialog({
       attachDrawerBackMinutes: parseFloat(drawerBack) || DEFAULT_ASSEMBLY_TIME_SETTINGS.attachDrawerBackMinutes,
       attachDrawerRunnersMinutes: parseFloat(drawerRunners) || DEFAULT_ASSEMBLY_TIME_SETTINGS.attachDrawerRunnersMinutes,
       installDrawerFrontMinutes: parseFloat(drawerFront) || DEFAULT_ASSEMBLY_TIME_SETTINGS.installDrawerFrontMinutes,
+      installDoorMinutes: parseFloat(installDoor) || DEFAULT_ASSEMBLY_TIME_SETTINGS.installDoorMinutes,
     })
     onOpenChange(false)
   }
@@ -542,6 +545,26 @@ export function SettingsDialog({
                     (parseFloat(drawerFront) || 0)
                   ).toFixed(1)} минути
                 </p>
+              </div>
+
+              <div className="rounded-md border border-[var(--color-border)] p-4">
+                <h3 className="mb-3 font-medium">Слагане на врата</h3>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <Label htmlFor="install-door">Слагане на 1 врата (минути)</Label>
+                    <Input
+                      id="install-door"
+                      type="number"
+                      step="0.5"
+                      min="0"
+                      value={installDoor}
+                      onChange={(e) => setInstallDoor(e.target.value)}
+                    />
+                    <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
+                      Включва изчистване, взимане на ръбове, пробиване за панти и слагане
+                    </p>
+                  </div>
+                </div>
               </div>
             </div>
 
