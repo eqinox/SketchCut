@@ -25,13 +25,15 @@ import {
 } from '@/lib/cabinets'
 import type { HardwareSettings } from '@/lib/settings'
 import { DEFAULT_HARDWARE_SETTINGS } from '@/lib/settings'
+import type { AssemblyTimeSettings } from '@/lib/assembly-time'
+import { DEFAULT_ASSEMBLY_TIME_SETTINGS } from '@/lib/assembly-time'
 import type { Sheet } from '@/types'
 
 interface CabinetsPanelProps {
   cabinets: CabinetInstance[]
   sheets: Sheet[]
   dailyRateEur: number
-  settings?: HardwareSettings
+  settings?: { hardware: HardwareSettings; assemblyTime: AssemblyTimeSettings }
   onDailyRateChange: (value: number) => void
   applyAdd: (input: { typeId: string; params: Record<string, unknown>; quantity: number }) => void
   applyUpdate: (
@@ -45,7 +47,7 @@ export function CabinetsPanel({
   cabinets,
   sheets,
   dailyRateEur,
-  settings = DEFAULT_HARDWARE_SETTINGS,
+  settings = { hardware: DEFAULT_HARDWARE_SETTINGS, assemblyTime: DEFAULT_ASSEMBLY_TIME_SETTINGS },
   onDailyRateChange,
   applyAdd,
   applyUpdate,
@@ -62,7 +64,7 @@ export function CabinetsPanel({
         {
           cabinet: c,
           result,
-          price: cabinetPrice(result.hardware, result.labor, dailyRateEur, result.panels, sheets, settings),
+          price: cabinetPrice(result.hardware, result.labor, dailyRateEur, result.panels, sheets, settings.hardware),
         },
       ]
     } catch {
@@ -208,7 +210,7 @@ export function CabinetsPanel({
             <p>
               Винтове {SCREW_5X60.name}: <strong>{screwQty} бр.</strong>
               {' · '}
-              кутия {SCREW_5X60.packQty} бр. = {formatEur(settings.screw5x60_500PackEur)}
+              кутия {SCREW_5X60.packQty} бр. = {formatEur(settings.hardware.screw5x60_500PackEur)}
               {' · '}
               {formatEur(screwCost)}
             </p>
@@ -234,7 +236,7 @@ export function CabinetsPanel({
               <p>
                 {SHELF_PIN.name}: <strong>{pinQty} бр.</strong>
                 {' · '}
-                {formatEur(settings.shelfPinEur, 2)}/бр.
+                {formatEur(settings.hardware.shelfPinEur, 2)}/бр.
                 {' · '}
                 {formatEur(pinCost)}
               </p>

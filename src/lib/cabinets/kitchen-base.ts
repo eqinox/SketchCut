@@ -57,6 +57,12 @@ import {
 } from './types'
 import type { HardwareSettings } from '@/lib/settings'
 import { DEFAULT_HARDWARE_SETTINGS } from '@/lib/settings'
+import {
+  calculatePanelEdgeBandingTime,
+  calculateDrawerAssemblyTime,
+  type AssemblyTimeSettings,
+} from '@/lib/assembly-time'
+import { DEFAULT_ASSEMBLY_TIME_SETTINGS } from '@/lib/assembly-time'
 
 export const KITCHEN_BASE_TYPE_ID = 'kitchen-base'
 
@@ -114,7 +120,8 @@ export function generateKitchenBase(
   raw: Record<string, unknown>,
   settings?: unknown,
 ): CabinetGeneratorResult {
-  const hardwareSettings = (settings as HardwareSettings | undefined) ?? DEFAULT_HARDWARE_SETTINGS
+  const hardwareSettings = (settings as { hardware?: HardwareSettings; assemblyTime?: AssemblyTimeSettings })?.hardware ?? DEFAULT_HARDWARE_SETTINGS
+  const assemblyTimeSettings = (settings as { hardware?: HardwareSettings; assemblyTime?: AssemblyTimeSettings })?.assemblyTime ?? DEFAULT_ASSEMBLY_TIME_SETTINGS
   const p = parseKitchenBaseParams(raw)
   const m = measureCarcass(
     { width: p.width, height: p.height, depth: p.depth, thickness: p.thickness },
@@ -482,9 +489,52 @@ export function generateKitchenBase(
     }
   }
 
+  // Calculate assembly time
+  let assemblyMinutes = 0
+  
+  // Add time for installing legs (if has legs)
+  if (p.legHeight > 0) {
+    assemblyMinutes += assemblyTimeSettings.installLegsMinutes
+  }
+  
+  // Add time for assembling sides
+  assemblyMinutes += assemblyTimeSettings.assembleSidesMinutes
+  
+  // Add time for assembling top rails
+  assemblyMinutes += assemblyTimeSettings.assembleTopRailsMinutes
+  
+  // Add time for edge banding processing (chiseling and sanding) for all panels
+  for (const panel of panels) {
+    if (panel.excludeFromCutting) continue
+    const edgeTime = calculatePanelEdgeBandingTime(
+      panel.width,
+      panel.height,
+      panel.edges,
+      panel.quantity,
+      assemblyTimeSettings.edgeBanding,
+    )
+    assemblyMinutes += edgeTime
+  }
+  
+  // Add time for drawer assembly if there's a drawer
+  const drawerCount = p.drawerFrontHeight > 0 ? 1 : 0
+  if (drawerCount > 0) {
+    assemblyMinutes += calculateDrawerAssemblyTime(drawerCount, assemblyTimeSettings)
+    // Also add time for installing guides on the sides
+    assemblyMinutes += assemblyTimeSettings.installDrawerGuidesMinutes
+  }
+  
+  // Add time for installing drawer front
+  if (drawerCount > 0) {
+    // This is already included in calculateDrawerAssemblyTime
+  }
+
   return {
     joinery: KITCHEN_BASE_JOINERY,
-    labor: emptyLabor(),
+    labor: {
+      ...emptyLabor(),
+      assemblyMinutes: Math.round(assemblyMinutes * 10) / 10,
+    },
     hardware,
     notes,
     panels,

@@ -11,6 +11,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   ALL_SLIDE_LENGTHS,
   SLIDE_LENGTHS,
@@ -21,6 +22,10 @@ import {
   type HardwareSettings,
   type PriceByLength,
 } from '@/lib/settings'
+import {
+  DEFAULT_ASSEMBLY_TIME_SETTINGS,
+  type AssemblyTimeSettings,
+} from '@/lib/assembly-time'
 
 interface SettingsDialogProps {
   open: boolean
@@ -28,6 +33,9 @@ interface SettingsDialogProps {
   settings: HardwareSettings
   onSave: (settings: HardwareSettings) => void
   onReset: () => HardwareSettings
+  assemblyTimeSettings: AssemblyTimeSettings
+  onSaveAssemblyTime: (settings: AssemblyTimeSettings) => void
+  onResetAssemblyTime: () => AssemblyTimeSettings
 }
 
 function packUnit(packEur: string, packQty: number): number {
@@ -40,6 +48,9 @@ export function SettingsDialog({
   settings,
   onSave,
   onReset,
+  assemblyTimeSettings,
+  onSaveAssemblyTime,
+  onResetAssemblyTime,
 }: SettingsDialogProps) {
   const [hingeSoftClose, setHingeSoftClose] = useState('')
   const [hingeNormal, setHingeNormal] = useState('')
@@ -52,6 +63,20 @@ export function SettingsDialog({
   const [slideRoller, setSlideRoller] = useState<PriceByLength>({})
   const [slideSoftFull, setSlideSoftFull] = useState<PriceByLength>({})
   const [slideSoftPartial, setSlideSoftPartial] = useState<PriceByLength>({})
+  
+  // Assembly time settings state
+  const [edgeUpTo50, setEdgeUpTo50] = useState('')
+  const [edgeUpTo100, setEdgeUpTo100] = useState('')
+  const [edgeUpTo150, setEdgeUpTo150] = useState('')
+  const [edgeAdditional, setEdgeAdditional] = useState('')
+  const [installLegs, setInstallLegs] = useState('')
+  const [assembleSides, setAssembleSides] = useState('')
+  const [assembleRails, setAssembleRails] = useState('')
+  const [drawerGuides, setDrawerGuides] = useState('')
+  const [drawerBox, setDrawerBox] = useState('')
+  const [drawerBack, setDrawerBack] = useState('')
+  const [drawerRunners, setDrawerRunners] = useState('')
+  const [drawerFront, setDrawerFront] = useState('')
 
   const applySettings = (s: HardwareSettings) => {
     setHingeSoftClose(String(s.hingeSoftCloseEur))
@@ -66,10 +91,28 @@ export function SettingsDialog({
     setSlideSoftFull({ ...s.slideSoftFullEur })
     setSlideSoftPartial({ ...s.slideSoftPartialEur })
   }
+  
+  const applyAssemblyTimeSettings = (s: AssemblyTimeSettings) => {
+    setEdgeUpTo50(String(s.edgeBanding.thinEdgeUpTo50cm))
+    setEdgeUpTo100(String(s.edgeBanding.thinEdgeUpTo100cm))
+    setEdgeUpTo150(String(s.edgeBanding.thinEdgeUpTo150cm))
+    setEdgeAdditional(String(s.edgeBanding.thinEdgeAdditionalPer50cm))
+    setInstallLegs(String(s.installLegsMinutes))
+    setAssembleSides(String(s.assembleSidesMinutes))
+    setAssembleRails(String(s.assembleTopRailsMinutes))
+    setDrawerGuides(String(s.installDrawerGuidesMinutes))
+    setDrawerBox(String(s.assembleDrawerBoxMinutes))
+    setDrawerBack(String(s.attachDrawerBackMinutes))
+    setDrawerRunners(String(s.attachDrawerRunnersMinutes))
+    setDrawerFront(String(s.installDrawerFrontMinutes))
+  }
 
   useEffect(() => {
-    if (open) applySettings(settings)
-  }, [open])
+    if (open) {
+      applySettings(settings)
+      applyAssemblyTimeSettings(assemblyTimeSettings)
+    }
+  }, [open, settings, assemblyTimeSettings])
 
   const handleSave = () => {
     onSave({
@@ -92,6 +135,31 @@ export function SettingsDialog({
   const handleReset = () => {
     applySettings(onReset())
   }
+  
+  const handleSaveAssemblyTime = () => {
+    onSaveAssemblyTime({
+      ...DEFAULT_ASSEMBLY_TIME_SETTINGS,
+      edgeBanding: {
+        thinEdgeUpTo50cm: parseFloat(edgeUpTo50) || DEFAULT_ASSEMBLY_TIME_SETTINGS.edgeBanding.thinEdgeUpTo50cm,
+        thinEdgeUpTo100cm: parseFloat(edgeUpTo100) || DEFAULT_ASSEMBLY_TIME_SETTINGS.edgeBanding.thinEdgeUpTo100cm,
+        thinEdgeUpTo150cm: parseFloat(edgeUpTo150) || DEFAULT_ASSEMBLY_TIME_SETTINGS.edgeBanding.thinEdgeUpTo150cm,
+        thinEdgeAdditionalPer50cm: parseFloat(edgeAdditional) || DEFAULT_ASSEMBLY_TIME_SETTINGS.edgeBanding.thinEdgeAdditionalPer50cm,
+      },
+      installLegsMinutes: parseFloat(installLegs) || DEFAULT_ASSEMBLY_TIME_SETTINGS.installLegsMinutes,
+      assembleSidesMinutes: parseFloat(assembleSides) || DEFAULT_ASSEMBLY_TIME_SETTINGS.assembleSidesMinutes,
+      assembleTopRailsMinutes: parseFloat(assembleRails) || DEFAULT_ASSEMBLY_TIME_SETTINGS.assembleTopRailsMinutes,
+      installDrawerGuidesMinutes: parseFloat(drawerGuides) || DEFAULT_ASSEMBLY_TIME_SETTINGS.installDrawerGuidesMinutes,
+      assembleDrawerBoxMinutes: parseFloat(drawerBox) || DEFAULT_ASSEMBLY_TIME_SETTINGS.assembleDrawerBoxMinutes,
+      attachDrawerBackMinutes: parseFloat(drawerBack) || DEFAULT_ASSEMBLY_TIME_SETTINGS.attachDrawerBackMinutes,
+      attachDrawerRunnersMinutes: parseFloat(drawerRunners) || DEFAULT_ASSEMBLY_TIME_SETTINGS.attachDrawerRunnersMinutes,
+      installDrawerFrontMinutes: parseFloat(drawerFront) || DEFAULT_ASSEMBLY_TIME_SETTINGS.installDrawerFrontMinutes,
+    })
+    onOpenChange(false)
+  }
+  
+  const handleResetAssemblyTime = () => {
+    applyAssemblyTimeSettings(onResetAssemblyTime())
+  }
 
   const currentHinge = useNormal ? hingeNormal : hingeSoftClose
 
@@ -101,13 +169,20 @@ export function SettingsDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Settings className="h-5 w-5" />
-            Настройки на цени
+            Настройки
           </DialogTitle>
           <DialogDescription>
-            Всички цени се записват локално. После ще се дърпат от базата.
+            Всички настройки се записват локално. После ще се дърпат от базата.
           </DialogDescription>
         </DialogHeader>
 
+        <Tabs defaultValue="prices" className="w-full">
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="prices">Цени</TabsTrigger>
+            <TabsTrigger value="assembly-time">Време за изработка</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="prices" className="space-y-4 mt-4">
         <div className="space-y-4">
           <div className="rounded-md border border-[var(--color-border)] p-4">
             <h3 className="mb-3 font-medium">Панти</h3>
@@ -291,12 +366,195 @@ export function SettingsDialog({
 
         <div className="flex gap-2">
           <Button className="flex-1" onClick={handleSave}>
-            Запази настройките
+            Запази настройките за цени
           </Button>
           <Button variant="outline" onClick={handleReset}>
             Върни стандартните
           </Button>
         </div>
+          </TabsContent>
+
+          <TabsContent value="assembly-time" className="space-y-4 mt-4">
+            <div className="space-y-4">
+              <div className="rounded-md border border-[var(--color-border)] p-4">
+                <h3 className="mb-3 font-medium">Обработка на кантирани страни (тънък кант)</h3>
+                <p className="mb-3 text-xs text-[var(--color-muted-foreground)]">
+                  Време за проходване с длето и шлайфане с шкурка на една кантирана страна.
+                </p>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <Label htmlFor="edge-up-to-50">До 50 см дълъг елемент (секунди)</Label>
+                    <Input
+                      id="edge-up-to-50"
+                      type="number"
+                      step="1"
+                      min="0"
+                      value={edgeUpTo50}
+                      onChange={(e) => setEdgeUpTo50(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="edge-up-to-100">До 1 метър дълъг елемент (секунди)</Label>
+                    <Input
+                      id="edge-up-to-100"
+                      type="number"
+                      step="1"
+                      min="0"
+                      value={edgeUpTo100}
+                      onChange={(e) => setEdgeUpTo100(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="edge-up-to-150">До 1.5 метра дълъг елемент (секунди)</Label>
+                    <Input
+                      id="edge-up-to-150"
+                      type="number"
+                      step="1"
+                      min="0"
+                      value={edgeUpTo150}
+                      onChange={(e) => setEdgeUpTo150(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="edge-additional">Допълнително на всеки 50 см (секунди)</Label>
+                    <Input
+                      id="edge-additional"
+                      type="number"
+                      step="1"
+                      min="0"
+                      value={edgeAdditional}
+                      onChange={(e) => setEdgeAdditional(e.target.value)}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-md border border-[var(--color-border)] p-4">
+                <h3 className="mb-3 font-medium">Сглобяване на корпус</h3>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <Label htmlFor="install-legs">Слагане на 4 крачета на дъното (минути)</Label>
+                    <Input
+                      id="install-legs"
+                      type="number"
+                      step="0.5"
+                      min="0"
+                      value={installLegs}
+                      onChange={(e) => setInstallLegs(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="assemble-sides">Сглобяване на 2 страници (минути)</Label>
+                    <Input
+                      id="assemble-sides"
+                      type="number"
+                      step="0.5"
+                      min="0"
+                      value={assembleSides}
+                      onChange={(e) => setAssembleSides(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="assemble-rails">Сглобяване на 2 цокъла горе (минути)</Label>
+                    <Input
+                      id="assemble-rails"
+                      type="number"
+                      step="0.5"
+                      min="0"
+                      value={assembleRails}
+                      onChange={(e) => setAssembleRails(e.target.value)}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-md border border-[var(--color-border)] p-4">
+                <h3 className="mb-3 font-medium">Сглобяване на чекмедже</h3>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <Label htmlFor="drawer-guides">Слагане на водачи на страниците (мин/водач)</Label>
+                    <Input
+                      id="drawer-guides"
+                      type="number"
+                      step="0.5"
+                      min="0"
+                      value={drawerGuides}
+                      onChange={(e) => setDrawerGuides(e.target.value)}
+                    />
+                    <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
+                      За всеки следващ водач се добавя това време
+                    </p>
+                  </div>
+                  <div>
+                    <Label htmlFor="drawer-box">Сглобяване на кутията на чекмеджето (минути)</Label>
+                    <Input
+                      id="drawer-box"
+                      type="number"
+                      step="0.5"
+                      min="0"
+                      value={drawerBox}
+                      onChange={(e) => setDrawerBox(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="drawer-back">Слагане на гръб на чекмеджето (минути)</Label>
+                    <Input
+                      id="drawer-back"
+                      type="number"
+                      step="0.5"
+                      min="0"
+                      value={drawerBack}
+                      onChange={(e) => setDrawerBack(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="drawer-runners">Слагане на водачите (минути)</Label>
+                    <Input
+                      id="drawer-runners"
+                      type="number"
+                      step="0.5"
+                      min="0"
+                      value={drawerRunners}
+                      onChange={(e) => setDrawerRunners(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="drawer-front">Слагане на чело и регулация (минути)</Label>
+                    <Input
+                      id="drawer-front"
+                      type="number"
+                      step="0.5"
+                      min="0"
+                      value={drawerFront}
+                      onChange={(e) => setDrawerFront(e.target.value)}
+                    />
+                    <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
+                      Включва пробиване на дупки, слагане на челото и регулация на фугите
+                    </p>
+                  </div>
+                </div>
+                <p className="mt-3 text-xs text-[var(--color-muted-foreground)]">
+                  <strong>Общо време за 1 чекмедже:</strong> {' '}
+                  {(
+                    (parseFloat(drawerBox) || 0) +
+                    (parseFloat(drawerBack) || 0) +
+                    (parseFloat(drawerRunners) || 0) +
+                    (parseFloat(drawerFront) || 0)
+                  ).toFixed(1)} минути
+                </p>
+              </div>
+            </div>
+
+            <div className="flex gap-2">
+              <Button className="flex-1" onClick={handleSaveAssemblyTime}>
+                Запази настройките за време
+              </Button>
+              <Button variant="outline" onClick={handleResetAssemblyTime}>
+                Върни стандартните
+              </Button>
+            </div>
+          </TabsContent>
+        </Tabs>
       </DialogContent>
     </Dialog>
   )

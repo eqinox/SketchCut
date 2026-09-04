@@ -26,6 +26,12 @@ import {
 import { subscribeAuth, saveProject, loadProjects, getFirebaseInitError } from '@/lib/firebase'
 import { saveDraft, readInitialDraft, setLastProjectId } from '@/lib/draft-storage'
 import { loadSettings, saveSettings, resetSettings, type HardwareSettings } from '@/lib/settings'
+import {
+  loadAssemblyTimeSettings,
+  saveAssemblyTimeSettings,
+  resetAssemblyTimeSettings,
+  type AssemblyTimeSettings,
+} from '@/lib/assembly-time'
 import { generateId } from '@/lib/utils'
 import { formatFirebaseError } from '@/lib/firebase-errors'
 import { getMissingClientEnvKeys } from '@/lib/env'
@@ -57,6 +63,9 @@ function App() {
   const [savedProjects, setSavedProjects] = useState<SavedProject[]>([])
   const [dbError, setDbError] = useState<DbErrorDetails | null>(null)
   const [settings, setSettings] = useState<HardwareSettings>(loadSettings())
+  const [assemblyTimeSettings, setAssemblyTimeSettings] = useState<AssemblyTimeSettings>(
+    loadAssemblyTimeSettings(),
+  )
 
   const showDbError = useCallback((title: string, message: string, source?: string) => {
     setDbError({ title, message, source })
@@ -281,7 +290,7 @@ function App() {
     params: Record<string, unknown>
     quantity: number
   }) => {
-    const next = addCabinetAndLabel(cabinetState, input, settings)
+    const next = addCabinetAndLabel(cabinetState, input, { hardware: settings, assemblyTime: assemblyTimeSettings })
     setCabinets(next.cabinets)
     setParts(next.parts)
     setEdgeBanding(next.edgeBanding)
@@ -293,7 +302,7 @@ function App() {
     cabinetId: string,
     input: { typeId: string; params: Record<string, unknown>; quantity: number },
   ) => {
-    const next = updateCabinetAndLabel(cabinetState, cabinetId, input, settings)
+    const next = updateCabinetAndLabel(cabinetState, cabinetId, input, { hardware: settings, assemblyTime: assemblyTimeSettings })
     setCabinets(next.cabinets)
     setParts(next.parts)
     setEdgeBanding(next.edgeBanding)
@@ -302,7 +311,7 @@ function App() {
   }
 
   const handleRemoveCabinet = (cabinetId: string) => {
-    const next = removeCabinetAndLabel(cabinetState, cabinetId, settings)
+    const next = removeCabinetAndLabel(cabinetState, cabinetId, { hardware: settings, assemblyTime: assemblyTimeSettings })
     setCabinets(next.cabinets)
     setParts(next.parts)
     setEdgeBanding(next.edgeBanding)
@@ -318,6 +327,19 @@ function App() {
   const handleResetSettings = () => {
     const defaults = resetSettings()
     setSettings(defaults)
+    resetPacking()
+    return defaults
+  }
+
+  const handleSaveAssemblyTimeSettings = (newSettings: AssemblyTimeSettings) => {
+    setAssemblyTimeSettings(newSettings)
+    saveAssemblyTimeSettings(newSettings)
+    resetPacking()
+  }
+
+  const handleResetAssemblyTimeSettings = () => {
+    const defaults = resetAssemblyTimeSettings()
+    setAssemblyTimeSettings(defaults)
     resetPacking()
     return defaults
   }
@@ -375,7 +397,7 @@ function App() {
           cabinets={cabinets}
           sheets={sheets}
           dailyRateEur={dailyRateEur}
-          settings={settings}
+          settings={{ hardware: settings, assemblyTime: assemblyTimeSettings }}
           onDailyRateChange={setDailyRateEur}
           applyAdd={handleAddCabinet}
           applyUpdate={handleUpdateCabinet}
@@ -458,6 +480,9 @@ function App() {
         settings={settings}
         onSave={handleSaveSettings}
         onReset={handleResetSettings}
+        assemblyTimeSettings={assemblyTimeSettings}
+        onSaveAssemblyTime={handleSaveAssemblyTimeSettings}
+        onResetAssemblyTime={handleResetAssemblyTimeSettings}
       />
 
       <AuthDialog open={authOpen} onOpenChange={setAuthOpen} user={user} />

@@ -51,6 +51,8 @@ import {
 } from '@/lib/cabinets'
 import type { HardwareSettings } from '@/lib/settings'
 import { DEFAULT_HARDWARE_SETTINGS } from '@/lib/settings'
+import type { AssemblyTimeSettings } from '@/lib/assembly-time'
+import { DEFAULT_ASSEMBLY_TIME_SETTINGS } from '@/lib/assembly-time'
 import type { Sheet } from '@/types'
 import { cn, formatMeters } from '@/lib/utils'
 
@@ -60,11 +62,11 @@ interface CabinetDialogProps {
   editing?: CabinetInstance | null
   sheets: Sheet[]
   dailyRateEur: number
-  settings?: HardwareSettings
+  settings?: { hardware: HardwareSettings; assemblyTime: AssemblyTimeSettings }
   onSave: (input: { typeId: string; params: Record<string, unknown>; quantity: number }) => void
 }
 
-export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEur, settings = DEFAULT_HARDWARE_SETTINGS, onSave }: CabinetDialogProps) {
+export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEur, settings = { hardware: DEFAULT_HARDWARE_SETTINGS, assemblyTime: DEFAULT_ASSEMBLY_TIME_SETTINGS }, onSave }: CabinetDialogProps) {
   const isEdit = !!editing
   const initial = editing
     ? parseKitchenBaseParams(editing.params)
@@ -128,8 +130,8 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
   }, [typeId, params, qty, settings])
 
   const estimate = result ? estimateFromPanels(result.panels) : null
-  const price = result ? cabinetPrice(result.hardware, result.labor, dailyRateEur, result.panels, sheets, settings) : null
-  const screwUnit = fastenerUnitPriceEur({ ...SCREW_5X60, packPriceEur: settings.screw5x60_500PackEur })
+  const price = result ? cabinetPrice(result.hardware, result.labor, dailyRateEur, result.panels, sheets, settings.hardware) : null
+  const screwUnit = fastenerUnitPriceEur({ ...SCREW_5X60, packPriceEur: settings.hardware.screw5x60_500PackEur })
   const pinQty = result ? hardwareQtyById(result.hardware, SHELF_PIN.id) : 0
   const hourly = hourlyRateEur(dailyRateEur)
   const error = validate(params)
@@ -227,7 +229,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
           <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
             {shelfCount === 0
               ? 'Без рафт'
-              : `${shelfCount} ${shelfCount === 1 ? 'рафт' : 'рафта'} · равни празнини · ${shelfCount * SHELF_PINS_PER_SHELF} рафтоносача · ${formatEur(settings.shelfPinEur)}/бр. · дълбочина ${params.depth - DEFAULT_SHELF_FRONT_INSET} мм`}
+              : `${shelfCount} ${shelfCount === 1 ? 'рафт' : 'рафта'} · равни празнини · ${shelfCount * SHELF_PINS_PER_SHELF} рафтоносача · ${formatEur(settings.hardware.shelfPinEur)}/бр. · дълбочина ${params.depth - DEFAULT_SHELF_FRONT_INSET} мм`}
           </p>
         </div>
 
@@ -601,12 +603,12 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
             {price && (
               <div className="flex flex-wrap items-baseline gap-3 rounded-md bg-[var(--color-secondary)] px-3 py-2 text-sm">
                 <span>
-                  Винтове {SCREW_5X60.name}: кутия {SCREW_5X60.packQty} бр. = {formatEur(settings.screw5x60_500PackEur)}{' '}
+                  Винтове {SCREW_5X60.name}: кутия {SCREW_5X60.packQty} бр. = {formatEur(settings.hardware.screw5x60_500PackEur)}{' '}
                   · {formatEur(screwUnit, 3)}/бр.
                 </span>
                 {pinQty > 0 && (
                   <span>
-                    {SHELF_PIN.name}: {pinQty} бр. · {formatEur(settings.shelfPinEur)}/бр.
+                    {SHELF_PIN.name}: {pinQty} бр. · {formatEur(settings.hardware.shelfPinEur)}/бр.
                   </span>
                 )}
                 <span>
@@ -618,7 +620,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                   </span>
                 )}
                 <span>
-                  Кант ({formatEur(settings.edgeMm2Eur, 2)}/м дебел, {formatEur(settings.edgeMm05Eur, 2)}/м
+                  Кант ({formatEur(settings.hardware.edgeMm2Eur, 2)}/м дебел, {formatEur(settings.hardware.edgeMm05Eur, 2)}/м
                   обикновен): <strong>{formatEur(price.edgeEur)}</strong>
                 </span>
                 <span>
