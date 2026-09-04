@@ -517,7 +517,7 @@ export function generateKitchenBase(
   }
   
   // Add time for drawer assembly if there's a drawer
-  const drawerCount = p.drawerFrontHeight > 0 ? 1 : 0
+  const drawerCount = p.drawerFrontHeights.length
   if (drawerCount > 0) {
     assemblyMinutes += calculateDrawerAssemblyTime(drawerCount, assemblyTimeSettings)
     // Also add time for installing guides on the sides

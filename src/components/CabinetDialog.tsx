@@ -409,10 +409,10 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
             <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
               {SLIDE_KIND_LABEL[params.slideKind]} · {params.slideLength} мм ·{' '}
               {SLIDES_PER_DRAWER * params.drawerFrontHeights.length} бр. ×{' '}
-              {formatEur(slideUnitPriceEur(params.slideKind, params.slideLength, settings))} ={' '}
+              {formatEur(slideUnitPriceEur(params.slideKind, params.slideLength, settings.hardware))} ={' '}
               <strong>
                 {formatEur(
-                  slideUnitPriceEur(params.slideKind, params.slideLength, settings)
+                  slideUnitPriceEur(params.slideKind, params.slideLength, settings.hardware)
                     * SLIDES_PER_DRAWER
                     * params.drawerFrontHeights.length,
                 )}
@@ -636,7 +636,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                     Сглобяване: <strong>{formatMinutes(result.labor.assemblyMinutes)}</strong>
                     {' ('}
                     вкл. обработка на кантирани страни, монтаж на корпус
-                    {params.drawerFrontHeight > 0 ? ' и чекмедже' : ''}
+                    {params.drawerFrontHeights.length > 0 ? ' и чекмедже' : ''}
                     {')'}
                   </span>
                 )}
