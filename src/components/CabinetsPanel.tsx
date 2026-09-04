@@ -180,7 +180,11 @@ export function CabinetsPanel({
                         : ''}
                       {p.hasBack ? ' · фазер' : ''}
                       {p.doorCount === 1 ? ' · 1 врата' : p.doorCount === 2 ? ' · 2 врати' : ''}
-                      {p.drawerFrontHeight > 0 ? ` · чекмедже · водачи ${p.slideLength}` : ''}
+                      {p.drawerFrontHeights.length === 1
+                        ? ` · 1 чекмедже ${p.drawerFrontHeights[0]} мм · водачи ${p.slideLength}`
+                        : p.drawerFrontHeights.length > 1
+                          ? ` · ${p.drawerFrontHeights.length} чекмеджета ${p.drawerFrontHeights.join('/')} мм · водачи ${p.slideLength}`
+                          : ''}
                     </p>
                   </div>
                   <div className="flex shrink-0 items-center gap-1">

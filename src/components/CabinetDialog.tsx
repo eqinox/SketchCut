@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Box } from 'lucide-react'
+import { Box, Plus, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -40,6 +40,11 @@ import {
   scaleCabinetResult,
   slideUnitPriceEur,
   drawerBoxRails,
+  remainingFrontHeight,
+  canCombineFronts,
+  DEFAULT_DRAWER_FRONT_HEIGHT,
+  DRAWER_RAIL_BELOW_FRONT,
+  MAX_DRAWERS,
   type CabinetInstance,
   type CabinetPartColors,
   type SlideKind,
@@ -74,7 +79,9 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
   const [shelfCount, setShelfCount] = useState(initial.shelfCount)
   const [hasBack, setHasBack] = useState(initial.hasBack)
   const [doorCount, setDoorCount] = useState(initial.doorCount)
-  const [drawerFrontHeight, setDrawerFrontHeight] = useState(String(initial.drawerFrontHeight || ''))
+  const [drawerFrontHeights, setDrawerFrontHeights] = useState<string[]>(
+    initial.drawerFrontHeights.map(String),
+  )
   const [cutFromOneBoard, setCutFromOneBoard] = useState(initial.cutFromOneBoard)
   const [slideKind, setSlideKind] = useState<SlideKind>(parseSlideKind(initial.slideKind))
   const [slideLength, setSlideLength] = useState(initial.slideLength)
@@ -97,13 +104,18 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
         shelfCount,
         hasBack,
         doorCount,
-        drawerFrontHeight: parseInt(drawerFrontHeight, 10) || 0,
-        cutFromOneBoard,
+        drawerFrontHeights: drawerFrontHeights.map((s) => parseInt(s, 10) || 0),
+        cutFromOneBoard:
+          cutFromOneBoard
+          && canCombineFronts(
+            drawerFrontHeights.filter((s) => (parseInt(s, 10) || 0) > 0).length,
+            doorCount,
+          ),
         slideKind,
         slideLength,
         colors,
       }),
-    [width, height, depth, thickness, legHeight, shelfCount, hasBack, doorCount, drawerFrontHeight, cutFromOneBoard, slideKind, slideLength, colors],
+    [width, height, depth, thickness, legHeight, shelfCount, hasBack, doorCount, drawerFrontHeights, cutFromOneBoard, slideKind, slideLength, colors],
   )
 
   const qty = Math.max(1, parseInt(quantity, 10) || 1)
@@ -263,133 +275,172 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
           </div>
           <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
             {doorCount === 0
-              ? 'Без врати'
+              ? 'Без врати — шкафът може да е само с чекмеджета.'
               : (() => {
-                  const drawerH = parseInt(drawerFrontHeight, 10) || 0
-                  const d = drawerH > 0 
-                    ? { width: params.width / doorCount - 3 - 4, height: params.height - 5 - drawerH - 3 - 4 }
-                    : { width: params.width / doorCount - 3 - 4, height: params.height - 5 - 4 }
-                  return `Рязане ${Math.round(d.width)} × ${Math.round(d.height)} мм · кант 2 мм от 4 страни`
+                  const leftover = remainingFrontHeight(params.height, params.drawerFrontHeights, true)
+                  const d = {
+                    width: params.width / doorCount - 3 - 4,
+                    height: leftover - 4,
+                  }
+                  return leftover > 4
+                    ? `Рязане ${Math.round(d.width)} × ${Math.round(d.height)} мм · кант 2 мм от 4 страни`
+                    : 'Няма място за врата — намалени челата или махни вратата.'
                 })()}
           </p>
         </div>
 
-        {doorCount > 0 && (
-          <>
-            <div>
-              <Label htmlFor="drawer-front-height">Чело на чекмедже (мм)</Label>
-              <Input
-                id="drawer-front-height"
-                type="number"
-                inputMode="numeric"
-                min={0}
-                value={drawerFrontHeight}
-                onChange={(e) => setDrawerFrontHeight(e.target.value)}
-                placeholder="Например 150"
-              />
-              <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
-                {drawerFrontHeight && parseInt(drawerFrontHeight, 10) > 0
-                  ? `Чекмедже отгоре ${drawerFrontHeight} мм, врата отдолу. Фуга 3 мм между тях.`
-                  : 'Остави 0 за само врата без чекмедже'}
-              </p>
+        <div>
+          <Label>Чекмеджета</Label>
+          <p className="mt-0.5 text-xs text-[var(--color-muted-foreground)]">
+            Отгоре надолу, всяко със своя височина. Може без врата.
+          </p>
+          <div className="mt-2 space-y-2">
+            {drawerFrontHeights.map((value, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <Label htmlFor={`drawer-h-${i}`} className="w-28 shrink-0 text-xs">
+                  Чело {i + 1} (мм)
+                </Label>
+                <Input
+                  id={`drawer-h-${i}`}
+                  type="number"
+                  inputMode="numeric"
+                  min={0}
+                  value={value}
+                  onChange={(e) =>
+                    setDrawerFrontHeights((rows) => rows.map((v, j) => (j === i ? e.target.value : v)))
+                  }
+                  placeholder={String(DEFAULT_DRAWER_FRONT_HEIGHT)}
+                />
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  className="h-8 w-8 shrink-0"
+                  onClick={() => setDrawerFrontHeights((rows) => rows.filter((_, j) => j !== i))}
+                  aria-label={`Премахни чекмедже ${i + 1}`}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
+            ))}
+          </div>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={drawerFrontHeights.length >= MAX_DRAWERS}
+              onClick={() => {
+                setDrawerFrontHeights((rows) => [...rows, String(DEFAULT_DRAWER_FRONT_HEIGHT)])
+              }}
+            >
+              <Plus className="h-4 w-4" />
+              Добави чекмедже
+            </Button>
+          </div>
+          <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
+            {drawerHint(params)}
+          </p>
+        </div>
+
+        {canCombineFronts(params.drawerFrontHeights.length, doorCount) && (
+          <div>
+            <Label>Рязане</Label>
+            <div className="mt-1 flex gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant={cutFromOneBoard ? 'default' : 'outline'}
+                onClick={() => setCutFromOneBoard(true)}
+              >
+                От една плоча
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant={!cutFromOneBoard ? 'default' : 'outline'}
+                onClick={() => setCutFromOneBoard(false)}
+              >
+                Отделно
+              </Button>
             </div>
+            <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
+              {combineHint(doorCount, cutFromOneBoard)}
+            </p>
+          </div>
+        )}
 
-            {drawerFrontHeight && parseInt(drawerFrontHeight, 10) > 0 && (
-              <>
-              <div>
-                <Label>Рязане</Label>
-                <div className="mt-1 flex gap-2">
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant={cutFromOneBoard ? 'default' : 'outline'}
-                    onClick={() => setCutFromOneBoard(true)}
-                  >
-                    От една плоча
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant={!cutFromOneBoard ? 'default' : 'outline'}
-                    onClick={() => setCutFromOneBoard(false)}
-                  >
-                    Отделно
-                  </Button>
-                </div>
-                <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
-                  {cutFromOneBoard
-                    ? 'Реже се от една плоча за продължена фладера, кантира се, после се реже отново.'
-                    : 'Челото и вратата се режат отделно.'}
+        {params.drawerFrontHeights.length > 0 && (
+          <div>
+            <Label>Водачи</Label>
+            <div className="mt-1 flex flex-wrap gap-2">
+              {(['roller', 'soft-full', 'soft-partial'] as const).map((kind) => (
+                <Button
+                  key={kind}
+                  type="button"
+                  size="sm"
+                  variant={slideKind === kind ? 'default' : 'outline'}
+                  onClick={() => {
+                    setSlideKind(kind)
+                    const next = eligibleSlideLengths(params.depth, kind)
+                    if (!next.includes(slideLength)) setSlideLength(next[next.length - 1] ?? next[0])
+                  }}
+                >
+                  {kind === 'roller' ? 'Ролкови' : kind === 'soft-full' ? 'Плавно пълно' : 'Плавно частично'}
+                </Button>
+              ))}
+            </div>
+            <p className="mt-2 text-xs text-[var(--color-muted-foreground)]">Дължина</p>
+            <div className="mt-1 flex flex-wrap gap-2">
+              {eligibleSlideLengths(params.depth, slideKind).map((len) => (
+                <Button
+                  key={len}
+                  type="button"
+                  size="sm"
+                  variant={params.slideLength === len ? 'default' : 'outline'}
+                  onClick={() => setSlideLength(len)}
+                >
+                  {len}
+                </Button>
+              ))}
+            </div>
+            <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
+              {SLIDE_KIND_LABEL[params.slideKind]} · {params.slideLength} мм ·{' '}
+              {SLIDES_PER_DRAWER * params.drawerFrontHeights.length} бр. ×{' '}
+              {formatEur(slideUnitPriceEur(params.slideKind, params.slideLength, settings))} ={' '}
+              <strong>
+                {formatEur(
+                  slideUnitPriceEur(params.slideKind, params.slideLength, settings)
+                    * SLIDES_PER_DRAWER
+                    * params.drawerFrontHeights.length,
+                )}
+              </strong>
+              {eligibleSlideLengths(params.depth, slideKind).length === 0
+                ? ' · няма водач, който да влезе в тази дълбочина'
+                : ` · влиза в корпус ${params.depth} мм`}
+              {params.slideKind === 'roller'
+                ? ' · 3 винтчета 3.5×16 на водач'
+                : ' · 3 винтчета 3.5×16 + 4 за перките на водач'}
+            </p>
+            {[...new Set(params.drawerFrontHeights)].map((frontH) => {
+              const box = drawerBoxRails(
+                params.width,
+                params.thickness,
+                frontH,
+                params.slideLength,
+                isSoftCloseSlide(params.slideKind),
+              )
+              if (!box) return null
+              const many = params.drawerFrontHeights.length > 1
+              return (
+                <p key={frontH} className="mt-1 text-xs text-[var(--color-muted-foreground)]">
+                  Царги{many ? ` ${frontH} мм` : ''}: вътрешни {Math.round(box.inner.width)}×{Math.round(box.inner.height)} мм (2 бр.) · външни{' '}
+                  {Math.round(box.outer.width)}×{Math.round(box.outer.height)} мм (2 бр.) · кутия {Math.round(box.drawerOuterW)} мм
+                  {isSoftCloseSlide(params.slideKind) ? ' · 5 мм луфт от страна' : ' · 12.5 мм луфт от страна'}
                 </p>
-              </div>
-
-              <div>
-                <Label>Водачи</Label>
-                <div className="mt-1 flex flex-wrap gap-2">
-                  {(['roller', 'soft-full', 'soft-partial'] as const).map((kind) => (
-                    <Button
-                      key={kind}
-                      type="button"
-                      size="sm"
-                      variant={slideKind === kind ? 'default' : 'outline'}
-                      onClick={() => {
-                        setSlideKind(kind)
-                        const next = eligibleSlideLengths(params.depth, kind)
-                        if (!next.includes(slideLength)) setSlideLength(next[next.length - 1] ?? next[0])
-                      }}
-                    >
-                      {kind === 'roller' ? 'Ролкови' : kind === 'soft-full' ? 'Плавно пълно' : 'Плавно частично'}
-                    </Button>
-                  ))}
-                </div>
-                <p className="mt-2 text-xs text-[var(--color-muted-foreground)]">Дължина</p>
-                <div className="mt-1 flex flex-wrap gap-2">
-                  {eligibleSlideLengths(params.depth, slideKind).map((len) => (
-                    <Button
-                      key={len}
-                      type="button"
-                      size="sm"
-                      variant={params.slideLength === len ? 'default' : 'outline'}
-                      onClick={() => setSlideLength(len)}
-                    >
-                      {len}
-                    </Button>
-                  ))}
-                </div>
-                <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
-                  {SLIDE_KIND_LABEL[params.slideKind]} · {params.slideLength} мм · {SLIDES_PER_DRAWER} бр. ×{' '}
-                  {formatEur(slideUnitPriceEur(params.slideKind, params.slideLength, settings))} ={' '}
-                  <strong>
-                    {formatEur(slideUnitPriceEur(params.slideKind, params.slideLength, settings) * SLIDES_PER_DRAWER)}
-                  </strong>
-                  {eligibleSlideLengths(params.depth, slideKind).length === 0
-                    ? ' · няма водач, който да влезе в тази дълбочина'
-                    : ` · влиза в корпус ${params.depth} мм`}
-                  {params.slideKind === 'roller'
-                    ? ' · 3 винтчета 3.5×16 на водач'
-                    : ' · 3 винтчета 3.5×16 + 4 за перките на водач'}
-                </p>
-                {(() => {
-                  const box = drawerBoxRails(
-                    params.width,
-                    params.thickness,
-                    parseInt(drawerFrontHeight, 10) || 0,
-                    params.slideLength,
-                    isSoftCloseSlide(params.slideKind),
-                  )
-                  if (!box) return null
-                  return (
-                    <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
-                      Царги: вътрешни {Math.round(box.inner.width)}×{Math.round(box.inner.height)} мм (2 бр.) · външни{' '}
-                      {Math.round(box.outer.width)}×{Math.round(box.outer.height)} мм (2 бр.) · кутия {Math.round(box.drawerOuterW)} мм
-                      {isSoftCloseSlide(params.slideKind) ? ' · 5 мм луфт от страна' : ' · 12.5 мм луфт от страна'}
-                    </p>
-                  )
-                })()}
-              </div>
-              </>
-            )}
-          </>
+              )
+            })}
+          </div>
         )}
 
         <div>
@@ -616,7 +667,44 @@ function validate(p: ReturnType<typeof parseKitchenBaseParams>): string | null {
   if (p.height <= p.thickness + 20) return 'Височината на корпуса е твърде малка.'
   if (p.depth <= 0 || p.width <= 0) return 'Въведи валидни размери.'
   if (p.thickness < 8 || p.thickness > 36) return 'Дебелината на плоскостта трябва да е между 8 и 36 мм.'
+  const minFront = DRAWER_RAIL_BELOW_FRONT + 20
+  for (const h of p.drawerFrontHeights) {
+    if (h < minFront) return `Челото на чекмеджето трябва да е поне ${minFront} мм.`
+  }
+  const leftover = remainingFrontHeight(p.height, p.drawerFrontHeights, p.doorCount > 0)
+  if (leftover < 0) return 'Челата на чекмеджетата не събират във височината на корпуса (фуга 5 мм отгоре и 3 мм между тях).'
+  if (p.doorCount > 0 && leftover < 80) return 'Останалата височина за вратата е твърде малка.'
   return null
+}
+
+function drawerHint(p: ReturnType<typeof parseKitchenBaseParams>): string {
+  if (p.drawerFrontHeights.length === 0) {
+    return 'Добави едно или повече чекмеджета — могат да са с различни височини, с или без врата отдолу.'
+  }
+  const leftover = remainingFrontHeight(p.height, p.drawerFrontHeights, p.doorCount > 0)
+  if (p.doorCount > 0) {
+    return leftover > 0
+      ? `Вратата отдолу е ${Math.round(leftover)} мм. Фуга 5 мм отгоре, 3 мм между челата.`
+      : 'Челата заемат целия корпус — няма място за врата.'
+  }
+  if (leftover > 4) return `Остават ${Math.round(leftover)} мм. Коригирай височините или добави още чекмедже.`
+  if (leftover < 0) return 'Челата излизат над корпуса.'
+  return 'Челата запълват корпуса. Фуга 5 мм отгоре, 3 мм между тях.'
+}
+
+function combineHint(doorCount: number, fromOneBoard: boolean): string {
+  const withDoor = doorCount === 1
+  if (!fromOneBoard) {
+    if (withDoor) return 'Челата и вратата се режат отделно.'
+    return 'Челата се режат отделно.'
+  }
+  if (doorCount === 2) {
+    return 'Челата се режат от една плоча за продължена фладера, кантират се, после се разрязват. Двете врати са по-тесни и се режат отделно.'
+  }
+  if (withDoor) {
+    return 'Челата и вратата се режат от една плоча за продължена фладера, кантират се, после се разрязват.'
+  }
+  return 'Челата се режат от една плоча за продължена фладера, кантират се, после се разрязват.'
 }
 
 function NumField({

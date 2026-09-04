@@ -27,8 +27,14 @@ export const DOOR_CLEARANCE_TOP = 5
 export const DOOR_CLEARANCE_BOTTOM = 0
 /** Gaps (фуги) subtracted from each door's share of the cabinet width, mm. */
 export const DOOR_GAP_X = 3
-/** Gap between drawer front and door (фуга), mm. */
+/** Gap between stacked fronts (drawer–drawer or drawer–door), mm. */
 export const DRAWER_DOOR_GAP = 3
+/** Default finished drawer-front height when adding a drawer, mm. */
+export const DEFAULT_DRAWER_FRONT_HEIGHT = 150
+/** Practical upper bound for stacked drawers in one carcass. */
+export const MAX_DRAWERS = 6
+/** Extra mm between stacked fronts when first cut as one board, then resawn after edging. */
+export const COMBINED_FRONT_SAW_BUFFER = 6
 /** 2 mm banding on both opposite edges. */
 export const DOOR_EDGE_BOTH = 4
 
@@ -168,17 +174,76 @@ export function drawerFrontCutSize(
   }
 }
 
-/** Calculate door size when combined with drawer above (before edging) */
+export function parseDrawerFrontHeights(raw: unknown, legacySingle?: unknown): number[] {
+  const toPos = (v: unknown): number | null => {
+    const n = typeof v === 'number' ? v : Number.parseInt(String(v ?? ''), 10)
+    if (!Number.isFinite(n) || n <= 0) return null
+    return Math.round(n)
+  }
+  if (Array.isArray(raw)) {
+    return raw.map(toPos).filter((n): n is number => n != null)
+  }
+  const one = toPos(legacySingle)
+  return one ? [one] : []
+}
+
+/**
+ * Height taken by drawer fronts plus the 3 mm gaps between them
+ * (and before a door, when there is one). Does not include the 5 mm top clearance.
+ */
+export function drawerStackUsed(drawerFrontHeights: number[], hasDoor: boolean): number {
+  const heights = drawerFrontHeights.filter((h) => h > 0)
+  if (heights.length === 0) return 0
+  const between = (heights.length - 1) * DRAWER_DOOR_GAP
+  const beforeDoor = hasDoor ? DRAWER_DOOR_GAP : 0
+  return heights.reduce((sum, h) => sum + h, 0) + between + beforeDoor
+}
+
+/** Remaining face height below the drawers (door, or leftover if drawers-only). */
+export function remainingFrontHeight(
+  cabinetHeight: number,
+  drawerFrontHeights: number[],
+  hasDoor: boolean,
+): number {
+  return cabinetHeight - DOOR_CLEARANCE_TOP - DOOR_CLEARANCE_BOTTOM - drawerStackUsed(drawerFrontHeights, hasDoor)
+}
+
+/**
+ * Fronts that share the same width can be first-cut as one board for continuous grain.
+ * One full-width door matches the drawer fronts; two doors are half-width and stay separate.
+ */
+export function canCombineFronts(drawerCount: number, doorCount: number): boolean {
+  const stacked = drawerCount + (doorCount === 1 ? 1 : 0)
+  return stacked >= 2
+}
+
+export function combinedFrontCutHeight(cutHeights: number[]): number {
+  const heights = cutHeights.filter((h) => h > 0)
+  if (heights.length === 0) return 0
+  return heights.reduce((sum, h) => sum + h, 0) + COMBINED_FRONT_SAW_BUFFER * (heights.length - 1)
+}
+
+/** Calculate door size when combined with drawer(s) above (before edging) */
+export function doorWithDrawersCutSize(
+  cabinetWidth: number,
+  cabinetHeight: number,
+  drawerFrontHeights: number[],
+  doorCount: 1 | 2,
+): { width: number; height: number } {
+  return {
+    width: cabinetWidth / doorCount - DOOR_GAP_X - DOOR_EDGE_BOTH,
+    height: remainingFrontHeight(cabinetHeight, drawerFrontHeights, true) - DOOR_EDGE_BOTH,
+  }
+}
+
+/** Calculate door size when combined with one drawer above (before edging) */
 export function doorWithDrawerCutSize(
   cabinetWidth: number,
   cabinetHeight: number,
   drawerFrontHeight: number,
   doorCount: 1 | 2,
 ): { width: number; height: number } {
-  return {
-    width: cabinetWidth / doorCount - DOOR_GAP_X - DOOR_EDGE_BOTH,
-    height: cabinetHeight - DOOR_CLEARANCE_TOP - drawerFrontHeight - DRAWER_DOOR_GAP - DOOR_EDGE_BOTH,
-  }
+  return doorWithDrawersCutSize(cabinetWidth, cabinetHeight, [drawerFrontHeight], doorCount)
 }
 
 export function boardKindLabel(kind: BoardKind): string {

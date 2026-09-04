@@ -32,9 +32,13 @@ import {
   DEFAULT_HARDBOARD_THICKNESS,
   doorCutSize,
   drawerFrontCutSize,
-  doorWithDrawerCutSize,
+  doorWithDrawersCutSize,
   parseDoorCount,
+  parseDrawerFrontHeights,
   drawerBoxRails,
+  canCombineFronts,
+  combinedFrontCutHeight,
+  COMBINED_FRONT_SAW_BUFFER,
   SOFT_SLIDE_OUTER_RAIL_SHORTEN,
   DRAWER_RAIL_BELOW_FRONT,
   SOFT_INNER_RAIL_HEIGHT_DROP,
@@ -66,7 +70,7 @@ export const DEFAULT_KITCHEN_BASE_PARAMS: KitchenBaseParams = {
   shelfCount: 0,
   hasBack: true,
   doorCount: 0,
-  drawerFrontHeight: 0,
+  drawerFrontHeights: [],
   cutFromOneBoard: false,
   slideKind: 'roller',
   slideLength: 500,
@@ -92,7 +96,7 @@ export function parseKitchenBaseParams(raw: Record<string, unknown>): KitchenBas
     shelfCount: parseShelfCount(raw.shelfCount),
     hasBack: typeof raw.hasBack === 'boolean' ? raw.hasBack : false,
     doorCount: parseDoorCount(raw.doorCount),
-    drawerFrontHeight: typeof raw.drawerFrontHeight === 'number' && raw.drawerFrontHeight >= 0 ? raw.drawerFrontHeight : 0,
+    drawerFrontHeights: parseDrawerFrontHeights(raw.drawerFrontHeights, raw.drawerFrontHeight),
     cutFromOneBoard: typeof raw.cutFromOneBoard === 'boolean' ? raw.cutFromOneBoard : false,
     slideKind,
     slideLength: parseSlideLength(raw.slideLength, depth, slideKind),
@@ -224,159 +228,224 @@ export function generateKitchenBase(
     })
   }
 
-  if (p.doorCount === 1 || p.doorCount === 2) {
-    const hasDrawer = p.drawerFrontHeight > 0
-    const door = hasDrawer 
-      ? doorWithDrawerCutSize(p.width, p.height, p.drawerFrontHeight, p.doorCount)
-      : doorCutSize(p.width, p.height, p.doorCount)
+  const drawerHeights = p.drawerFrontHeights
+  const hasDrawers = drawerHeights.length > 0
+  const doorCount = p.doorCount === 1 || p.doorCount === 2 ? p.doorCount : 0
+  const hasDoors = doorCount !== 0
+  const includeDoorInCombine = doorCount === 1
+  const combineBoard = p.cutFromOneBoard && canCombineFronts(drawerHeights.length, doorCount)
+  const softClose = isSoftCloseSlide(p.slideKind)
+  let combinedGroupId: string | undefined
+  let doorFromCombined = false
+
+  const door =
+    doorCount === 1 || doorCount === 2
+      ? hasDrawers
+        ? doorWithDrawersCutSize(p.width, p.height, drawerHeights, doorCount)
+        : doorCutSize(p.width, p.height, doorCount)
+      : null
+
+  if (hasDrawers) {
+    const heightCounts = countByHeight(drawerHeights)
+    const n = drawerHeights.length
+    const slideQty = n * SLIDES_PER_DRAWER
+    const perSlide = screws35x16PerSlide(p.slideKind)
+    const slideScrews = slideQty * perSlide
+    const slidePrice = slideUnitPriceEur(p.slideKind, p.slideLength, hardwareSettings)
+    const slideScrewNote = softClose
+      ? `по ${SCREWS_35X16_PER_SLIDE} на водач + ${SCREWS_35X16_PER_SLIDE_WING} за перките`
+      : `по ${SCREWS_35X16_PER_SLIDE} на водач`
+
+    const heightsLabel = drawerHeights.map((h) => `${Math.round(h)}`).join(' + ')
+    notes.push(
+      n === 1
+        ? `Чекмедже отгоре ${Math.round(drawerHeights[0])} мм.`
+        : `${n} чекмеджета отгоре надолу: ${heightsLabel} мм. Фуга 3 мм между челата.`,
+    )
+
+    if (combineBoard) {
+      const drawerCuts = drawerHeights.map((h) => drawerFrontCutSize(p.width, h))
+      const pieces = includeDoorInCombine && door ? [...drawerCuts, door] : drawerCuts
+      const combinedHeight = combinedFrontCutHeight(pieces.map((c) => c.height))
+      const width = drawerCuts[0]?.width ?? pieces[0]?.width ?? 0
+      combinedGroupId = `combined-${Date.now()}`
+      doorFromCombined = includeDoorInCombine && !!door
+
+      const partsLabel = pieces
+        .map((c) => Math.round(c.height))
+        .join(' + ')
+      const bufferNote =
+        pieces.length > 1
+          ? ` + ${COMBINED_FRONT_SAW_BUFFER * (pieces.length - 1)} мм буфер`
+          : ''
+      const combinedName = doorFromCombined
+        ? drawerHeights.length === 1
+          ? '🔴 Чело+Врата (комбинирано)'
+          : '🔴 Чела+Врата (комбинирано)'
+        : '🔴 Чела (комбинирано)'
+      const afterSplit = [
+        ...drawerHeights.map((_, i) =>
+          drawerHeights.length === 1 ? `чело ${Math.round(drawerCuts[i].height)} мм` : `чело ${i + 1} ${Math.round(drawerCuts[i].height)} мм`,
+        ),
+        ...(doorFromCombined && door ? [`врата ${Math.round(door.height)} мм`] : []),
+      ].join(', ')
+
+      notes.push(
+        `${doorFromCombined ? 'Чела и врата' : 'Чела'} от една плоча: Първо рязане ${Math.round(width)} × ${Math.round(combinedHeight)} мм (${partsLabel}${bufferNote}).`,
+      )
+      notes.push(`След кантиране се разрязва на ${afterSplit}.`)
+
+      panels.push({
+        role: 'drawer-front',
+        name: combinedName,
+        width,
+        height: combinedHeight,
+        quantity: 1,
+        canRotate: false,
+        edges: edges({ top: true, bottom: true, left: true, right: true }),
+        note: `ПЪРВО РЯЗАНЕ от една плоча за продължена фладера. След кантиране се разрязва на ${pieces.length} парчета.`,
+        groupId: combinedGroupId,
+        highlightColor: 'red',
+      })
+
+      drawerHeights.forEach((frontH, i) => {
+        const cut = drawerCuts[i]
+        panels.push({
+          role: 'drawer-front',
+          name:
+            drawerHeights.length === 1
+              ? '  ↳ Чело (след разрязване)'
+              : `  ↳ Чело ${i + 1} (${Math.round(frontH)} мм)`,
+          width: cut.width,
+          height: cut.height,
+          quantity: 1,
+          canRotate: false,
+          edges: edges({}),
+          note: '⚠️ НЕ СЕ РЕЖЕ ОТДЕЛНО - произлиза от комбинираното парче след разрязване.',
+          groupId: combinedGroupId,
+          excludeFromCutting: true,
+          highlightColor: 'red',
+        })
+      })
+
+      if (doorFromCombined && door) {
+        panels.push({
+          role: 'door',
+          name: '  ↳ Врата (след разрязване)',
+          width: door.width,
+          height: door.height,
+          quantity: 1,
+          canRotate: false,
+          edges: edges({}),
+          note: '⚠️ НЕ СЕ РЕЖЕ ОТДЕЛНО - произлиза от комбинираното парче след разрязване.',
+          groupId: combinedGroupId,
+          excludeFromCutting: true,
+          highlightColor: 'red',
+        })
+      }
+    } else {
+      for (const [frontH, qty] of heightCounts) {
+        const drawerFront = drawerFrontCutSize(p.width, frontH)
+        const name =
+          n === 1
+            ? 'Чело на чекмедже'
+            : heightCounts.length === 1
+              ? 'Чело на чекмедже'
+              : `Чело ${Math.round(frontH)} мм`
+        notes.push(
+          `${name}: рязане ${Math.round(drawerFront.width)} × ${Math.round(drawerFront.height)} мм × ${qty} бр. (кант 2 мм от 4 страни).`,
+        )
+        panels.push({
+          role: 'drawer-front',
+          name,
+          width: drawerFront.width,
+          height: drawerFront.height,
+          quantity: qty,
+          canRotate: false,
+          edges: edges({ top: true, bottom: true, left: true, right: true }),
+          note: 'Кант 2 мм от 4 страни. Размерът е за рязане (без канта).',
+        })
+      }
+    }
+
+    notes.push(
+      `Водачи: ${slideQty} бр. ${slideName(p.slideKind, p.slideLength)} (по ${SLIDES_PER_DRAWER} на чекмедже) · винтчета 3.5×16: ${slideScrews} бр. (${slideScrewNote}).`,
+    )
+
+    let wroteBoxIntro = false
+    for (const [frontH, qty] of heightCounts) {
+      const box = drawerBoxRails(p.width, p.thickness, frontH, p.slideLength, softClose)
+      if (!box) continue
+      if (!wroteBoxIntro) {
+        const gapTotal = box.sideGapEach * 2
+        notes.push(
+          `Чекмедже: вътрешна ширина ${Math.round(box.innerCarcassW)} мм − ${gapTotal} мм луфт (${box.sideGapEach} мм от страна) = ${Math.round(box.drawerOuterW)} мм общо.`,
+        )
+        wroteBoxIntro = true
+      }
+      const manySizes = heightCounts.length > 1
+      notes.push(
+        `Царги${manySizes ? ` за чело ${Math.round(frontH)} мм` : ''}: вътрешни ${Math.round(box.inner.width)} × ${Math.round(box.inner.height)} мм (${2 * qty} бр.), външни ${Math.round(box.outer.width)} × ${Math.round(box.outer.height)} мм (${2 * qty} бр.${softClose ? `, водачът минус ${SOFT_SLIDE_OUTER_RAIL_SHORTEN} мм, вътрешните с ${SOFT_INNER_RAIL_HEIGHT_DROP} мм по-ниски` : ', колкото водача'}). Височината на външните е с ${DRAWER_RAIL_BELOW_FRONT} мм по-малка от челото.`,
+      )
+      panels.push({
+        role: 'drawer-back',
+        name: manySizes ? `Царга вътрешна (${Math.round(frontH)} мм)` : 'Царга вътрешна',
+        width: box.inner.width,
+        height: box.inner.height,
+        quantity: 2 * qty,
+        canRotate: false,
+        edges: edges({ top: true }),
+        note: softClose
+          ? `Предна и задна на кутията. ${Math.round(box.drawerOuterW)} − 2×${p.thickness} = ${Math.round(box.inner.width)} мм. С ${SOFT_INNER_RAIL_HEIGHT_DROP} мм по-ниски от външните заради канала за гърба. Кант: горната дълга страна.`
+          : `Предна и задна на кутията. ${Math.round(box.drawerOuterW)} − 2×${p.thickness} = ${Math.round(box.inner.width)} мм. Кант: горната дълга страна.`,
+      })
+      panels.push({
+        role: 'drawer-side',
+        name: manySizes ? `Царга външна (${Math.round(frontH)} мм)` : 'Царга външна',
+        width: box.outer.width,
+        height: box.outer.height,
+        quantity: 2 * qty,
+        canRotate: false,
+        edges: edges({ top: true }),
+        note: softClose
+          ? `Страници на кутията. Дължина = водач ${p.slideLength} − ${SOFT_SLIDE_OUTER_RAIL_SHORTEN} мм. Кант: горната дълга страна.`
+          : `Страници на кутията. Дължина = водач ${p.slideLength} мм. Кант: горната дълга страна.`,
+      })
+    }
+
+    hardware.push(
+      pricedLine(
+        { id: slideId(p.slideKind, p.slideLength), name: slideName(p.slideKind, p.slideLength), unitPriceEur: slidePrice },
+        slideQty,
+        `по ${SLIDES_PER_DRAWER} на чекмедже`,
+      ),
+    )
+    hardware.push(
+      fastenerLine(
+        { ...SCREW_35X16, packPriceEur: hardwareSettings.smallScrew1000PackEur },
+        slideScrews,
+        slideScrewNote,
+      ),
+    )
+  }
+
+  if (hasDoors && door) {
     const doorWord = p.doorCount === 1 ? 'една врата' : 'две врати'
     const totalHinges = p.doorCount * HINGES_PER_SMALL_DOOR
     const hinge4x16 = totalHinges * SCREWS_4X16_PER_HINGE
     const hinge4x20 = totalHinges * SCREWS_4X20_PER_HINGE
     const hingePrice = hardwareSettings.useNormalHinge ? hardwareSettings.hingeNormalEur : hardwareSettings.hingeSoftCloseEur
     const hingeName = hardwareSettings.useNormalHinge ? 'Панта нормално прибиране' : 'Панта плавно прибиране'
-    
-    let combinedGroupId: string | undefined
-    
-    if (hasDrawer) {
-      const drawerFront = drawerFrontCutSize(p.width, p.drawerFrontHeight)
-      
-      if (p.cutFromOneBoard) {
-        // Combined piece: drawer + door + 6mm buffer
-        const combinedHeight = drawerFront.height + door.height + 6
-        combinedGroupId = `combined-${Date.now()}`
-        
-        notes.push(
-          `Чекмедже + врата от една плоча: Първо рязане ${Math.round(drawerFront.width)} × ${Math.round(combinedHeight)} мм (${Math.round(drawerFront.height)} + ${Math.round(door.height)} + 6 мм буфер).`,
-        )
-        notes.push(
-          `След кантиране се разрязва на чело ${Math.round(drawerFront.height)} мм и врата ${Math.round(door.height)} мм.`,
-        )
-        
-        // Add the combined panel that needs to be cut first
-        panels.push({
-          role: 'drawer-front',
-          name: '🔴 Чело+Врата (комбинирано)',
-          width: drawerFront.width,
-          height: combinedHeight,
-          quantity: 1, // One combined piece (contains both drawer and one door)
-          canRotate: false,
-          edges: edges({ top: true, bottom: true, left: true, right: true }),
-          note: `ПЪРВО РЯЗАНЕ от една плоча за продължена фладера. След кантиране се разрязва на 2 парчета.`,
-          groupId: combinedGroupId,
-          highlightColor: 'red',
-        })
-        
-        // Add the individual pieces with notes that they come from the combined piece
-        // These are for reference only and should NOT be included in cutting
-        panels.push({
-          role: 'drawer-front',
-          name: '  ↳ Чело (след разрязване)',
-          width: drawerFront.width,
-          height: drawerFront.height,
-          quantity: 1,
-          canRotate: false,
-          edges: edges({}), // Already edged as part of combined piece
-          note: `⚠️ НЕ СЕ РЕЖЕ ОТДЕЛНО - произлиза от комбинираното парче след разрязване.`,
-          groupId: combinedGroupId,
-          excludeFromCutting: true,
-          highlightColor: 'red',
-        })
-      } else {
-        notes.push(
-          `Чело на чекмедже: рязане ${Math.round(drawerFront.width)} × ${Math.round(drawerFront.height)} мм (кант 2 мм от 4 страни).`,
-        )
-        panels.push({
-          role: 'drawer-front',
-          name: 'Чело на чекмедже',
-          width: drawerFront.width,
-          height: drawerFront.height,
-          quantity: 1,
-          canRotate: false,
-          edges: edges({ top: true, bottom: true, left: true, right: true }),
-          note: `Кант 2 мм от 4 страни. Размерът е за рязане (без канта).`,
-        })
-      }
 
-      const slideQty = SLIDES_PER_DRAWER
-      const perSlide = screws35x16PerSlide(p.slideKind)
-      const slideScrews = slideQty * perSlide
-      const slidePrice = slideUnitPriceEur(p.slideKind, p.slideLength, hardwareSettings)
-      const slideScrewNote = isSoftCloseSlide(p.slideKind)
-        ? `по ${SCREWS_35X16_PER_SLIDE} на водач + ${SCREWS_35X16_PER_SLIDE_WING} за перките`
-        : `по ${SCREWS_35X16_PER_SLIDE} на водач`
-      notes.push(
-        `Водачи: ${slideQty} бр. ${slideName(p.slideKind, p.slideLength)} (по ${SLIDES_PER_DRAWER} на чекмедже) · винтчета 3.5×16: ${slideScrews} бр. (${slideScrewNote}).`,
-      )
-
-      const box = drawerBoxRails(
-        p.width,
-        p.thickness,
-        p.drawerFrontHeight,
-        p.slideLength,
-        isSoftCloseSlide(p.slideKind),
-      )
-      if (box) {
-        const gapTotal = box.sideGapEach * 2
-        notes.push(
-          `Чекмедже: вътрешна ширина ${Math.round(box.innerCarcassW)} мм − ${gapTotal} мм луфт (${box.sideGapEach} мм от страна) = ${Math.round(box.drawerOuterW)} мм общо.`,
-        )
-        notes.push(
-          `Царги: вътрешни ${Math.round(box.inner.width)} × ${Math.round(box.inner.height)} мм (2 бр.), външни ${Math.round(box.outer.width)} × ${Math.round(box.outer.height)} мм (2 бр.${isSoftCloseSlide(p.slideKind) ? `, водачът минус ${SOFT_SLIDE_OUTER_RAIL_SHORTEN} мм, вътрешните с ${SOFT_INNER_RAIL_HEIGHT_DROP} мм по-ниски` : ', колкото водача'}). Височината на външните е с ${DRAWER_RAIL_BELOW_FRONT} мм по-малка от челото.`,
-        )
-        panels.push({
-          role: 'drawer-back',
-          name: 'Царга вътрешна',
-          width: box.inner.width,
-          height: box.inner.height,
-          quantity: 2,
-          canRotate: false,
-          edges: edges({ top: true }),
-          note: isSoftCloseSlide(p.slideKind)
-            ? `Предна и задна на кутията. ${Math.round(box.drawerOuterW)} − 2×${p.thickness} = ${Math.round(box.inner.width)} мм. С ${SOFT_INNER_RAIL_HEIGHT_DROP} мм по-ниски от външните заради канала за гърба. Кант: горната дълга страна.`
-            : `Предна и задна на кутията. ${Math.round(box.drawerOuterW)} − 2×${p.thickness} = ${Math.round(box.inner.width)} мм. Кант: горната дълга страна.`,
-        })
-        panels.push({
-          role: 'drawer-side',
-          name: 'Царга външна',
-          width: box.outer.width,
-          height: box.outer.height,
-          quantity: 2,
-          canRotate: false,
-          edges: edges({ top: true }),
-          note: isSoftCloseSlide(p.slideKind)
-            ? `Страници на кутията. Дължина = водач ${p.slideLength} − ${SOFT_SLIDE_OUTER_RAIL_SHORTEN} мм. Кант: горната дълга страна.`
-            : `Страници на кутията. Дължина = водач ${p.slideLength} мм. Кант: горната дълга страна.`,
-        })
-      }
-      hardware.push(
-        pricedLine(
-          { id: slideId(p.slideKind, p.slideLength), name: slideName(p.slideKind, p.slideLength), unitPriceEur: slidePrice },
-          slideQty,
-          `по ${SLIDES_PER_DRAWER} на чекмедже`,
-        ),
-      )
-      hardware.push(
-        fastenerLine(
-          { ...SCREW_35X16, packPriceEur: hardwareSettings.smallScrew1000PackEur },
-          slideScrews,
-          slideScrewNote,
-        ),
-      )
-      
-      notes.push(
-        `${p.doorCount === 1 ? 'Една врата' : 'Две врати'}: рязане ${Math.round(door.width)} × ${Math.round(door.height)} мм (фуга 5 мм отгоре, 3 мм между чело и врата, кант 2 мм от 4 страни).`,
-      )
-    } else {
-      notes.push(
-        `${p.doorCount === 1 ? 'Една врата' : 'Две врати'}: рязане ${Math.round(door.width)} × ${Math.round(door.height)} мм (фуга 5 мм само отгоре, кант 2 мм от 4 страни).`,
-      )
-    }
-    
+    notes.push(
+      hasDrawers
+        ? `${p.doorCount === 1 ? 'Една врата' : 'Две врати'}: рязане ${Math.round(door.width)} × ${Math.round(door.height)} мм (фуга 5 мм отгоре, 3 мм между челата, кант 2 мм от 4 страни).`
+        : `${p.doorCount === 1 ? 'Една врата' : 'Две врати'}: рязане ${Math.round(door.width)} × ${Math.round(door.height)} мм (фуга 5 мм само отгоре, кант 2 мм от 4 страни).`,
+    )
     notes.push(
       `Панти: ${totalHinges} бр. (по ${HINGES_PER_SMALL_DOOR} на врата) · винтчета 4×16: ${hinge4x16} бр. и 4×20: ${hinge4x20} бр. (по ${SCREWS_4X16_PER_HINGE}+${SCREWS_4X20_PER_HINGE} на панта).`,
     )
-    
+
     hardware.push(
       pricedLine(
         { id: hardwareSettings.useNormalHinge ? HINGE_NORMAL.id : HINGE_SOFT_CLOSE.id, name: hingeName, unitPriceEur: hingePrice },
@@ -398,22 +467,19 @@ export function generateKitchenBase(
         `по ${SCREWS_4X20_PER_HINGE} на панта`,
       ),
     )
-    
-    panels.push({
-      role: 'door',
-      name: hasDrawer && p.cutFromOneBoard ? '  ↳ Врата (след разрязване)' : (p.doorCount === 1 ? 'Врата' : 'Врата'),
-      width: door.width,
-      height: door.height,
-      quantity: p.doorCount,
-      canRotate: false,
-      edges: hasDrawer && p.cutFromOneBoard ? edges({}) : edges({ top: true, bottom: true, left: true, right: true }),
-      note: hasDrawer && p.cutFromOneBoard 
-        ? `⚠️ НЕ СЕ РЕЖЕ ОТДЕЛНО - произлиза от комбинираното парче след разрязване.`
-        : `Кант 2 мм от 4 страни. ${doorWord}. Размерът е за рязане (без канта).`,
-      groupId: combinedGroupId,
-      excludeFromCutting: hasDrawer && p.cutFromOneBoard,
-      highlightColor: hasDrawer && p.cutFromOneBoard ? 'red' : undefined,
-    })
+
+    if (!doorFromCombined) {
+      panels.push({
+        role: 'door',
+        name: 'Врата',
+        width: door.width,
+        height: door.height,
+        quantity: p.doorCount,
+        canRotate: false,
+        edges: edges({ top: true, bottom: true, left: true, right: true }),
+        note: `Кант 2 мм от 4 страни. ${doorWord}. Размерът е за рязане (без канта).`,
+      })
+    }
   }
 
   return {
@@ -425,12 +491,18 @@ export function generateKitchenBase(
   }
 }
 
+function countByHeight(heights: number[]): [number, number][] {
+  const counts = new Map<number, number>()
+  for (const h of heights) counts.set(h, (counts.get(h) ?? 0) + 1)
+  return [...counts.entries()]
+}
+
 export const kitchenBaseType: CabinetTypeDefinition = {
   id: KITCHEN_BASE_TYPE_ID,
   name: 'Долен кухненски шкаф',
   category: 'kitchen-base',
   description:
-    'Корпус на крачета. По избор фазер на гърба и една или две врати.',
+    'Корпус на крачета. По избор фазер, врати и чекмеджета с различни височини.',
   defaultParams: { ...DEFAULT_KITCHEN_BASE_PARAMS },
   generate: generateKitchenBase,
 }
