@@ -255,6 +255,13 @@ export function CabinetsPanel({
               Кантиране: {formatMinutes(edgingMinutes)} (30 мин / плоча ПДЧ)
             </p>
             <p>
+              Сглобяване: {priced.length > 0 ? formatMinutes(priced.reduce((s, row) => s + (row.result.labor.assemblyMinutes ?? 0), 0)) : '—'}
+              {' · '}
+              Общо труд: {laborTotal == null
+                ? '—'
+                : formatMinutes(priced.reduce((s, row) => s + row.price.laborMinutes, 0))}
+            </p>
+            <p>
               {laborTotal == null
                 ? 'Труд: задай ставка €/ден по-горе, за да влезе в сметката'
                 : `Труд: ${formatEur(laborTotal)} — пресметнат при ${formatEur(dailyRateEur)}/ден (${WORK_HOURS_PER_DAY} ч · ${formatEur(hourly)}/ч)`}

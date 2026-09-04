@@ -631,9 +631,18 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                   {' · '}
                   Кантиране: <strong>{formatMinutes(price.edgingMinutes)}</strong>
                 </span>
+                {result.labor.assemblyMinutes != null && result.labor.assemblyMinutes > 0 && (
+                  <span>
+                    Сглобяване: <strong>{formatMinutes(result.labor.assemblyMinutes)}</strong>
+                    {' ('}
+                    вкл. обработка на кантирани страни, монтаж на корпус
+                    {params.drawerFrontHeight > 0 ? ' и чекмедже' : ''}
+                    {')'}
+                  </span>
+                )}
                 {price.laborEur != null ? (
                   <span>
-                    Труд: <strong>{formatEur(price.laborEur)}</strong>
+                    Труд общо: <strong>{formatEur(price.laborEur)}</strong>
                     {' — '}
                     при {formatEur(dailyRateEur)}/ден ({WORK_HOURS_PER_DAY} ч · {formatEur(hourly)}/ч)
                   </span>
