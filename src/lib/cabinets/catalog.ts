@@ -1,12 +1,13 @@
 import { kitchenBaseType } from './kitchen-base'
 import { nightstandType } from './nightstand'
+import { sectionType } from './section'
 import type { CabinetGeneratorResult, CabinetTypeDefinition } from './types'
 
 /**
  * Register new cabinet / wardrobe types here. Each type owns its default
  * params and a generate() that returns panels, joinery, hardware and notes.
  */
-export const CABINET_TYPES: CabinetTypeDefinition[] = [kitchenBaseType, nightstandType]
+export const CABINET_TYPES: CabinetTypeDefinition[] = [kitchenBaseType, nightstandType, sectionType]
 
 export function getCabinetType(id: string): CabinetTypeDefinition | undefined {
   return CABINET_TYPES.find((t) => t.id === id)
@@ -34,6 +35,16 @@ export function scaleCabinetResult(
     ...result,
     panels: result.panels.map((p) => ({ ...p, quantity: p.quantity * q })),
     hardware: result.hardware.map((h) => ({ ...h, quantity: h.quantity * q })),
+    labor: {
+      ...result.labor,
+      assemblyMinutes:
+        result.labor.assemblyMinutes != null ? Math.round(result.labor.assemblyMinutes * q * 10) / 10 : null,
+      assemblySteps: (result.labor.assemblySteps ?? []).map((step) => ({
+        ...step,
+        minutes: Math.round(step.minutes * q * 10) / 10,
+        quantity: step.quantity != null ? step.quantity * q : undefined,
+      })),
+    },
   }
 }
 

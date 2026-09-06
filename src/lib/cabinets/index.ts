@@ -1,4 +1,4 @@
-export { WORK_HOURS_PER_DAY, DEFAULT_PANEL_THICKNESS, DEFAULT_RAIL_WIDTH, DEFAULT_LEG_HEIGHT, DEFAULT_SHELF_FRONT_INSET } from './types'
+export { WORK_HOURS_PER_DAY, DEFAULT_PANEL_THICKNESS, DEFAULT_RAIL_WIDTH, DEFAULT_LEG_HEIGHT, DEFAULT_SHELF_FRONT_INSET, TOP_EDGE_BAND_MM, frontDoorOverhang } from './types'
 export type {
   CabinetCategory,
   CabinetDimensions,
@@ -14,8 +14,9 @@ export type {
 } from './types'
 export type { CabinetInstance } from '@/types'
 
+export { clothesRailLengthMm } from './fronts'
 export { CABINET_TYPES, getCabinetType, generateCabinet, scaleCabinetResult, cabinetDisplayName } from './catalog'
-export { measureCarcass, evenShelfBottoms, KITCHEN_BASE_JOINERY } from './joinery'
+export { measureCarcass, evenShelfBottoms, evenShelfGap, KITCHEN_BASE_JOINERY } from './joinery'
 export {
   KITCHEN_BASE_TYPE_ID,
   DEFAULT_KITCHEN_BASE_PARAMS,
@@ -35,13 +36,20 @@ export {
   laborFromPanels,
 } from './estimate'
 export type { CabinetPrice } from './estimate'
+export { explainCabinetPrice, explainCabinetsPrice } from './price-breakdown'
+export type { PriceBreakdown, PriceBreakdownLine, PriceBreakdownSection } from './price-breakdown'
 export {
   SCREW_5X60,
+  confirmatCount,
   SCREW_4X16,
   SCREW_4X20,
   SCREW_35X16,
+  CLOTHES_RAIL,
   SHELF_PIN,
   SHELF_PINS_PER_SHELF,
+  HANDLE_NORMAL,
+  HANDLES_PER_DOOR,
+  HANDLES_PER_DRAWER,
   FASTENERS,
   KITCHEN_BASE_SCREWS_BOTTOM,
   KITCHEN_BASE_SCREWS_RAILS,
@@ -92,6 +100,7 @@ export {
   DRAWER_RAIL_BELOW_FRONT,
   DEFAULT_DRAWER_FRONT_HEIGHT,
   MAX_DRAWERS,
+  MAX_SHELVES,
   COMBINED_FRONT_SAW_BUFFER,
   ROLLER_SLIDE_SIDE_GAP,
   SOFT_SLIDE_SIDE_GAP,
@@ -112,6 +121,8 @@ export {
   drawerBoxRails,
   parseDoorCount,
   parseDrawerFrontHeights,
+  parseShelfCount,
+  hardboardCutSize,
   remainingFrontHeight,
   canCombineFronts,
   combinedFrontCutHeight,
@@ -127,6 +138,26 @@ export {
 } from './apply'
 export { createDrawCam, Board, BETWEEN_FACES, SIDE_LEFT_BODY, SIDE_LEFT_TOP, SIDE_RIGHT, BOX_FACES } from './draw-3d'
 export type { DrawCam, DrawFaces } from './draw-3d'
+export {
+  NIGHTSTAND_TYPE_ID,
+  NIGHTSTAND_JOINERY,
+  NIGHTSTAND_LEGS_JOINERY,
+  DEFAULT_NIGHTSTAND_PARAMS,
+  PLINTH_INSET,
+  parseNightstandParams,
+  measureNightstand,
+  generateNightstand,
+  nightstandType,
+} from './nightstand'
+export type { NightstandParams } from './nightstand'
+export {
+  SECTION_TYPE_ID,
+  DEFAULT_SECTION_PARAMS,
+  parseSectionParams,
+  generateSection,
+  sectionType,
+} from './section'
+export type { SectionParams } from './section'
 export type { CabinetPartColors, CabinetPartColorKey } from './colors'
 export {
   DEFAULT_PART_COLORS,

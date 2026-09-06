@@ -2,12 +2,16 @@ import React, { type ReactNode } from 'react'
 import { evenShelfBottoms, KITCHEN_BASE_JOINERY, measureCarcass } from '@/lib/cabinets/joinery'
 import {
   parseKitchenBaseParams,
+  parseNightstandParams,
+  parseSectionParams,
+  measureNightstand,
   DEFAULT_SHELF_FRONT_INSET,
   DEFAULT_HARDBOARD_COLOR,
   drawerBoxRails,
   isSoftCloseSlide,
   DRAWER_DOOR_GAP,
   type KitchenBaseParams,
+  type NightstandParams,
   type DrawerBoxRails,
 } from '@/lib/cabinets'
 import {
@@ -26,6 +30,7 @@ import {
 import { cn } from '@/lib/utils'
 
 interface CabinetPreviewProps {
+  typeId?: string
   params: Record<string, unknown>
   className?: string
   /** Extension lines and arrows. Off by default — sizes sit next to the panels. */
@@ -33,6 +38,7 @@ interface CabinetPreviewProps {
 }
 
 const SLIDE_STROKE_COLOR = DRAW_STROKE
+const CLOTHES_RAIL_COLOR = '#94a3b8'
 const SLIDE_PROFILE_H = 18
 const SLIDE_FRONT_INSET = 28
 const SLIDE_STROKE = 10
@@ -42,7 +48,16 @@ function mm(n: number) {
 }
 
 /** Single 3D front view with depth extending to the right. */
-export function CabinetPreview({ params, className, showDimLines = false }: CabinetPreviewProps) {
+export function CabinetPreview({
+  typeId = 'kitchen-base',
+  params,
+  className,
+  showDimLines = false,
+}: CabinetPreviewProps) {
+  if (typeId === 'nightstand' || typeId === 'section') {
+    return <PlinthBoxPreview typeId={typeId} params={params} className={className} showDimLines={showDimLines} />
+  }
+
   const p = parseKitchenBaseParams(params)
   const m = measureCarcass(
     { width: p.width, height: p.height, depth: p.depth, thickness: p.thickness },
@@ -86,6 +101,9 @@ export function CabinetPreview({ params, className, showDimLines = false }: Cabi
         {p.hasBack && (
           <span className="mr-3" style={{ color: DEFAULT_HARDBOARD_COLOR }}>■ Фазер</span>
         )}
+        {p.hasClothesRail && (
+          <span className="mr-3" style={{ color: CLOTHES_RAIL_COLOR }}>■ Лост</span>
+        )}
         {drawerViews.length > 0 && (
           <span className="mr-3" style={{ color: SLIDE_STROKE_COLOR }}>■ Водачи</span>
         )}
@@ -111,7 +129,13 @@ export function CabinetPreview({ params, className, showDimLines = false }: Cabi
   )
 }
 
-function uniqueDrawerViews(p: KitchenBaseParams): { frontHeight: number; box: DrawerBoxRails; count: number }[] {
+function uniqueDrawerViews(p: {
+  width: number
+  thickness: number
+  slideKind: KitchenBaseParams['slideKind']
+  slideLength: number
+  drawerFrontHeights: number[]
+}): { frontHeight: number; box: DrawerBoxRails; count: number }[] {
   const soft = isSoftCloseSlide(p.slideKind)
   const byHeight = new Map<number, { box: DrawerBoxRails; count: number }>()
   for (const frontHeight of p.drawerFrontHeights) {
@@ -437,11 +461,11 @@ function Front3DView({
 
       {p.hasBack && (
         <Board
-          x={xInnerL}
+          x={0}
           y={topY}
           z={zBack}
-          w={xInnerR - xInnerL}
-          h={sideH}
+          w={W}
+          h={H}
           d={1}
           color={DEFAULT_HARDBOARD_COLOR}
           cam={view}
@@ -470,6 +494,20 @@ function Front3DView({
           />
         )
       })}
+
+      {p.hasClothesRail && (
+        <Board
+          x={xInnerL}
+          y={topY + T + 48}
+          z={Math.max(40, D * 0.35)}
+          w={m.innerW}
+          h={22}
+          d={22}
+          color={CLOTHES_RAIL_COLOR}
+          cam={view}
+          faces={BETWEEN_FACES}
+        />
+      )}
 
       <Board
         x={xInnerL}
@@ -559,7 +597,7 @@ function Front3DView({
   )
 }
 
-function Drawer3DView({ p, box }: { p: KitchenBaseParams; box: DrawerBoxRails }) {
+function Drawer3DView({ p, box }: { p: { thickness: number; colors: { side: string } }; box: DrawerBoxRails }) {
   const T = p.thickness
   const Wd = box.drawerOuterW
   const Hd = box.outer.height
@@ -616,6 +654,454 @@ function Drawer3DView({ p, box }: { p: KitchenBaseParams; box: DrawerBoxRails })
         fontSize={small}
       />
       <DimText x={boxW.x} y={boxW.y} label={mm(Wd)} fontSize={small} />
+    </SketchSvg>
+  )
+}
+
+function PlinthBoxPreview({
+  typeId,
+  params,
+  className,
+  showDimLines,
+}: {
+  typeId: 'nightstand' | 'section'
+  params: Record<string, unknown>
+  className?: string
+  showDimLines: boolean
+}) {
+  const topInner = typeId === 'section'
+  const p = topInner ? parseSectionParams(params) : parseNightstandParams(params)
+  const { colors } = p
+  const drawerViews = uniqueDrawerViews(p)
+  return (
+    <div className={cn('flex flex-col gap-3', className)}>
+      <ViewCard title="3D Изглед отпред">
+        <ZoomableView>
+          <PlinthBoxFront3DView p={p} topInner={topInner} showDimLines={showDimLines} />
+        </ZoomableView>
+      </ViewCard>
+      {drawerViews.map((view) => (
+        <ViewCard
+          key={view.frontHeight}
+          title={
+            drawerViews.length === 1
+              ? view.count > 1
+                ? `Чекмедже ×${view.count}`
+                : 'Чекмедже'
+              : view.count > 1
+                ? `Чекмедже ${view.frontHeight} мм ×${view.count}`
+                : `Чекмедже ${view.frontHeight} мм`
+          }
+        >
+          <ZoomableView>
+            <Drawer3DView p={p} box={view.box} />
+          </ZoomableView>
+        </ViewCard>
+      ))}
+      <p className="text-center text-[11px] text-[var(--color-muted-foreground)]">
+        <span className="mr-3" style={{ color: colors.bottom }}>■ Дъно</span>
+        <span className="mr-3" style={{ color: colors.side }}>■ Страници</span>
+        <span className="mr-3" style={{ color: colors.rail }}>■ Плот</span>
+        {p.shelfCount > 0 && (
+          <span className="mr-3" style={{ color: colors.shelf }}>■ Рафтове</span>
+        )}
+        {p.hasBack && (
+          <span className="mr-3" style={{ color: DEFAULT_HARDBOARD_COLOR }}>■ Фазер</span>
+        )}
+        {p.hasClothesRail && (
+          <span className="mr-3" style={{ color: CLOTHES_RAIL_COLOR }}>■ Лост</span>
+        )}
+        {drawerViews.length > 0 && (
+          <span className="mr-3" style={{ color: SLIDE_STROKE_COLOR }}>■ Водачи</span>
+        )}
+        {p.useLegs ? (
+          <span style={{ color: colors.leg }}>■ Крачета</span>
+        ) : (
+          <span style={{ color: colors.bottom }}>■ Цокъл</span>
+        )}
+        {p.doorCount > 0 && (
+          <>
+            {' · '}
+            {p.doorCount === 1 ? '1 врата' : '2 врати'} (не са на чертежа)
+          </>
+        )}
+        {p.drawerFrontHeights.length > 0 && (
+          <>
+            {' · '}
+            {p.drawerFrontHeights.length === 1
+              ? '1 чекмедже'
+              : `${p.drawerFrontHeights.length} чекмеджета`}{' '}
+            (челата не са на чертежа)
+          </>
+        )}
+        {' · '}
+        {topInner
+          ? 'страниците външни на дъното и плота, плотът между тях'
+          : 'страниците външни на дъното, плотът външен върху страниците, ъгълчета отвътре'}
+      </p>
+    </div>
+  )
+}
+
+function PlinthBoxFront3DView({
+  p,
+  topInner,
+  showDimLines,
+}: {
+  p: NightstandParams
+  topInner: boolean
+  showDimLines: boolean
+}) {
+  const m = measureNightstand(p, topInner)
+  const T = m.thickness
+  const W = p.width
+  const H = p.height
+  const D = p.depth
+  const zSide = m.frontOverhang
+
+  const hint = createDrawCam({ ox: 0, oy: 0 })
+  const { x: dx, y: dy } = hint.depthDelta(D)
+
+  const font = Math.max(72, Math.min(W, H) * 0.13)
+  const small = Math.max(40, font * 0.55)
+  const padL = font + 48
+  const padT = font + Math.abs(dy) + 28
+  const padR = 48
+  const padB = 36
+
+  const vbW = padL + W + dx + padR
+  const vbH = padT + H + padB
+  const ox = padL
+  const floor = padT + H
+  const topY = floor - H
+  const sideY = topInner ? topY : topY + T
+  const supportH = m.supportH
+  const bottomY = floor - supportH - T
+
+  const view = createDrawCam({ ox, oy: 0 })
+
+  const depthLen = Math.hypot(dx, dy) || 1
+  const nx = dy / depthLen
+  const ny = -dx / depthLen
+  const gap = font * 0.55
+  const heightX = ox - gap
+  const heightY = (topY + floor) / 2
+  const depthMx = ox + dx / 2 + nx * gap
+  const depthMy = topY + dy / 2 + ny * gap
+  const depthRot = (Math.atan2(dy, dx) * 180) / Math.PI
+  const backMx = ox + W / 2 + dx
+  const backMy = topY + dy - font * 0.45
+  const sideDepthLabel = view.proj(W, sideY + m.sideH * 0.4, zSide + m.sideD / 2)
+  const bottomFrontLabel = p.useLegs
+    ? view.proj(W / 2, bottomY + T / 2, 0)
+    : view.proj(T + m.bottomW / 2, bottomY + T / 2, zSide)
+  const supportLabelX = ox + T + 36
+  const supportLabelY = floor - supportH / 2
+
+  const wood = p.colors
+  const legW = Math.max(18, T * 1.2)
+  const legD = Math.max(legW, 42)
+  const legInset = Math.max(28, W * 0.08)
+  const legZ = Math.max(16, T)
+  const plinthY = floor - p.plinthHeight
+  const plinthFront = p.useLegs
+    ? null
+    : {
+        topL: view.proj(T, plinthY, m.plinthZ),
+        topR: view.proj(T + m.plinthLength, plinthY, m.plinthZ),
+        botR: view.proj(T + m.plinthLength, floor, m.plinthZ),
+        botL: view.proj(T, floor, m.plinthZ),
+      }
+
+  const zShelfFront = zSide + DEFAULT_SHELF_FRONT_INSET
+  const shelfDepth = m.sideD - DEFAULT_SHELF_FRONT_INSET
+  const shelfOffs = evenShelfBottoms(m.innerH, p.shelfCount, T)
+
+  const leftInnerH = Math.max(T, bottomY - (topInner ? topY + T : sideY))
+  const leftInnerY = topInner ? topY + T : sideY
+
+  return (
+    <SketchSvg vbW={vbW} vbH={vbH} height={460} label={topInner ? 'Секция 3D' : 'Нощно шкафче 3D'}>
+      <defs>
+        <filter id="ns-shadow">
+          <feDropShadow dx="1" dy="1" stdDeviation="1.5" floodOpacity="0.3" />
+        </filter>
+      </defs>
+
+      {p.useLegs && (
+        <>
+          <Board
+            x={legInset}
+            y={floor - supportH}
+            z={legZ}
+            w={legW}
+            h={supportH}
+            d={legD}
+            color={wood.leg}
+            cam={view}
+            faces={{ front: true, right: true, top: true }}
+          />
+          <Board
+            x={W - legInset - legW}
+            y={floor - supportH}
+            z={legZ}
+            w={legW}
+            h={supportH}
+            d={legD}
+            color={wood.leg}
+            cam={view}
+            faces={{ front: true, right: true, top: true }}
+          />
+        </>
+      )}
+
+      {p.useLegs && (
+        <Board
+          x={0}
+          y={bottomY}
+          z={0}
+          w={W}
+          h={T}
+          d={D}
+          color={wood.bottom}
+          cam={view}
+          faces={BOX_FACES}
+        />
+      )}
+
+      {p.hasBack && (
+        <Board
+          x={0}
+          y={topY}
+          z={zSide + m.sideD}
+          w={W}
+          h={p.useLegs ? H : H - p.plinthHeight}
+          d={1}
+          color={DEFAULT_HARDBOARD_COLOR}
+          cam={view}
+          faces={{ front: true }}
+          strokeWidth={0.8}
+        />
+      )}
+
+      <Board
+        x={0}
+        y={leftInnerY}
+        z={zSide}
+        w={T}
+        h={leftInnerH}
+        d={m.sideD}
+        color={wood.side}
+        cam={view}
+        faces={{ right: true }}
+      />
+      {!p.useLegs && (
+        <>
+          <Board
+            x={0}
+            y={floor - p.plinthHeight}
+            z={zSide}
+            w={T}
+            h={p.plinthHeight}
+            d={m.plinthInset}
+            color={wood.side}
+            cam={view}
+            faces={{ right: true }}
+            strokeWidth={0}
+          />
+          <Board
+            x={T}
+            y={floor - p.plinthHeight}
+            z={m.plinthZ}
+            w={m.plinthLength}
+            h={p.plinthHeight}
+            d={T}
+            color={wood.bottom}
+            cam={view}
+            faces={{ front: true, top: true }}
+            strokeWidth={0}
+          />
+          {plinthFront && (
+            <g stroke={DRAW_STROKE} strokeWidth={1.2} fill="none">
+              <line x1={plinthFront.topL.x} y1={plinthFront.topL.y} x2={plinthFront.topR.x} y2={plinthFront.topR.y} />
+              <line x1={plinthFront.topR.x} y1={plinthFront.topR.y} x2={plinthFront.botR.x} y2={plinthFront.botR.y} />
+              <line x1={plinthFront.botR.x} y1={plinthFront.botR.y} x2={plinthFront.botL.x} y2={plinthFront.botL.y} />
+            </g>
+          )}
+        </>
+      )}
+      {topInner && (
+        <Board
+          x={T}
+          y={topY}
+          z={zSide}
+          w={m.topW}
+          h={T}
+          d={m.topD}
+          color={wood.rail}
+          cam={view}
+          faces={BETWEEN_FACES}
+        />
+      )}
+      <Board
+        x={0}
+        y={sideY}
+        z={zSide}
+        w={T}
+        h={m.sideH}
+        d={m.sideD}
+        color={wood.side}
+        cam={view}
+        faces={{ front: true }}
+      />
+      {topInner && (
+        <Board
+          x={0}
+          y={topY}
+          z={zSide}
+          w={T}
+          h={T}
+          d={m.sideD}
+          color={wood.side}
+          cam={view}
+          faces={SIDE_LEFT_TOP}
+        />
+      )}
+
+      {!p.useLegs && (
+        <>
+          <Board
+            x={T}
+            y={bottomY}
+            z={zSide}
+            w={m.bottomW}
+            h={T}
+            d={m.bottomD}
+            color={wood.bottom}
+            cam={view}
+            faces={{ top: true }}
+            strokeWidth={0}
+          />
+          <Board
+            x={T}
+            y={bottomY}
+            z={zSide}
+            w={m.bottomW}
+            h={T}
+            d={1}
+            color={wood.bottom}
+            cam={view}
+            faces={{ front: true }}
+          />
+        </>
+      )}
+
+      {shelfOffs.map((off, i) => {
+        const yBot = bottomY - off
+        return (
+          <Board
+            key={`shelf-${i}`}
+            x={T}
+            y={yBot - T}
+            z={zShelfFront}
+            w={m.innerW}
+            h={T}
+            d={shelfDepth}
+            color={wood.shelf}
+            cam={view}
+            faces={BETWEEN_FACES}
+          />
+        )
+      })}
+
+      {p.hasClothesRail && (
+        <Board
+          x={T}
+          y={leftInnerY + 50}
+          z={zSide + Math.min(80, m.sideD * 0.4)}
+          w={m.innerW}
+          h={22}
+          d={22}
+          color={CLOTHES_RAIL_COLOR}
+          cam={view}
+          faces={BETWEEN_FACES}
+        />
+      )}
+
+      {p.drawerFrontHeights.map((frontH, i) => {
+        const box = drawerBoxRails(
+          p.width,
+          p.thickness,
+          frontH,
+          p.slideLength,
+          isSoftCloseSlide(p.slideKind),
+        )
+        if (!box) return null
+        let offset = 0
+        for (let j = 0; j < i; j++) offset += p.drawerFrontHeights[j] + DRAWER_DOOR_GAP
+        const z0 = zSide + SLIDE_FRONT_INSET
+        const z1 = z0 + p.slideLength
+        const yBot = topY + T + offset + box.outer.height
+        const yTopS = yBot - SLIDE_PROFILE_H
+        const a0 = view.proj(T, yTopS, z0)
+        const a1 = view.proj(T, yTopS, z1)
+        const b0 = view.proj(T, yBot, z0)
+        const b1 = view.proj(T, yBot, z1)
+        const mid = view.proj(T, yTopS, z0 + p.slideLength / 2)
+        const slideFont = Math.max(32, Math.min(p.slideLength * 0.1, 56))
+        return (
+          <g key={`slide-${i}`}>
+            <g stroke={SLIDE_STROKE_COLOR} fill="none" strokeWidth={SLIDE_STROKE} strokeLinecap="butt">
+              <line x1={a0.x} y1={a0.y} x2={a1.x} y2={a1.y} />
+              <line x1={b0.x} y1={b0.y} x2={b1.x} y2={b1.y} />
+            </g>
+            {i === 0 && (
+              <DimText x={mid.x + 18} y={mid.y - 8} label={mm(p.slideLength)} fontSize={slideFont} fill={SLIDE_STROKE_COLOR} />
+            )}
+          </g>
+        )
+      })}
+
+      <Board
+        x={W - T}
+        y={sideY}
+        z={zSide}
+        w={T}
+        h={m.sideH}
+        d={m.sideD}
+        color={wood.side}
+        cam={view}
+        faces={SIDE_RIGHT}
+      />
+
+      {!topInner && (
+        <Board
+          x={0}
+          y={topY}
+          z={0}
+          w={m.topW}
+          h={T}
+          d={m.topD}
+          color={wood.rail}
+          cam={view}
+          faces={BOX_FACES}
+        />
+      )}
+
+      <DimText x={heightX} y={heightY} label={mm(H)} fontSize={font} rotate={-90} />
+      <DimText x={depthMx} y={depthMy} label={mm(D)} fontSize={font} rotate={depthRot} />
+      <DimText x={backMx} y={backMy} label={mm(W)} fontSize={font} />
+      <DimText x={sideDepthLabel.x + 10} y={sideDepthLabel.y} label={mm(m.sideD)} fontSize={small} rotate={depthRot} />
+      <DimText x={bottomFrontLabel.x} y={bottomFrontLabel.y} label={mm(m.bottomW)} fontSize={small} />
+      <DimText x={supportLabelX} y={supportLabelY} label={mm(supportH)} fontSize={small} rotate={-90} />
+
+      {showDimLines && (
+        <g>
+          <DimLine x1={heightX + font * 0.22} y1={topY} x2={heightX + font * 0.22} y2={floor} />
+          <DimLine x1={ox} y1={topY - 8} x2={ox + dx} y2={topY + dy - 8} />
+          <DimLine x1={ox + dx} y1={topY + dy - font * 0.2} x2={ox + W + dx} y2={topY + dy - font * 0.2} />
+        </g>
+      )}
     </SketchSvg>
   )
 }

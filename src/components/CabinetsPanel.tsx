@@ -4,20 +4,14 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { CabinetDialog } from '@/components/CabinetDialog'
+import { PriceBreakdownView } from '@/components/PriceBreakdown'
 import {
   WORK_HOURS_PER_DAY,
-  SCREW_5X60,
-  SCREW_4X16,
-  SCREW_4X20,
-  SCREW_35X16,
-  SHELF_PIN,
   cabinetPrice,
+  explainCabinetsPrice,
   formatEur,
-  formatMinutes,
   generateCabinet,
   getCabinetType,
-  hardwareCostById,
-  hardwareQtyById,
   hourlyRateEur,
   parseKitchenBaseParams,
   scaleCabinetResult,
@@ -71,22 +65,26 @@ export function CabinetsPanel({
       return []
     }
   })
-  const hardwareTotal = priced.reduce((s, row) => s + row.price.hardwareEur, 0)
-  const chipboardTotal = priced.reduce((s, row) => s + row.price.chipboardEur, 0)
-  const hardboardTotal = priced.reduce((s, row) => s + row.price.hardboardEur, 0)
-  const edgeTotal = priced.reduce((s, row) => s + row.price.edgeEur, 0)
-  const laborParts = priced.map((row) => row.price.laborEur)
-  const laborKnown = laborParts.length > 0 && laborParts.every((v) => v != null)
-  const laborTotal = laborKnown ? laborParts.reduce((s, v) => s + (v ?? 0), 0) : null
-  const cuttingMinutes = priced.reduce((s, row) => s + row.price.cuttingMinutes, 0)
-  const edgingMinutes = priced.reduce((s, row) => s + row.price.edgingMinutes, 0)
-  const grandTotal = priced.reduce((s, row) => s + row.price.totalEur, 0)
-  const screwQty = priced.reduce((s, row) => s + hardwareQtyById(row.result.hardware, SCREW_5X60.id), 0)
-  const screwCost = priced.reduce((s, row) => s + hardwareCostById(row.result.hardware, SCREW_5X60.id), 0)
-  const pinQty = priced.reduce((s, row) => s + hardwareQtyById(row.result.hardware, SHELF_PIN.id), 0)
-  const pinCost = priced.reduce((s, row) => s + hardwareCostById(row.result.hardware, SHELF_PIN.id), 0)
-  const qtyOf = (id: string) => priced.reduce((s, row) => s + hardwareQtyById(row.result.hardware, id), 0)
-  const costOf = (id: string) => priced.reduce((s, row) => s + hardwareCostById(row.result.hardware, id), 0)
+  const breakdown =
+    priced.length > 0
+      ? explainCabinetsPrice(
+          priced.map((row) => {
+            const type = getCabinetType(row.cabinet.typeId)
+            const qty = row.cabinet.quantity > 1 ? ` ×${row.cabinet.quantity}` : ''
+            const index = cabinets.findIndex((c) => c.id === row.cabinet.id) + 1
+            return {
+              label: `Ш${index} · ${type?.name ?? row.cabinet.name}${qty}`,
+              panels: row.result.panels,
+              hardware: row.result.hardware,
+              assemblyMinutes: row.result.labor.assemblyMinutes,
+              assemblySteps: row.result.labor.assemblySteps,
+            }
+          }),
+          dailyRateEur,
+          sheets,
+          settings.hardware,
+        )
+      : null
 
   const openAdd = () => {
     setEditing(null)
@@ -181,6 +179,7 @@ export function CabinetsPanel({
                         ? ` · ${p.shelfCount} ${p.shelfCount === 1 ? 'рафт' : 'рафта'}`
                         : ''}
                       {p.hasBack ? ' · фазер' : ''}
+                      {p.hasClothesRail ? ' · лост' : ''}
                       {p.doorCount === 1 ? ' · 1 врата' : p.doorCount === 2 ? ' · 2 врати' : ''}
                       {p.drawerFrontHeights.length === 1
                         ? ` · 1 чекмедже ${p.drawerFrontHeights[0]} мм · водачи ${p.slideLength}`
@@ -206,70 +205,7 @@ export function CabinetsPanel({
               )
             })}
           </ul>
-          <div className="rounded-md bg-[var(--color-secondary)] px-3 py-2 text-sm">
-            <p>
-              Винтове {SCREW_5X60.name}: <strong>{screwQty} бр.</strong>
-              {' · '}
-              кутия {SCREW_5X60.packQty} бр. = {formatEur(settings.hardware.screw5x60_500PackEur)}
-              {' · '}
-              {formatEur(screwCost)}
-            </p>
-            {qtyOf(SCREW_4X16.id) > 0 && (
-              <p>
-                {SCREW_4X16.name}: <strong>{qtyOf(SCREW_4X16.id)} бр.</strong>
-                {' · '}
-                {formatEur(costOf(SCREW_4X16.id))}
-                {' · '}
-                {SCREW_4X20.name}: <strong>{qtyOf(SCREW_4X20.id)} бр.</strong>
-                {' · '}
-                {formatEur(costOf(SCREW_4X20.id))}
-              </p>
-            )}
-            {qtyOf(SCREW_35X16.id) > 0 && (
-              <p>
-                {SCREW_35X16.name}: <strong>{qtyOf(SCREW_35X16.id)} бр.</strong>
-                {' · '}
-                {formatEur(costOf(SCREW_35X16.id))}
-              </p>
-            )}
-            {pinQty > 0 && (
-              <p>
-                {SHELF_PIN.name}: <strong>{pinQty} бр.</strong>
-                {' · '}
-                {formatEur(settings.hardware.shelfPinEur, 2)}/бр.
-                {' · '}
-                {formatEur(pinCost)}
-              </p>
-            )}
-            <p>
-              ПДЧ: {formatEur(chipboardTotal)}
-              {hardboardTotal > 0 ? ` · Фазер: ${formatEur(hardboardTotal)}` : ''}
-              {' · '}
-              Кант: {formatEur(edgeTotal)}
-              {' · '}
-              Фурнитура: {formatEur(hardwareTotal)}
-            </p>
-            <p>
-              Рязане: {formatMinutes(cuttingMinutes)} (40 мин / плоча)
-              {' · '}
-              Кантиране: {formatMinutes(edgingMinutes)} (30 мин / плоча ПДЧ)
-            </p>
-            <p>
-              Сглобяване: {priced.length > 0 ? formatMinutes(priced.reduce((s, row) => s + (row.result.labor.assemblyMinutes ?? 0), 0)) : '—'}
-              {' · '}
-              Общо труд: {laborTotal == null
-                ? '—'
-                : formatMinutes(priced.reduce((s, row) => s + row.price.laborMinutes, 0))}
-            </p>
-            <p>
-              {laborTotal == null
-                ? 'Труд: задай ставка €/ден по-горе, за да влезе в сметката'
-                : `Труд: ${formatEur(laborTotal)} — пресметнат при ${formatEur(dailyRateEur)}/ден (${WORK_HOURS_PER_DAY} ч · ${formatEur(hourly)}/ч)`}
-            </p>
-            <p>
-              Обща цена: <strong>{formatEur(grandTotal)}</strong>
-            </p>
-          </div>
+          {breakdown && <PriceBreakdownView breakdown={breakdown} />}
         </div>
       )}
 

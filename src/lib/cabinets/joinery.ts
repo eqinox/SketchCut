@@ -50,14 +50,19 @@ export function measureCarcass(dims: CabinetDimensions, joinery: JoineryConfig):
   }
 }
 
+/** Equal clearance above, between and below evenly spaced shelves. */
+export function evenShelfGap(innerH: number, count: number, thickness: number): number {
+  if (count < 1) return 0
+  return (innerH - count * thickness) / (count + 1)
+}
+
 /**
  * Distances from the inner floor (top of the bottom) to the bottom face of each shelf.
  * Gaps above, between and below are equal.
  */
 export function evenShelfBottoms(innerH: number, count: number, thickness: number): number[] {
   if (count < 1) return []
-  const free = innerH - count * thickness
-  const gap = free / (count + 1)
+  const gap = evenShelfGap(innerH, count, thickness)
   return Array.from({ length: count }, (_, i) => gap * (i + 1) + thickness * i)
 }
 

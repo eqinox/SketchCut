@@ -78,7 +78,7 @@ function Face({
     <polygon
       points={polyPts(...pts)}
       fill={fill}
-      stroke={DRAW_STROKE}
+      stroke={strokeWidth > 0 ? DRAW_STROKE : 'none'}
       strokeWidth={strokeWidth}
     />
   )
@@ -117,7 +117,7 @@ export function Board({
   const x2 = x + w
   const z2 = z + d
   const sw = strokeWidth
-  const topSw = Math.max(sw, 1.5)
+  const topSw = sw === 0 ? 0 : Math.max(sw, 1.5)
   return (
     <g>
       {faces.back && (

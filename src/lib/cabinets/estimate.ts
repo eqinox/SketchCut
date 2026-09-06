@@ -62,6 +62,7 @@ export function estimateFromParts(parts: Part[], edgeBanding: PartEdgeBanding[])
 
 export function panelsAreaM2(panels: GeneratedPanel[], material?: GeneratedPanel['material']): number {
   return panels.reduce((sum, p) => {
+    if (p.excludeFromCutting) return sum
     const kind = p.material === 'hardboard' ? 'hardboard' : 'chipboard'
     if (material && kind !== material) return sum
     return sum + (p.width * p.height * p.quantity) / 1_000_000
@@ -72,6 +73,7 @@ export function panelsEdgeMeters(panels: GeneratedPanel[]): { mm2: number; mm05:
   let mm2 = 0
   let mm05 = 0
   for (const p of panels) {
+    if (p.excludeFromCutting) continue
     const widthEdge = p.width * p.quantity
     const heightEdge = p.height * p.quantity
     const add = (len: number, thickness: GeneratedPanel['edges']['thickness']) => {

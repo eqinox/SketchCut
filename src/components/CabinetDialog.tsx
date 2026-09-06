@@ -12,30 +12,30 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { CabinetPreview } from '@/components/CabinetPreview'
+import { PriceBreakdownView } from '@/components/PriceBreakdown'
 import {
   CABINET_TYPES,
   DEFAULT_KITCHEN_BASE_PARAMS,
+  DEFAULT_NIGHTSTAND_PARAMS,
   DEFAULT_PART_COLORS,
+  DEFAULT_SECTION_PARAMS,
   DEFAULT_SHELF_FRONT_INSET,
   PART_COLOR_FIELDS,
-  SCREW_5X60,
-  SHELF_PIN,
   SHELF_PINS_PER_SHELF,
+  HANDLE_NORMAL,
   SLIDE_KIND_LABEL,
   SLIDES_PER_DRAWER,
-  WORK_HOURS_PER_DAY,
-  cabinetPrice,
   eligibleSlideLengths,
   estimateFromPanels,
-  fastenerUnitPriceEur,
+  explainCabinetPrice,
   formatArea,
   formatEur,
-  formatMinutes,
   generateCabinet,
-  hardwareQtyById,
-  hourlyRateEur,
   isSoftCloseSlide,
+  measureNightstand,
   parseKitchenBaseParams,
+  parseNightstandParams,
+  parseSectionParams,
   parseSlideKind,
   scaleCabinetResult,
   slideUnitPriceEur,
@@ -45,14 +45,14 @@ import {
   DEFAULT_DRAWER_FRONT_HEIGHT,
   DRAWER_RAIL_BELOW_FRONT,
   MAX_DRAWERS,
+  MAX_SHELVES,
+  evenShelfGap,
+  clothesRailLengthMm,
+  hardboardCutSize,
   type CabinetInstance,
   type CabinetPartColors,
   type SlideKind,
 } from '@/lib/cabinets'
-import {
-  DEFAULT_NIGHTSTAND_PARAMS,
-  parseNightstandParams,
-} from '@/lib/cabinets/nightstand'
 import type { HardwareSettings } from '@/lib/settings'
 import { DEFAULT_HARDWARE_SETTINGS } from '@/lib/settings'
 import type { AssemblyTimeSettings } from '@/lib/assembly-time'
@@ -77,29 +77,41 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
   const initialKitchen = editing && editing.typeId === 'kitchen-base'
     ? parseKitchenBaseParams(editing.params)
     : DEFAULT_KITCHEN_BASE_PARAMS
-  
-  const initialNightstand = editing && editing.typeId === 'nightstand'
-    ? parseNightstandParams(editing.params)
-    : DEFAULT_NIGHTSTAND_PARAMS
+
+  const initialBox =
+    editing && editing.typeId === 'section'
+      ? parseSectionParams(editing.params)
+      : editing && editing.typeId === 'nightstand'
+        ? parseNightstandParams(editing.params)
+        : DEFAULT_NIGHTSTAND_PARAMS
+
+  const initialFittings =
+    editing?.typeId === 'kitchen-base'
+      ? initialKitchen
+      : editing?.typeId === 'nightstand' || editing?.typeId === 'section'
+        ? initialBox
+        : initialKitchen
 
   const [width, setWidth] = useState(String(editing?.params.width ?? DEFAULT_KITCHEN_BASE_PARAMS.width))
   const [height, setHeight] = useState(String(editing?.params.height ?? DEFAULT_KITCHEN_BASE_PARAMS.height))
   const [depth, setDepth] = useState(String(editing?.params.depth ?? DEFAULT_KITCHEN_BASE_PARAMS.depth))
   const [thickness, setThickness] = useState(String(editing?.params.thickness ?? DEFAULT_KITCHEN_BASE_PARAMS.thickness))
   const [legHeight, setLegHeight] = useState(initialKitchen.legHeight === 150 ? 150 : 100)
-  const [shelfCount, setShelfCount] = useState(initialKitchen.shelfCount)
-  const [hasBack, setHasBack] = useState(initialKitchen.hasBack)
-  const [doorCount, setDoorCount] = useState(initialKitchen.doorCount)
+  const [shelfCount, setShelfCount] = useState(initialFittings.shelfCount)
+  const [hasBack, setHasBack] = useState(initialFittings.hasBack)
+  const [hasClothesRail, setHasClothesRail] = useState(initialFittings.hasClothesRail === true)
+  const [doorCount, setDoorCount] = useState(initialFittings.doorCount)
   const [drawerFrontHeights, setDrawerFrontHeights] = useState<string[]>(
-    initialKitchen.drawerFrontHeights.map(String),
+    initialFittings.drawerFrontHeights.map(String),
   )
-  const [cutFromOneBoard, setCutFromOneBoard] = useState(initialKitchen.cutFromOneBoard)
-  const [slideKind, setSlideKind] = useState<SlideKind>(parseSlideKind(initialKitchen.slideKind))
-  const [slideLength, setSlideLength] = useState(initialKitchen.slideLength)
-  
-  // Nightstand-specific state
-  const [plinthCount, setPlinthCount] = useState<1 | 2>(initialNightstand.plinthCount)
-  const [plinthHeight, setPlinthHeight] = useState(String(initialNightstand.plinthHeight))
+  const [cutFromOneBoard, setCutFromOneBoard] = useState(initialFittings.cutFromOneBoard)
+  const [includeHandles, setIncludeHandles] = useState(initialFittings.includeHandles !== false)
+  const [slideKind, setSlideKind] = useState<SlideKind>(parseSlideKind(initialFittings.slideKind))
+  const [slideLength, setSlideLength] = useState(initialFittings.slideLength)
+
+  const [plinthCount, setPlinthCount] = useState<1 | 2>(initialBox.plinthCount)
+  const [plinthHeight, setPlinthHeight] = useState(String(initialBox.plinthHeight))
+  const [useLegs, setUseLegs] = useState(initialBox.useLegs)
   
   const [quantity, setQuantity] = useState(String(editing?.quantity ?? 1))
   const [showDimLines, setShowDimLines] = useState(false)
@@ -109,27 +121,10 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
   })
 
   const params = useMemo(() => {
-    if (typeId === 'nightstand') {
-      return parseNightstandParams({
-        width: parseInt(width, 10),
-        height: parseInt(height, 10),
-        depth: parseInt(depth, 10),
-        thickness: parseInt(thickness, 10),
-        plinthCount,
-        plinthHeight: parseInt(plinthHeight, 10),
-        colors,
-      })
-    }
-    
-    return parseKitchenBaseParams({
-      width: parseInt(width, 10),
-      height: parseInt(height, 10),
-      depth: parseInt(depth, 10),
-      thickness: parseInt(thickness, 10),
-      legHeight,
-      railWidth: DEFAULT_KITCHEN_BASE_PARAMS.railWidth,
+    const fittings = {
       shelfCount,
       hasBack,
+      hasClothesRail,
       doorCount,
       drawerFrontHeights: drawerFrontHeights.map((s) => parseInt(s, 10) || 0),
       cutFromOneBoard:
@@ -138,11 +133,49 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
           drawerFrontHeights.filter((s) => (parseInt(s, 10) || 0) > 0).length,
           doorCount,
         ),
+      includeHandles,
       slideKind,
       slideLength,
+    }
+    if (typeId === 'nightstand') {
+      return parseNightstandParams({
+        width: parseInt(width, 10),
+        height: parseInt(height, 10),
+        depth: parseInt(depth, 10),
+        thickness: parseInt(thickness, 10),
+        useLegs,
+        plinthCount,
+        plinthHeight: parseInt(plinthHeight, 10),
+        legHeight,
+        colors,
+        ...fittings,
+      })
+    }
+    if (typeId === 'section') {
+      return parseSectionParams({
+        width: parseInt(width, 10),
+        height: parseInt(height, 10),
+        depth: parseInt(depth, 10),
+        thickness: parseInt(thickness, 10),
+        useLegs: false,
+        plinthCount,
+        plinthHeight: parseInt(plinthHeight, 10),
+        colors,
+        ...fittings,
+      })
+    }
+
+    return parseKitchenBaseParams({
+      width: parseInt(width, 10),
+      height: parseInt(height, 10),
+      depth: parseInt(depth, 10),
+      thickness: parseInt(thickness, 10),
+      legHeight,
+      railWidth: DEFAULT_KITCHEN_BASE_PARAMS.railWidth,
       colors,
+      ...fittings,
     })
-  }, [typeId, width, height, depth, thickness, legHeight, shelfCount, hasBack, doorCount, drawerFrontHeights, cutFromOneBoard, slideKind, slideLength, plinthCount, plinthHeight, colors])
+  }, [typeId, width, height, depth, thickness, legHeight, shelfCount, hasBack, hasClothesRail, doorCount, drawerFrontHeights, cutFromOneBoard, includeHandles, slideKind, slideLength, useLegs, plinthCount, plinthHeight, colors])
 
   const qty = Math.max(1, parseInt(quantity, 10) || 1)
   const result = useMemo(() => {
@@ -154,11 +187,34 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
   }, [typeId, params, qty, settings])
 
   const estimate = result ? estimateFromPanels(result.panels) : null
-  const price = result ? cabinetPrice(result.hardware, result.labor, dailyRateEur, result.panels, sheets, settings.hardware) : null
-  const screwUnit = fastenerUnitPriceEur({ ...SCREW_5X60, packPriceEur: settings.hardware.screw5x60_500PackEur })
-  const pinQty = result ? hardwareQtyById(result.hardware, SHELF_PIN.id) : 0
-  const hourly = hourlyRateEur(dailyRateEur)
-  const error = typeId === 'kitchen-base' ? validate(params as ReturnType<typeof parseKitchenBaseParams>) : null
+  const breakdown = result
+    ? explainCabinetPrice({
+        panels: result.panels,
+        hardware: result.hardware,
+        assemblyMinutes: result.labor.assemblyMinutes,
+        assemblySteps: result.labor.assemblySteps,
+        dailyRateEur,
+        sheets,
+        settings: settings.hardware,
+      })
+    : null
+  const error = validate(typeId, params)
+  const frontH = dialogFrontHeight(typeId, params)
+  const slideDepth =
+    typeId === 'kitchen-base'
+      ? (params as ReturnType<typeof parseKitchenBaseParams>).depth
+      : measureNightstand(params as ReturnType<typeof parseNightstandParams>, typeId === 'section').sideD
+  const hasFittings = typeId === 'kitchen-base' || typeId === 'nightstand' || typeId === 'section'
+  const innerH =
+    typeId === 'kitchen-base'
+      ? params.height - 2 * params.thickness
+      : measureNightstand(params as ReturnType<typeof parseNightstandParams>, typeId === 'section').innerH
+  const shelfGap = evenShelfGap(innerH, shelfCount, params.thickness)
+  const backPlinth =
+    typeId !== 'kitchen-base' && !(params as ReturnType<typeof parseNightstandParams>).useLegs
+      ? (params as ReturnType<typeof parseNightstandParams>).plinthHeight
+      : 0
+  const backCut = hardboardCutSize(params.width, params.height, backPlinth)
 
   const handleSave = () => {
     if (error) return
@@ -172,7 +228,11 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
         <DialogHeader>
           <DialogTitle>{isEdit ? 'Редактирай шкаф' : 'Добави шкаф'}</DialogTitle>
           <DialogDescription>
-            Размерите са на корпуса в мм. Крачетата са отделно. Детайлите и кантът се смятат автоматично.
+            {typeId === 'nightstand'
+              ? 'Размерите са външни в мм — плотът е пълната широчина и дълбочина. Детайлите и кантът се смятат автоматично.'
+              : typeId === 'section'
+                ? 'Размерите са външни в мм — плотът влиза между страниците. Детайлите и кантът се смятат автоматично.'
+                : 'Размерите са на корпуса в мм. Крачетата са отделно. Детайлите и кантът се смятат автоматично.'}
           </DialogDescription>
         </DialogHeader>
 
@@ -183,7 +243,50 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
               id="cab-type"
               className={selectClass}
               value={typeId}
-              onChange={(e) => setTypeId(e.target.value)}
+              onChange={(e) => {
+                const id = e.target.value
+                setTypeId(id)
+                if (id === 'nightstand') {
+                  setWidth(String(DEFAULT_NIGHTSTAND_PARAMS.width))
+                  setHeight(String(DEFAULT_NIGHTSTAND_PARAMS.height))
+                  setDepth(String(DEFAULT_NIGHTSTAND_PARAMS.depth))
+                  setThickness(String(DEFAULT_NIGHTSTAND_PARAMS.thickness))
+                  setUseLegs(false)
+                  setPlinthCount(DEFAULT_NIGHTSTAND_PARAMS.plinthCount)
+                  setPlinthHeight(String(DEFAULT_NIGHTSTAND_PARAMS.plinthHeight))
+                  setLegHeight(DEFAULT_NIGHTSTAND_PARAMS.legHeight)
+                  setShelfCount(0)
+                  setHasBack(false)
+                  setHasClothesRail(false)
+                  setDoorCount(0)
+                  setDrawerFrontHeights([])
+                  setCutFromOneBoard(false)
+                  setIncludeHandles(true)
+                } else if (id === 'section') {
+                  setWidth(String(DEFAULT_SECTION_PARAMS.width))
+                  setHeight(String(DEFAULT_SECTION_PARAMS.height))
+                  setDepth(String(DEFAULT_SECTION_PARAMS.depth))
+                  setThickness(String(DEFAULT_SECTION_PARAMS.thickness))
+                  setUseLegs(false)
+                  setPlinthCount(DEFAULT_SECTION_PARAMS.plinthCount)
+                  setPlinthHeight(String(DEFAULT_SECTION_PARAMS.plinthHeight))
+                  setShelfCount(0)
+                  setHasBack(false)
+                  setHasClothesRail(false)
+                  setDoorCount(0)
+                  setDrawerFrontHeights([])
+                  setCutFromOneBoard(false)
+                  setIncludeHandles(true)
+                } else if (id === 'kitchen-base') {
+                  setWidth(String(DEFAULT_KITCHEN_BASE_PARAMS.width))
+                  setHeight(String(DEFAULT_KITCHEN_BASE_PARAMS.height))
+                  setDepth(String(DEFAULT_KITCHEN_BASE_PARAMS.depth))
+                  setThickness(String(DEFAULT_KITCHEN_BASE_PARAMS.thickness))
+                  setHasBack(DEFAULT_KITCHEN_BASE_PARAMS.hasBack)
+                  setHasClothesRail(false)
+                  setIncludeHandles(true)
+                }
+              }}
             >
               {CABINET_TYPES.map((t) => (
                 <option key={t.id} value={t.id}>
@@ -210,13 +313,14 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
 
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <NumField id="cab-w" label="Ширина" value={width} onChange={setWidth} />
-          <NumField id="cab-h" label={typeId === 'nightstand' ? 'Височина' : 'Височина корпус'} value={height} onChange={setHeight} />
+          <NumField id="cab-h" label={typeId === 'kitchen-base' ? 'Височина корпус' : 'Височина'} value={height} onChange={setHeight} />
           <NumField id="cab-d" label="Дълбочина" value={depth} onChange={setDepth} />
           <NumField id="cab-t" label="Плоскост" value={thickness} onChange={setThickness} />
         </div>
 
-        {typeId === 'kitchen-base' && (
+        {hasFittings && (
           <>
+            {typeId === 'kitchen-base' && (
             <div>
               <Label>Крачета</Label>
               <div className="mt-1 flex gap-2">
@@ -236,26 +340,46 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                 От пода до върха: {(params as ReturnType<typeof parseKitchenBaseParams>).height + (params as ReturnType<typeof parseKitchenBaseParams>).legHeight} мм · 4 крачета
               </p>
             </div>
+            )}
 
             <div>
               <Label>Рафтове</Label>
-              <div className="mt-1 flex gap-2">
-                {([0, 1, 2, 3] as const).map((n) => (
+              <p className="mt-0.5 text-xs text-[var(--color-muted-foreground)]">
+                Равни празнини над, между и под рафтовете.
+              </p>
+              {shelfCount > 0 && (
+                <div className="mt-2 flex items-center gap-2">
+                  <span className="w-28 shrink-0 text-xs">
+                    {shelfCount} {shelfCount === 1 ? 'рафт' : 'рафта'}
+                  </span>
                   <Button
-                    key={n}
                     type="button"
-                    size="sm"
-                    variant={shelfCount === n ? 'default' : 'outline'}
-                    onClick={() => setShelfCount(n)}
+                    size="icon"
+                    variant="ghost"
+                    className="h-8 w-8 shrink-0"
+                    onClick={() => setShelfCount((n) => Math.max(0, n - 1))}
+                    aria-label="Премахни рафт"
                   >
-                    {n === 0 ? 'Без' : n}
+                    <Trash2 className="h-4 w-4" />
                   </Button>
-                ))}
+                </div>
+              )}
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={shelfCount >= MAX_SHELVES}
+                  onClick={() => setShelfCount((n) => Math.min(MAX_SHELVES, n + 1))}
+                >
+                  <Plus className="h-4 w-4" />
+                  Добави рафт
+                </Button>
               </div>
               <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
                 {shelfCount === 0
                   ? 'Без рафт'
-                  : `${shelfCount} ${shelfCount === 1 ? 'рафт' : 'рафта'} · равни празнини · ${shelfCount * SHELF_PINS_PER_SHELF} рафтоносача · ${formatEur(settings.hardware.shelfPinEur)}/бр. · дълбочина ${(params as ReturnType<typeof parseKitchenBaseParams>).depth - DEFAULT_SHELF_FRONT_INSET} мм`}
+                  : `Разстояние между рафтовете: ${Math.round(shelfGap)} мм · ${shelfCount * SHELF_PINS_PER_SHELF} рафтоносача · ${formatEur(settings.hardware.shelfPinEur)}/бр. · дълбочина ${slideDepth - DEFAULT_SHELF_FRONT_INSET} мм`}
               </p>
             </div>
 
@@ -281,8 +405,37 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
           </div>
           <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
             {hasBack
-              ? '3 мм фазер между страниците, отделен разкрой от ПДЧ.'
+              ? backPlinth > 0
+                ? `Рязане ${backCut.width} × ${backCut.height} мм — цокълът ${backPlinth} мм не се покрива.`
+                : `Рязане ${backCut.width} × ${backCut.height} мм — покрива целия гръб.`
               : 'Без гръб.'}
+          </p>
+        </div>
+
+        <div>
+          <Label>Лост за дрехи</Label>
+          <div className="mt-1 flex gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant={hasClothesRail ? 'default' : 'outline'}
+              onClick={() => setHasClothesRail(true)}
+            >
+              С лост
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={!hasClothesRail ? 'default' : 'outline'}
+              onClick={() => setHasClothesRail(false)}
+            >
+              Без
+            </Button>
+          </div>
+          <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
+            {hasClothesRail
+              ? `Лост ${clothesRailLengthMm(params.width, params.thickness)} мм между страниците · ${formatEur(settings.hardware.clothesRailEurPerM)}/м.`
+              : 'Без лост.'}
           </p>
         </div>
 
@@ -305,16 +458,33 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
             {doorCount === 0
               ? 'Без врати — шкафът може да е само с чекмеджета.'
               : (() => {
-                  const kitchenParams = params as ReturnType<typeof parseKitchenBaseParams>
-                  const leftover = remainingFrontHeight(kitchenParams.height, kitchenParams.drawerFrontHeights, true)
+                  const leftover = remainingFrontHeight(frontH, drawerFrontHeights.map((s) => parseInt(s, 10) || 0).filter((n) => n > 0), true)
                   const d = {
-                    width: kitchenParams.width / doorCount - 3 - 4,
+                    width: params.width / doorCount - 3 - 4,
                     height: leftover - 4,
                   }
                   return leftover > 4
                     ? `Рязане ${Math.round(d.width)} × ${Math.round(d.height)} мм · кант 2 мм от 4 страни`
                     : 'Няма място за врата — намалени челата или махни вратата.'
                 })()}
+          </p>
+          <label className="mt-2 flex cursor-pointer items-center gap-2 text-sm">
+            <Checkbox
+              checked={includeHandles}
+              onCheckedChange={(c) => setIncludeHandles(c === true)}
+            />
+            Дръжки в цената
+          </label>
+          <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
+            {(() => {
+              const n =
+                doorCount +
+                drawerFrontHeights.filter((s) => (parseInt(s, 10) || 0) > 0).length
+              if (n === 0) return 'По 1 обикновена дръжка на врата и на чекмедже.'
+              if (!includeHandles) return 'Дръжките не влизат в цената.'
+              const unit = settings.hardware.handleNormalEur
+              return `${n} бр. ${HANDLE_NORMAL.name} · по 1 на врата и на чекмедже · ${formatEur(unit)}/бр. = ${formatEur(n * unit)}`
+            })()}
           </p>
         </div>
 
@@ -368,11 +538,11 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
             </Button>
           </div>
           <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
-            {typeId === 'kitchen-base' ? drawerHint(params as ReturnType<typeof parseKitchenBaseParams>) : ''}
+            {drawerHint(frontH, doorCount, (params as { drawerFrontHeights: number[] }).drawerFrontHeights)}
           </p>
         </div>
 
-        {typeId === 'kitchen-base' && canCombineFronts((params as ReturnType<typeof parseKitchenBaseParams>).drawerFrontHeights.length, doorCount) && (
+        {canCombineFronts((params as { drawerFrontHeights: number[] }).drawerFrontHeights.length, doorCount) && (
           <div>
             <Label>Рязане</Label>
             <div className="mt-1 flex gap-2">
@@ -399,7 +569,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
           </div>
         )}
 
-        {typeId === 'kitchen-base' && (params as ReturnType<typeof parseKitchenBaseParams>).drawerFrontHeights.length > 0 && (
+        {(params as { drawerFrontHeights: number[] }).drawerFrontHeights.length > 0 && (
           <div>
             <Label>Водачи</Label>
             <div className="mt-1 flex flex-wrap gap-2">
@@ -411,7 +581,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                   variant={slideKind === kind ? 'default' : 'outline'}
                   onClick={() => {
                     setSlideKind(kind)
-                    const next = eligibleSlideLengths(params.depth, kind)
+                    const next = eligibleSlideLengths(slideDepth, kind)
                     if (!next.includes(slideLength)) setSlideLength(next[next.length - 1] ?? next[0])
                   }}
                 >
@@ -421,12 +591,12 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
             </div>
             <p className="mt-2 text-xs text-[var(--color-muted-foreground)]">Дължина</p>
             <div className="mt-1 flex flex-wrap gap-2">
-              {eligibleSlideLengths((params as ReturnType<typeof parseKitchenBaseParams>).depth, slideKind).map((len) => (
+              {eligibleSlideLengths(slideDepth, slideKind).map((len) => (
                 <Button
                   key={len}
                   type="button"
                   size="sm"
-                  variant={(params as ReturnType<typeof parseKitchenBaseParams>).slideLength === len ? 'default' : 'outline'}
+                  variant={(params as { slideLength: number }).slideLength === len ? 'default' : 'outline'}
                   onClick={() => setSlideLength(len)}
                 >
                   {len}
@@ -435,23 +605,29 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
             </div>
             <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
               {(() => {
-                const kitchenParams = params as ReturnType<typeof parseKitchenBaseParams>
+                const fit = params as {
+                  slideKind: SlideKind
+                  slideLength: number
+                  drawerFrontHeights: number[]
+                  width: number
+                  thickness: number
+                }
                 return (
                   <>
-                    {SLIDE_KIND_LABEL[kitchenParams.slideKind]} · {kitchenParams.slideLength} мм ·{' '}
-                    {SLIDES_PER_DRAWER * kitchenParams.drawerFrontHeights.length} бр. ×{' '}
-                    {formatEur(slideUnitPriceEur(kitchenParams.slideKind, kitchenParams.slideLength, settings.hardware))} ={' '}
+                    {SLIDE_KIND_LABEL[fit.slideKind]} · {fit.slideLength} мм ·{' '}
+                    {SLIDES_PER_DRAWER * fit.drawerFrontHeights.length} бр. ×{' '}
+                    {formatEur(slideUnitPriceEur(fit.slideKind, fit.slideLength, settings.hardware))} ={' '}
                     <strong>
                       {formatEur(
-                        slideUnitPriceEur(kitchenParams.slideKind, kitchenParams.slideLength, settings.hardware)
+                        slideUnitPriceEur(fit.slideKind, fit.slideLength, settings.hardware)
                           * SLIDES_PER_DRAWER
-                          * kitchenParams.drawerFrontHeights.length,
+                          * fit.drawerFrontHeights.length,
                       )}
                     </strong>
-                    {eligibleSlideLengths(kitchenParams.depth, kitchenParams.slideKind).length === 0
+                    {eligibleSlideLengths(slideDepth, fit.slideKind).length === 0
                       ? ' · няма водач, който да влезе в тази дълбочина'
-                      : ` · влиза в корпус ${kitchenParams.depth} мм`}
-                    {kitchenParams.slideKind === 'roller'
+                      : ` · влиза в корпус ${slideDepth} мм`}
+                    {fit.slideKind === 'roller'
                       ? ' · 3 винтчета 3.5×16 на водач'
                       : ' · 3 винтчета 3.5×16 + 4 за перките на водач'}
                   </>
@@ -459,22 +635,28 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
               })()}
             </p>
             {(() => {
-              const kitchenParams = params as ReturnType<typeof parseKitchenBaseParams>
-              return [...new Set(kitchenParams.drawerFrontHeights)].map((frontH) => {
+              const fit = params as {
+                slideKind: SlideKind
+                slideLength: number
+                drawerFrontHeights: number[]
+                width: number
+                thickness: number
+              }
+              return [...new Set(fit.drawerFrontHeights)].map((drawerH) => {
               const box = drawerBoxRails(
-                kitchenParams.width,
-                kitchenParams.thickness,
-                frontH,
-                kitchenParams.slideLength,
-                isSoftCloseSlide(kitchenParams.slideKind),
+                fit.width,
+                fit.thickness,
+                drawerH,
+                fit.slideLength,
+                isSoftCloseSlide(fit.slideKind),
               )
               if (!box) return null
-              const many = kitchenParams.drawerFrontHeights.length > 1
+              const many = fit.drawerFrontHeights.length > 1
               return (
-                <p key={frontH} className="mt-1 text-xs text-[var(--color-muted-foreground)]">
-                  Царги{many ? ` ${frontH} мм` : ''}: вътрешни {Math.round(box.inner.width)}×{Math.round(box.inner.height)} мм (2 бр.) · външни{' '}
+                <p key={drawerH} className="mt-1 text-xs text-[var(--color-muted-foreground)]">
+                  Царги{many ? ` ${drawerH} мм` : ''}: вътрешни {Math.round(box.inner.width)}×{Math.round(box.inner.height)} мм (2 бр.) · външни{' '}
                   {Math.round(box.outer.width)}×{Math.round(box.outer.height)} мм (2 бр.) · кутия {Math.round(box.drawerOuterW)} мм
-                  {isSoftCloseSlide(kitchenParams.slideKind) ? ' · 5 мм луфт от страна' : ' · 12.5 мм луфт от страна'}
+                  {isSoftCloseSlide(fit.slideKind) ? ' · 5 мм луфт от страна' : ' · 12.5 мм луфт от страна'}
                 </p>
               )
             })
@@ -484,64 +666,114 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
           </>
         )}
 
-        {typeId === 'nightstand' && (
+        {(typeId === 'nightstand' || typeId === 'section') && (
           <>
+            {typeId === 'nightstand' && (
             <div>
-              <Label>Брой цокли</Label>
+              <Label>Опора</Label>
               <div className="mt-1 flex gap-2">
-                {([1, 2] as const).map((n) => (
-                  <Button
-                    key={n}
-                    type="button"
-                    size="sm"
-                    variant={plinthCount === n ? 'default' : 'outline'}
-                    onClick={() => setPlinthCount(n)}
-                  >
-                    {n}
-                  </Button>
-                ))}
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={!useLegs ? 'default' : 'outline'}
+                  onClick={() => setUseLegs(false)}
+                >
+                  Цокъл и дъно
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={useLegs ? 'default' : 'outline'}
+                  onClick={() => setUseLegs(true)}
+                >
+                  Крачета
+                </Button>
               </div>
               <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
-                Цоклите се хващат за дъното на 2 см навътре от канта
+                {useLegs
+                  ? '4 крачета под дъното, без цокъл. Дъното е външно, страниците влизат в него.'
+                  : 'Цокъл с канта надолу, дъното върху него, после между страниците. Без крачета.'}
               </p>
             </div>
+            )}
 
-            <div>
-              <Label htmlFor="plinth-height">Височина на цокъл (мм)</Label>
-              <div className="mt-1 flex items-center gap-2">
-                <Input
-                  id="plinth-height"
-                  type="number"
-                  inputMode="numeric"
-                  min={40}
-                  max={150}
-                  value={plinthHeight}
-                  onChange={(e) => setPlinthHeight(e.target.value)}
-                  className="w-32"
-                />
-                <div className="flex gap-1">
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    onClick={() => setPlinthHeight('60')}
-                  >
-                    60
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    onClick={() => setPlinthHeight('100')}
-                  >
-                    100
-                  </Button>
+            {typeId === 'nightstand' && useLegs ? (
+              <div>
+                <Label>Крачета</Label>
+                <div className="mt-1 flex gap-2">
+                  {([100, 150] as const).map((h) => (
+                    <Button
+                      key={h}
+                      type="button"
+                      size="sm"
+                      variant={legHeight === h ? 'default' : 'outline'}
+                      onClick={() => setLegHeight(h)}
+                    >
+                      {h / 10} см
+                    </Button>
+                  ))}
                 </div>
               </div>
-              <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
-                Обикновено 100 мм, може и 60 мм или друга стойност
-              </p>
-            </div>
+            ) : (
+              <>
+                <div>
+                  <Label>Брой цокли</Label>
+                  <div className="mt-1 flex gap-2">
+                    {([1, 2] as const).map((n) => (
+                      <Button
+                        key={n}
+                        type="button"
+                        size="sm"
+                        variant={plinthCount === n ? 'default' : 'outline'}
+                        onClick={() => setPlinthCount(n)}
+                      >
+                        {n}
+                      </Button>
+                    ))}
+                  </div>
+                  <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
+                    Цокълът се хваща за дъното на 2 см навътре от канта
+                  </p>
+                </div>
+
+                <div>
+                  <Label htmlFor="plinth-height">Височина на цокъл (мм)</Label>
+                  <div className="mt-1 flex items-center gap-2">
+                    <Input
+                      id="plinth-height"
+                      type="number"
+                      inputMode="numeric"
+                      min={40}
+                      max={150}
+                      value={plinthHeight}
+                      onChange={(e) => setPlinthHeight(e.target.value)}
+                      className="w-32"
+                    />
+                    <div className="flex gap-1">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setPlinthHeight('60')}
+                      >
+                        60
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setPlinthHeight('100')}
+                      >
+                        100
+                      </Button>
+                    </div>
+                  </div>
+                  <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
+                    Обикновено 100 мм, може и 60 мм или друга стойност
+                  </p>
+                </div>
+              </>
+            )}
           </>
         )}
 
@@ -551,7 +783,13 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
             По подразбиране плоскостите са еднакви. Смени само ако трябва да се отличават.
           </p>
           <div className="mt-2 flex flex-wrap items-center gap-3">
-            {PART_COLOR_FIELDS.map(({ key, label }) => (
+            {PART_COLOR_FIELDS.filter(({ key }) => {
+              if (typeId === 'nightstand' || typeId === 'section') {
+                if (key === 'shelf' && shelfCount === 0) return false
+                if (key === 'leg' && (typeId === 'section' || !useLegs)) return false
+              }
+              return true
+            }).map(({ key, label }) => (
               <label key={key} className="flex items-center gap-1.5 text-xs">
                 <input
                   type="color"
@@ -560,7 +798,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                   className="h-7 w-8 cursor-pointer rounded border border-[var(--color-border)] bg-transparent"
                   title={label}
                 />
-                {label}
+                {(typeId === 'nightstand' || typeId === 'section') && key === 'rail' ? 'Плот' : label}
               </label>
             ))}
             <Button
@@ -584,7 +822,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
           </label>
         </div>
 
-        <CabinetPreview params={{ ...params }} showDimLines={showDimLines} />
+        <CabinetPreview typeId={typeId} params={{ ...params }} showDimLines={showDimLines} />
 
         {error && <p className="text-sm text-[var(--color-destructive)]">{error}</p>}
 
@@ -700,66 +938,12 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
               </div>
             )}
 
-            {price && (
-              <div className="flex flex-wrap items-baseline gap-3 rounded-md bg-[var(--color-secondary)] px-3 py-2 text-sm">
-                <span>
-                  Винтове {SCREW_5X60.name}: кутия {SCREW_5X60.packQty} бр. = {formatEur(settings.hardware.screw5x60_500PackEur)}{' '}
-                  · {formatEur(screwUnit, 3)}/бр.
-                </span>
-                {pinQty > 0 && (
-                  <span>
-                    {SHELF_PIN.name}: {pinQty} бр. · {formatEur(settings.hardware.shelfPinEur)}/бр.
-                  </span>
-                )}
-                <span>
-                  ПДЧ: <strong>{formatEur(price.chipboardEur)}</strong>
-                </span>
-                {price.hardboardEur > 0 && (
-                  <span>
-                    Фазер: <strong>{formatEur(price.hardboardEur)}</strong>
-                  </span>
-                )}
-                <span>
-                  Кант ({formatEur(settings.hardware.edgeMm2Eur, 2)}/м дебел, {formatEur(settings.hardware.edgeMm05Eur, 2)}/м
-                  обикновен): <strong>{formatEur(price.edgeEur)}</strong>
-                </span>
-                <span>
-                  Фурнитура: <strong>{formatEur(price.hardwareEur)}</strong>
-                </span>
-                <span>
-                  Рязане: <strong>{formatMinutes(price.cuttingMinutes)}</strong>
-                  {' · '}
-                  Кантиране: <strong>{formatMinutes(price.edgingMinutes)}</strong>
-                </span>
-                {result.labor.assemblyMinutes != null && result.labor.assemblyMinutes > 0 && (
-                  <span>
-                    Сглобяване: <strong>{formatMinutes(result.labor.assemblyMinutes)}</strong>
-                    {' ('}
-                    вкл. обработка на кантирани страни, монтаж на корпус
-                    {typeId === 'kitchen-base' && (params as ReturnType<typeof parseKitchenBaseParams>).drawerFrontHeights.length > 0 ? ' и чекмедже' : ''}
-                    {')'}
-                  </span>
-                )}
-                {price.laborEur != null ? (
-                  <span>
-                    Труд общо: <strong>{formatEur(price.laborEur)}</strong>
-                    {' — '}
-                    при {formatEur(dailyRateEur)}/ден ({WORK_HOURS_PER_DAY} ч · {formatEur(hourly)}/ч)
-                  </span>
-                ) : (
-                  <span>Труд: задай ставка €/ден в панела Шкафове, за да влезе в цената</span>
-                )}
-                <span>
-                  Обща цена: <strong>{formatEur(price.totalEur)}</strong>
-                </span>
-              </div>
-            )}
+            {breakdown && <PriceBreakdownView breakdown={breakdown} />}
 
             <ul className="list-inside list-disc text-xs text-[var(--color-muted-foreground)]">
               {result.notes.map((n) => (
                 <li key={n}>{n}</li>
               ))}
-              <li>Сглобяването още няма зададено време — ще влезе в цената, когато го попълним.</li>
             </ul>
           </div>
         )}
@@ -773,7 +957,29 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
   )
 }
 
-function validate(p: ReturnType<typeof parseKitchenBaseParams>): string | null {
+function dialogFrontHeight(
+  typeId: string,
+  params: { height: number; useLegs?: boolean; legHeight?: number; plinthHeight?: number },
+): number {
+  if (typeId === 'kitchen-base') return params.height
+  return params.height - (params.useLegs ? params.legHeight ?? 0 : params.plinthHeight ?? 0)
+}
+
+function validate(
+  typeId: string,
+  p: {
+    width: number
+    height: number
+    depth: number
+    thickness: number
+    drawerFrontHeights: number[]
+    doorCount: number
+    useLegs?: boolean
+    legHeight?: number
+    plinthHeight?: number
+  },
+): string | null {
+  if (typeId !== 'kitchen-base' && typeId !== 'nightstand' && typeId !== 'section') return null
   if (p.width <= p.thickness * 2) return 'Ширината трябва да е по-голяма от двете страници.'
   if (p.height <= p.thickness + 20) return 'Височината на корпуса е твърде малка.'
   if (p.depth <= 0 || p.width <= 0) return 'Въведи валидни размери.'
@@ -782,18 +988,18 @@ function validate(p: ReturnType<typeof parseKitchenBaseParams>): string | null {
   for (const h of p.drawerFrontHeights) {
     if (h < minFront) return `Челото на чекмеджето трябва да е поне ${minFront} мм.`
   }
-  const leftover = remainingFrontHeight(p.height, p.drawerFrontHeights, p.doorCount > 0)
+  const leftover = remainingFrontHeight(dialogFrontHeight(typeId, p), p.drawerFrontHeights, p.doorCount > 0)
   if (leftover < 0) return 'Челата на чекмеджетата не събират във височината на корпуса (фуга 5 мм отгоре и 3 мм между тях).'
   if (p.doorCount > 0 && leftover < 80) return 'Останалата височина за вратата е твърде малка.'
   return null
 }
 
-function drawerHint(p: ReturnType<typeof parseKitchenBaseParams>): string {
-  if (p.drawerFrontHeights.length === 0) {
+function drawerHint(frontHeight: number, doorCount: number, drawerFrontHeights: number[]): string {
+  if (drawerFrontHeights.length === 0) {
     return 'Добави едно или повече чекмеджета — могат да са с различни височини, с или без врата отдолу.'
   }
-  const leftover = remainingFrontHeight(p.height, p.drawerFrontHeights, p.doorCount > 0)
-  if (p.doorCount > 0) {
+  const leftover = remainingFrontHeight(frontHeight, drawerFrontHeights, doorCount > 0)
+  if (doorCount > 0) {
     return leftover > 0
       ? `Вратата отдолу е ${Math.round(leftover)} мм. Фуга 5 мм отгоре, 3 мм между челата.`
       : 'Челата заемат целия корпус — няма място за врата.'

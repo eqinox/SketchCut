@@ -8,7 +8,7 @@ export const DEFAULT_CHIPBOARD_PRICE_EUR = 86
 
 export const DEFAULT_HARDBOARD_WIDTH = 2800
 export const DEFAULT_HARDBOARD_HEIGHT = 2070
-export const DEFAULT_HARDBOARD_PRICE_EUR = 0
+export const DEFAULT_HARDBOARD_PRICE_EUR = 20
 export const DEFAULT_HARDBOARD_THICKNESS = 3
 
 /** Thick edge banding (2 mm). */
@@ -33,6 +33,8 @@ export const DRAWER_DOOR_GAP = 3
 export const DEFAULT_DRAWER_FRONT_HEIGHT = 150
 /** Practical upper bound for stacked drawers in one carcass. */
 export const MAX_DRAWERS = 6
+/** Max evenly spaced shelves. */
+export const MAX_SHELVES = 8
 /** Extra mm between stacked fronts when first cut as one board, then resawn after edging. */
 export const COMBINED_FRONT_SAW_BUFFER = 6
 /** 2 mm banding on both opposite edges. */
@@ -63,10 +65,11 @@ export function defaultSheetPrice(kind: BoardKind): number {
 
 export function normalizeSheet(sheet: Sheet): Sheet {
   const kind = sheetKind(sheet)
-  const price =
+  const rawPrice =
     typeof sheet.priceEur === 'number' && Number.isFinite(sheet.priceEur) && sheet.priceEur >= 0
       ? sheet.priceEur
       : defaultSheetPrice(kind)
+  const price = kind === 'hardboard' && rawPrice === 0 ? defaultSheetPrice(kind) : rawPrice
   return { ...sheet, kind, priceEur: price, quantity: sheet.quantity ?? 1 }
 }
 
@@ -149,6 +152,29 @@ export function parseDoorCount(value: unknown): DoorCount {
   const n = typeof value === 'number' ? value : Number.parseInt(String(value ?? ''), 10)
   if (n === 1 || n === 2) return n
   return 0
+}
+
+/** 0–MAX_SHELVES evenly spaced shelves. */
+export function parseShelfCount(value: unknown): number {
+  const n = typeof value === 'number' ? value : Number.parseInt(String(value ?? ''), 10)
+  if (!Number.isFinite(n) || n <= 0) return 0
+  return Math.min(MAX_SHELVES, Math.floor(n))
+}
+
+/**
+ * Hardboard back cut: full outer width × height.
+ * With a plinth, the plinth zone is not covered (height minus plinth).
+ * With legs, the whole back is covered.
+ */
+export function hardboardCutSize(
+  cabinetWidth: number,
+  cabinetHeight: number,
+  plinthHeight = 0,
+): { width: number; height: number } {
+  return {
+    width: cabinetWidth,
+    height: Math.max(1, cabinetHeight - Math.max(0, plinthHeight)),
+  }
 }
 
 /** Cut size (before 2 mm banding on all four edges). */

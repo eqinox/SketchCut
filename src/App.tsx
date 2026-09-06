@@ -18,7 +18,6 @@ import {
   updateCabinetAndLabel,
   createHardboardSheet,
   firstSheetOfKind,
-  parseKitchenBaseParams,
   partKind,
   sheetKind,
   normalizeSheet,
@@ -278,7 +277,7 @@ function App() {
   }
 
   const ensureHardboardSheet = (params: Record<string, unknown>) => {
-    if (!parseKitchenBaseParams(params).hasBack) return
+    if (params.hasBack !== true) return
     setSheets((prev) => {
       if (firstSheetOfKind(prev, 'hardboard')) return prev
       return [...prev, createHardboardSheet(generateId())]

@@ -1,5 +1,6 @@
 import type { BoardKind, EdgeBandingSides } from '@/types'
 import type { CabinetPartColors } from './colors'
+import type { AssemblyStep } from '@/lib/assembly-time'
 
 /** Actual working hours counted per day (breaks are not billed). */
 export const WORK_HOURS_PER_DAY = 7
@@ -7,6 +8,16 @@ export const WORK_HOURS_PER_DAY = 7
 export const DEFAULT_PANEL_THICKNESS = 18
 export const DEFAULT_RAIL_WIDTH = 100
 export const DEFAULT_LEG_HEIGHT = 100
+/** Front edge banding on a covering top (плот), mm. */
+export const TOP_EDGE_BAND_MM = 2
+/**
+ * Door / drawer front sits this far in front of the sides:
+ * panel thickness + top edge banding. At 18 mm stock → 20 mm, so a 400 mm
+ * cabinet has 380 mm sides.
+ */
+export function frontDoorOverhang(thickness: number): number {
+  return thickness + TOP_EDGE_BAND_MM
+}
 /** Lower kitchen shelves start this far back from the front edge. */
 export const DEFAULT_SHELF_FRONT_INSET = 50
 
@@ -27,21 +38,22 @@ export type PanelRole =
   | 'drawer-bottom'
 
 /**
- * Which piece is the outer / covering one. This is swapped across cabinet types:
- * e.g. base kitchen has sides sitting ON the bottom; many wall units have the
- * bottom BETWEEN the sides.
+ * Which piece is the outer (външна) / covering one. The inner (вътрешна)
+ * panel goes into the outer; confirmat 5×60 is drilled through the outer
+ * into the inner. Kitchen base: bottom is outer. Nightstand: sides are outer
+ * to the bottom, top is outer to the sides.
  */
 export interface JoineryConfig {
   /**
    * Bottom ↔ left/right sides.
-   * `bottom-covers-sides`: bottom is full width, sides sit on it, screws from below.
-   * `sides-cover-bottom`: sides are full height, bottom fits between them, screws from the sides.
+   * `bottom-covers-sides`: bottom is outer (full width), sides sit on it, screws from below.
+   * `sides-cover-bottom`: sides are outer (full height), bottom fits between them, screws from the sides.
    */
   bottomSides: 'bottom-covers-sides' | 'sides-cover-bottom'
   /**
    * Top rails / top panel ↔ sides.
-   * `rails-between-sides`: rails/top fit between the sides.
-   * `rails-cover-sides`: rails/top sit on the sides (full width).
+   * `rails-between-sides`: rails/top are inner (fit between the sides).
+   * `rails-cover-sides`: rails/top are outer (sit on the sides, full width).
    */
   topSides: 'rails-between-sides' | 'rails-cover-sides'
   /**
@@ -102,12 +114,14 @@ export interface HardwareItem {
 
 /**
  * Minutes per cabinet. Cutting and edging are derived from sheet usage
- * (40 min and 30 min per full plate). Assembly stays null until set.
+ * (40 min and 30 min per full plate). Assembly is the sum of `assemblySteps`.
  */
 export interface LaborEstimate {
   cuttingMinutes: number | null
   edgingMinutes: number | null
   assemblyMinutes: number | null
+  /** Individual assembly operations from the workshop settings. */
+  assemblySteps?: AssemblyStep[]
 }
 
 export interface CabinetGeneratorResult {
@@ -136,7 +150,7 @@ export interface KitchenBaseParams {
   legHeight: number
   /** Front/back top rail depth, mm (the 10 cm бленди) */
   railWidth: number
-  /** 0–3 evenly spaced shelves */
+  /** Evenly spaced shelves */
   shelfCount: number
   /** 3 mm hardboard back. */
   hasBack: boolean
@@ -146,6 +160,10 @@ export interface KitchenBaseParams {
   drawerFrontHeights: number[]
   /** Cut stacked drawer fronts (and a matching-width door) from one board for continuous grain. */
   cutFromOneBoard: boolean
+  /** When true (default), 1 ordinary handle per door and per drawer is added to the price. */
+  includeHandles: boolean
+  /** Clothes hanging rail between the sides. */
+  hasClothesRail: boolean
   /** Runner type when the cabinet has a drawer. */
   slideKind: 'roller' | 'soft-full' | 'soft-partial'
   /** Runner length in mm (must fit in carcass depth). */
@@ -166,6 +184,7 @@ export function emptyLabor(): LaborEstimate {
     cuttingMinutes: null,
     edgingMinutes: null,
     assemblyMinutes: null,
+    assemblySteps: [],
   }
 }
 

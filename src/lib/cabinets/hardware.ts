@@ -10,6 +10,15 @@ export interface FastenerPack {
   packPriceEur: number
 }
 
+/**
+ * Confirmat 5×60 count along an outer panel:
+ * up to 500 mm → 2, up to 1000 → 3, up to 1500 → 4, and so on.
+ */
+export function confirmatCount(outerSpanMm: number): number {
+  if (!(outerSpanMm > 0)) return 0
+  return 1 + Math.ceil(outerSpanMm / 500)
+}
+
 /** Confirmat / chipboard screw used to assemble carcasses. */
 export const SCREW_5X60: FastenerPack = {
   id: 'screw-5x60',
@@ -57,6 +66,13 @@ export const SHELF_PIN = {
 
 export const SHELF_PINS_PER_SHELF = 4
 
+/** Clothes hanging rail, priced per metre. */
+export const CLOTHES_RAIL = {
+  id: 'clothes-rail',
+  name: 'Лост за дрехи',
+  unitPriceEur: 1,
+} as const
+
 export const HINGE_SOFT_CLOSE = {
   id: 'hinge-soft-close',
   name: 'Панта плавно прибиране',
@@ -68,6 +84,15 @@ export const HINGE_NORMAL = {
   name: 'Панта нормално прибиране',
   unitPriceEur: 0.2,
 } as const
+
+export const HANDLE_NORMAL = {
+  id: 'handle-normal',
+  name: 'Обикновена дръжка',
+  unitPriceEur: 1,
+} as const
+
+export const HANDLES_PER_DOOR = 1
+export const HANDLES_PER_DRAWER = 1
 
 export const HINGES_PER_SMALL_DOOR = 2
 export const SCREWS_4X16_PER_HINGE = 2

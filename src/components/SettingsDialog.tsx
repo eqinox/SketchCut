@@ -24,6 +24,10 @@ import {
 } from '@/lib/settings'
 import {
   DEFAULT_ASSEMBLY_TIME_SETTINGS,
+  SIZE_MEDIUM_SPAN_MM,
+  SIZE_LARGE_SPAN_MM,
+  BACK_LARGE_MIN_HEIGHT_MM,
+  BACK_LARGE_MIN_WIDTH_MM,
   type AssemblyTimeSettings,
 } from '@/lib/assembly-time'
 
@@ -58,6 +62,8 @@ export function SettingsDialog({
   const [smallScrew, setSmallScrew] = useState('')
   const [screw5x60, setScrew5x60] = useState('')
   const [shelfPin, setShelfPin] = useState('')
+  const [handleNormal, setHandleNormal] = useState('')
+  const [clothesRailPrice, setClothesRailPrice] = useState('')
   const [edgeMm2, setEdgeMm2] = useState('')
   const [edgeMm05, setEdgeMm05] = useState('')
   const [slideRoller, setSlideRoller] = useState<PriceByLength>({})
@@ -70,8 +76,22 @@ export function SettingsDialog({
   const [edgeUpTo150, setEdgeUpTo150] = useState('')
   const [edgeAdditional, setEdgeAdditional] = useState('')
   const [installLegs, setInstallLegs] = useState('')
-  const [assembleSides, setAssembleSides] = useState('')
   const [assembleRails, setAssembleRails] = useState('')
+  const [shelfPinPair, setShelfPinPair] = useState('')
+  const [backSmall, setBackSmall] = useState('')
+  const [backLarge, setBackLarge] = useState('')
+  const [plinthSmall, setPlinthSmall] = useState('')
+  const [plinthMedium, setPlinthMedium] = useState('')
+  const [plinthLarge, setPlinthLarge] = useState('')
+  const [sidesSmall, setSidesSmall] = useState('')
+  const [sidesMedium, setSidesMedium] = useState('')
+  const [sidesLarge, setSidesLarge] = useState('')
+  const [topSmall, setTopSmall] = useState('')
+  const [topMedium, setTopMedium] = useState('')
+  const [topLarge, setTopLarge] = useState('')
+  const [clothesConsole, setClothesConsole] = useState('')
+  const [clothesCut, setClothesCut] = useState('')
+  const [clothesInstall, setClothesInstall] = useState('')
   const [drawerGuides, setDrawerGuides] = useState('')
   const [drawerBox, setDrawerBox] = useState('')
   const [drawerBack, setDrawerBack] = useState('')
@@ -86,6 +106,8 @@ export function SettingsDialog({
     setSmallScrew(String(s.smallScrew1000PackEur))
     setScrew5x60(String(s.screw5x60_500PackEur))
     setShelfPin(String(s.shelfPinEur))
+    setHandleNormal(String(s.handleNormalEur))
+    setClothesRailPrice(String(s.clothesRailEurPerM))
     setEdgeMm2(String(s.edgeMm2Eur))
     setEdgeMm05(String(s.edgeMm05Eur))
     setSlideRoller({ ...s.slideRollerEur })
@@ -99,8 +121,22 @@ export function SettingsDialog({
     setEdgeUpTo150(String(s.edgeBanding.thinEdgeUpTo150cm))
     setEdgeAdditional(String(s.edgeBanding.thinEdgeAdditionalPer50cm))
     setInstallLegs(String(s.installLegsMinutes))
-    setAssembleSides(String(s.assembleSidesMinutes))
     setAssembleRails(String(s.assembleTopRailsMinutes))
+    setShelfPinPair(String(s.shelfPinPairMinutes))
+    setBackSmall(String(s.backSmallMinutes))
+    setBackLarge(String(s.backLargeMinutes))
+    setPlinthSmall(String(s.plinthSmallMinutes))
+    setPlinthMedium(String(s.plinthMediumMinutes))
+    setPlinthLarge(String(s.plinthLargeMinutes))
+    setSidesSmall(String(s.sidesToBottomSmallMinutes))
+    setSidesMedium(String(s.sidesToBottomMediumMinutes))
+    setSidesLarge(String(s.sidesToBottomLargeMinutes))
+    setTopSmall(String(s.topSmallMinutes))
+    setTopMedium(String(s.topMediumMinutes))
+    setTopLarge(String(s.topLargeMinutes))
+    setClothesConsole(String(s.clothesRailConsoleMinutes))
+    setClothesCut(String(s.clothesRailCutMinutes))
+    setClothesInstall(String(s.clothesRailInstallMinutes))
     setDrawerGuides(String(s.installDrawerGuidesMinutes))
     setDrawerBox(String(s.assembleDrawerBoxMinutes))
     setDrawerBack(String(s.attachDrawerBackMinutes))
@@ -125,6 +161,8 @@ export function SettingsDialog({
       smallScrew1000PackEur: parseFloat(smallScrew) || DEFAULT_HARDWARE_SETTINGS.smallScrew1000PackEur,
       screw5x60_500PackEur: parseFloat(screw5x60) || DEFAULT_HARDWARE_SETTINGS.screw5x60_500PackEur,
       shelfPinEur: parseFloat(shelfPin) || DEFAULT_HARDWARE_SETTINGS.shelfPinEur,
+      handleNormalEur: parseFloat(handleNormal) || DEFAULT_HARDWARE_SETTINGS.handleNormalEur,
+      clothesRailEurPerM: parseFloat(clothesRailPrice) || DEFAULT_HARDWARE_SETTINGS.clothesRailEurPerM,
       edgeMm2Eur: parseFloat(edgeMm2) || DEFAULT_HARDWARE_SETTINGS.edgeMm2Eur,
       edgeMm05Eur: parseFloat(edgeMm05) || DEFAULT_HARDWARE_SETTINGS.edgeMm05Eur,
       slideRollerEur: { ...slideRoller },
@@ -148,8 +186,22 @@ export function SettingsDialog({
         thinEdgeAdditionalPer50cm: parseFloat(edgeAdditional) || DEFAULT_ASSEMBLY_TIME_SETTINGS.edgeBanding.thinEdgeAdditionalPer50cm,
       },
       installLegsMinutes: parseFloat(installLegs) || DEFAULT_ASSEMBLY_TIME_SETTINGS.installLegsMinutes,
-      assembleSidesMinutes: parseFloat(assembleSides) || DEFAULT_ASSEMBLY_TIME_SETTINGS.assembleSidesMinutes,
       assembleTopRailsMinutes: parseFloat(assembleRails) || DEFAULT_ASSEMBLY_TIME_SETTINGS.assembleTopRailsMinutes,
+      shelfPinPairMinutes: parseFloat(shelfPinPair) || DEFAULT_ASSEMBLY_TIME_SETTINGS.shelfPinPairMinutes,
+      backSmallMinutes: parseFloat(backSmall) || DEFAULT_ASSEMBLY_TIME_SETTINGS.backSmallMinutes,
+      backLargeMinutes: parseFloat(backLarge) || DEFAULT_ASSEMBLY_TIME_SETTINGS.backLargeMinutes,
+      plinthSmallMinutes: parseFloat(plinthSmall) || DEFAULT_ASSEMBLY_TIME_SETTINGS.plinthSmallMinutes,
+      plinthMediumMinutes: parseFloat(plinthMedium) || DEFAULT_ASSEMBLY_TIME_SETTINGS.plinthMediumMinutes,
+      plinthLargeMinutes: parseFloat(plinthLarge) || DEFAULT_ASSEMBLY_TIME_SETTINGS.plinthLargeMinutes,
+      sidesToBottomSmallMinutes: parseFloat(sidesSmall) || DEFAULT_ASSEMBLY_TIME_SETTINGS.sidesToBottomSmallMinutes,
+      sidesToBottomMediumMinutes: parseFloat(sidesMedium) || DEFAULT_ASSEMBLY_TIME_SETTINGS.sidesToBottomMediumMinutes,
+      sidesToBottomLargeMinutes: parseFloat(sidesLarge) || DEFAULT_ASSEMBLY_TIME_SETTINGS.sidesToBottomLargeMinutes,
+      topSmallMinutes: parseFloat(topSmall) || DEFAULT_ASSEMBLY_TIME_SETTINGS.topSmallMinutes,
+      topMediumMinutes: parseFloat(topMedium) || DEFAULT_ASSEMBLY_TIME_SETTINGS.topMediumMinutes,
+      topLargeMinutes: parseFloat(topLarge) || DEFAULT_ASSEMBLY_TIME_SETTINGS.topLargeMinutes,
+      clothesRailConsoleMinutes: parseFloat(clothesConsole) || DEFAULT_ASSEMBLY_TIME_SETTINGS.clothesRailConsoleMinutes,
+      clothesRailCutMinutes: parseFloat(clothesCut) || DEFAULT_ASSEMBLY_TIME_SETTINGS.clothesRailCutMinutes,
+      clothesRailInstallMinutes: parseFloat(clothesInstall) || DEFAULT_ASSEMBLY_TIME_SETTINGS.clothesRailInstallMinutes,
       installDrawerGuidesMinutes: parseFloat(drawerGuides) || DEFAULT_ASSEMBLY_TIME_SETTINGS.installDrawerGuidesMinutes,
       assembleDrawerBoxMinutes: parseFloat(drawerBox) || DEFAULT_ASSEMBLY_TIME_SETTINGS.assembleDrawerBoxMinutes,
       attachDrawerBackMinutes: parseFloat(drawerBack) || DEFAULT_ASSEMBLY_TIME_SETTINGS.attachDrawerBackMinutes,
@@ -338,6 +390,36 @@ export function SettingsDialog({
               </p>
             </div>
             <div className="rounded-md border border-[var(--color-border)] p-4">
+              <h3 className="mb-3 font-medium">Лост за дрехи</h3>
+              <Label htmlFor="clothes-rail">Лост (€/м)</Label>
+              <Input
+                id="clothes-rail"
+                type="number"
+                step="0.01"
+                min="0"
+                value={clothesRailPrice}
+                onChange={(e) => setClothesRailPrice(e.target.value)}
+              />
+              <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
+                Дължината е вътрешната широчина (между страниците).
+              </p>
+            </div>
+            <div className="rounded-md border border-[var(--color-border)] p-4">
+              <h3 className="mb-3 font-medium">Дръжки</h3>
+              <Label htmlFor="handle-normal">Обикновена дръжка (€/бр.)</Label>
+              <Input
+                id="handle-normal"
+                type="number"
+                step="0.01"
+                min="0"
+                value={handleNormal}
+                onChange={(e) => setHandleNormal(e.target.value)}
+              />
+              <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
+                По 1 дръжка на врата и на чекмедже.
+              </p>
+            </div>
+            <div className="rounded-md border border-[var(--color-border)] p-4">
               <h3 className="mb-3 font-medium">Кант (€/м)</h3>
               <div className="space-y-3">
                 <div>
@@ -434,6 +516,10 @@ export function SettingsDialog({
 
               <div className="rounded-md border border-[var(--color-border)] p-4">
                 <h3 className="mb-3 font-medium">Сглобяване на корпус</h3>
+                <p className="mb-3 text-xs text-[var(--color-muted-foreground)]">
+                  Малък: широчина до {SIZE_MEDIUM_SPAN_MM} мм. Среден: над {SIZE_MEDIUM_SPAN_MM} мм.
+                  Голям: над {SIZE_LARGE_SPAN_MM} мм.
+                </p>
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div>
                     <Label htmlFor="install-legs">Слагане на 4 крачета на дъното (минути)</Label>
@@ -447,18 +533,7 @@ export function SettingsDialog({
                     />
                   </div>
                   <div>
-                    <Label htmlFor="assemble-sides">Сглобяване на 2 страници (минути)</Label>
-                    <Input
-                      id="assemble-sides"
-                      type="number"
-                      step="0.5"
-                      min="0"
-                      value={assembleSides}
-                      onChange={(e) => setAssembleSides(e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="assemble-rails">Сглобяване на 2 цокъла горе (минути)</Label>
+                    <Label htmlFor="assemble-rails">Сглобяване на 2 бленди горе (минути)</Label>
                     <Input
                       id="assemble-rails"
                       type="number"
@@ -467,6 +542,80 @@ export function SettingsDialog({
                       value={assembleRails}
                       onChange={(e) => setAssembleRails(e.target.value)}
                     />
+                  </div>
+                </div>
+                <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                  <div>
+                    <Label htmlFor="plinth-small">Цокъл към дъното — малък</Label>
+                    <Input id="plinth-small" type="number" step="0.5" min="0" value={plinthSmall} onChange={(e) => setPlinthSmall(e.target.value)} />
+                  </div>
+                  <div>
+                    <Label htmlFor="plinth-medium">Цокъл — среден</Label>
+                    <Input id="plinth-medium" type="number" step="0.5" min="0" value={plinthMedium} onChange={(e) => setPlinthMedium(e.target.value)} />
+                  </div>
+                  <div>
+                    <Label htmlFor="plinth-large">Цокъл — голям</Label>
+                    <Input id="plinth-large" type="number" step="0.5" min="0" value={plinthLarge} onChange={(e) => setPlinthLarge(e.target.value)} />
+                  </div>
+                  <div>
+                    <Label htmlFor="sides-small">Страници към дъното — малък</Label>
+                    <Input id="sides-small" type="number" step="0.5" min="0" value={sidesSmall} onChange={(e) => setSidesSmall(e.target.value)} />
+                  </div>
+                  <div>
+                    <Label htmlFor="sides-medium">Страници — среден</Label>
+                    <Input id="sides-medium" type="number" step="0.5" min="0" value={sidesMedium} onChange={(e) => setSidesMedium(e.target.value)} />
+                  </div>
+                  <div>
+                    <Label htmlFor="sides-large">Страници — голям</Label>
+                    <Input id="sides-large" type="number" step="0.5" min="0" value={sidesLarge} onChange={(e) => setSidesLarge(e.target.value)} />
+                  </div>
+                  <div>
+                    <Label htmlFor="top-small">Плот — малък</Label>
+                    <Input id="top-small" type="number" step="0.5" min="0" value={topSmall} onChange={(e) => setTopSmall(e.target.value)} />
+                  </div>
+                  <div>
+                    <Label htmlFor="top-medium">Плот — среден</Label>
+                    <Input id="top-medium" type="number" step="0.5" min="0" value={topMedium} onChange={(e) => setTopMedium(e.target.value)} />
+                  </div>
+                  <div>
+                    <Label htmlFor="top-large">Плот — голям</Label>
+                    <Input id="top-large" type="number" step="0.5" min="0" value={topLarge} onChange={(e) => setTopLarge(e.target.value)} />
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-md border border-[var(--color-border)] p-4">
+                <h3 className="mb-3 font-medium">Гръб, рафтоносачи и лост</h3>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <Label htmlFor="back-small">Слагане на гръб — малък (минути)</Label>
+                    <Input id="back-small" type="number" step="0.5" min="0" value={backSmall} onChange={(e) => setBackSmall(e.target.value)} />
+                  </div>
+                  <div>
+                    <Label htmlFor="back-large">Гръб — голям (минути)</Label>
+                    <Input id="back-large" type="number" step="0.5" min="0" value={backLarge} onChange={(e) => setBackLarge(e.target.value)} />
+                    <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
+                      Голям: над {BACK_LARGE_MIN_HEIGHT_MM} мм висок и над {BACK_LARGE_MIN_WIDTH_MM} мм широк.
+                    </p>
+                  </div>
+                  <div>
+                    <Label htmlFor="shelf-pin-pair">Рафтоносачи за 1 рафт (минути)</Label>
+                    <Input id="shelf-pin-pair" type="number" step="0.5" min="0" value={shelfPinPair} onChange={(e) => setShelfPinPair(e.target.value)} />
+                    <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
+                      4 рафтоносача на рафт. 7 рафта × това време.
+                    </p>
+                  </div>
+                  <div>
+                    <Label htmlFor="clothes-console">Конзоли за лост (минути)</Label>
+                    <Input id="clothes-console" type="number" step="0.5" min="0" value={clothesConsole} onChange={(e) => setClothesConsole(e.target.value)} />
+                  </div>
+                  <div>
+                    <Label htmlFor="clothes-cut">Срязване на лоста (минути)</Label>
+                    <Input id="clothes-cut" type="number" step="0.5" min="0" value={clothesCut} onChange={(e) => setClothesCut(e.target.value)} />
+                  </div>
+                  <div>
+                    <Label htmlFor="clothes-install">Слагане на лоста (минути)</Label>
+                    <Input id="clothes-install" type="number" step="0.5" min="0" value={clothesInstall} onChange={(e) => setClothesInstall(e.target.value)} />
                   </div>
                 </div>
               </div>

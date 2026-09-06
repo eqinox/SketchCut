@@ -12,6 +12,10 @@ export interface HardwareSettings {
 
   screw5x60_500PackEur: number
   shelfPinEur: number
+  /** Ordinary cabinet handle, EUR each. */
+  handleNormalEur: number
+  /** Clothes hanging rail, EUR per metre. */
+  clothesRailEurPerM: number
 
   edgeMm2Eur: number
   edgeMm05Eur: number
@@ -58,6 +62,8 @@ export const DEFAULT_HARDWARE_SETTINGS: HardwareSettings = {
   smallScrew1000PackEur: 5,
   screw5x60_500PackEur: 13,
   shelfPinEur: 0.05,
+  handleNormalEur: 1,
+  clothesRailEurPerM: 1,
   edgeMm2Eur: 0.7,
   edgeMm05Eur: 0.35,
   slideRollerEur: { ...DEFAULT_SLIDE_ROLLER_EUR },
@@ -97,6 +103,8 @@ export function parseHardwareSettings(raw: unknown): HardwareSettings {
     smallScrew1000PackEur: num(src, 'smallScrew1000PackEur', smallScrewFallback),
     screw5x60_500PackEur: num(src, 'screw5x60_500PackEur', d.screw5x60_500PackEur),
     shelfPinEur: num(src, 'shelfPinEur', d.shelfPinEur),
+    handleNormalEur: num(src, 'handleNormalEur', d.handleNormalEur),
+    clothesRailEurPerM: num(src, 'clothesRailEurPerM', d.clothesRailEurPerM),
     edgeMm2Eur: num(src, 'edgeMm2Eur', d.edgeMm2Eur),
     edgeMm05Eur: num(src, 'edgeMm05Eur', d.edgeMm05Eur),
     slideRollerEur: mergePriceMap(d.slideRollerEur, src.slideRollerEur),
