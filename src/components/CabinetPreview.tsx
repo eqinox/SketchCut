@@ -416,7 +416,6 @@ function Front3DView({
   const sideLabelY = (topY + floor - L - T) / 2 + dy / 2
 
   const xInnerL = T
-  const xInnerR = W - T
   const zRailFront = D - R
   const zBack = D
   const zShelfFront = DEFAULT_SHELF_FRONT_INSET

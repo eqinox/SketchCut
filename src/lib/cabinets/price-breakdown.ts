@@ -102,7 +102,7 @@ function boardSection(
   id: 'chipboard' | 'hardboard',
   title: string,
   panels: GeneratedPanel[],
-  sheet: Sheet,
+  sheet: { width: number; height: number; priceEur: number },
 ): PriceBreakdownSection {
   const used = panelsAreaM2(panels, id)
   const full = sheetAreaM2(sheet.width, sheet.height)
