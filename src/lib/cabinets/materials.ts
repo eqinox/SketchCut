@@ -83,16 +83,33 @@ export function sheetFraction(usedAreaM2: number, sheetWidth: number, sheetHeigh
   return usedAreaM2 / full
 }
 
-/** Price of used board as a fraction of one full sheet. */
+/**
+ * How many sheets to bill for the used area.
+ * Whole-sheet mode rounds up (3.5 used → 4 bought).
+ */
+export function billedSheetCount(
+  usedAreaM2: number,
+  sheetWidth: number,
+  sheetHeight: number,
+  billWholeSheets = false,
+): number {
+  const frac = sheetFraction(usedAreaM2, sheetWidth, sheetHeight)
+  if (frac <= 0) return 0
+  if (!billWholeSheets) return frac
+  const rounded = Math.round(frac * 1e6) / 1e6
+  return Math.max(1, Math.ceil(rounded - 1e-9))
+}
+
+/** Price of used board as a fraction of one full sheet, or of whole bought sheets. */
 export function usedBoardCostEur(
   usedAreaM2: number,
   sheetWidth: number,
   sheetHeight: number,
   sheetPriceEur: number,
+  billWholeSheets = false,
 ): number {
-  const full = sheetAreaM2(sheetWidth, sheetHeight)
-  if (full <= 0 || sheetPriceEur <= 0 || usedAreaM2 <= 0) return 0
-  return (usedAreaM2 / full) * sheetPriceEur
+  if (sheetPriceEur <= 0) return 0
+  return billedSheetCount(usedAreaM2, sheetWidth, sheetHeight, billWholeSheets) * sheetPriceEur
 }
 
 export function edgeBandingCostEur(

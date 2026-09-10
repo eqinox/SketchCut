@@ -20,6 +20,12 @@ export interface HardwareSettings {
   edgeMm2Eur: number
   edgeMm05Eur: number
 
+  /**
+   * When true, board cost is whole bought sheets (3.5 used → 4 × sheet price).
+   * When false, only the consumed area fraction is billed.
+   */
+  billWholeSheets: boolean
+
   /** Unit prices by runner length in mm, e.g. { "500": 1.82 }. */
   slideRollerEur: PriceByLength
   slideSoftFullEur: PriceByLength
@@ -66,6 +72,7 @@ export const DEFAULT_HARDWARE_SETTINGS: HardwareSettings = {
   clothesRailEurPerM: 1,
   edgeMm2Eur: 0.7,
   edgeMm05Eur: 0.35,
+  billWholeSheets: true,
   slideRollerEur: { ...DEFAULT_SLIDE_ROLLER_EUR },
   slideSoftFullEur: { ...DEFAULT_SLIDE_SOFT_FULL_EUR },
   slideSoftPartialEur: { ...DEFAULT_SLIDE_SOFT_PARTIAL_EUR },
@@ -107,6 +114,7 @@ export function parseHardwareSettings(raw: unknown): HardwareSettings {
     clothesRailEurPerM: num(src, 'clothesRailEurPerM', d.clothesRailEurPerM),
     edgeMm2Eur: num(src, 'edgeMm2Eur', d.edgeMm2Eur),
     edgeMm05Eur: num(src, 'edgeMm05Eur', d.edgeMm05Eur),
+    billWholeSheets: typeof src.billWholeSheets === 'boolean' ? src.billWholeSheets : d.billWholeSheets,
     slideRollerEur: mergePriceMap(d.slideRollerEur, src.slideRollerEur),
     slideSoftFullEur: mergePriceMap(d.slideSoftFullEur, src.slideSoftFullEur),
     slideSoftPartialEur: mergePriceMap(d.slideSoftPartialEur, src.slideSoftPartialEur),

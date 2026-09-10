@@ -3,6 +3,7 @@ import { Box, Pencil, Plus, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Checkbox } from '@/components/ui/checkbox'
 import { CabinetDialog } from '@/components/CabinetDialog'
 import { PriceBreakdownView } from '@/components/PriceBreakdown'
 import {
@@ -29,6 +30,7 @@ interface CabinetsPanelProps {
   dailyRateEur: number
   settings?: { hardware: HardwareSettings; assemblyTime: AssemblyTimeSettings }
   onDailyRateChange: (value: number) => void
+  onHardwareSettingsChange?: (settings: HardwareSettings) => void
   applyAdd: (input: { typeId: string; params: Record<string, unknown>; quantity: number }) => void
   applyUpdate: (
     cabinetId: string,
@@ -43,6 +45,7 @@ export function CabinetsPanel({
   dailyRateEur,
   settings = { hardware: DEFAULT_HARDWARE_SETTINGS, assemblyTime: DEFAULT_ASSEMBLY_TIME_SETTINGS },
   onDailyRateChange,
+  onHardwareSettingsChange,
   applyAdd,
   applyUpdate,
   applyRemove,
@@ -58,7 +61,14 @@ export function CabinetsPanel({
         {
           cabinet: c,
           result,
-          price: cabinetPrice(result.hardware, result.labor, dailyRateEur, result.panels, sheets, settings.hardware),
+          price: cabinetPrice(
+            result.hardware,
+            result.labor,
+            dailyRateEur,
+            result.panels,
+            sheets,
+            { ...settings.hardware, billWholeSheets: false },
+          ),
         },
       ]
     } catch {
@@ -134,6 +144,21 @@ export function CabinetsPanel({
             {WORK_HOURS_PER_DAY} ч работа
             {hourly > 0 ? ` · ${formatEur(hourly)}/ч` : ''}
           </p>
+          <label className="flex max-w-[16rem] cursor-pointer items-start gap-2 pb-1 text-xs leading-snug">
+            <Checkbox
+              className="mt-0.5"
+              checked={settings.hardware.billWholeSheets}
+              onCheckedChange={(c) =>
+                onHardwareSettingsChange?.({ ...settings.hardware, billWholeSheets: c === true })
+              }
+            />
+            <span>
+              Цели закупени плочи
+              <span className="mt-0.5 block text-[var(--color-muted-foreground)]">
+                3,5 изразходвани → цена за 4 плочи
+              </span>
+            </span>
+          </label>
         </div>
       </div>
 

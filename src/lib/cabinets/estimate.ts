@@ -166,12 +166,14 @@ export function cabinetPrice(
     chipboard.width,
     chipboard.height,
     chipboard.priceEur,
+    settings.billWholeSheets,
   )
   const hardboardEur = usedBoardCostEur(
     panelsAreaM2(panels, 'hardboard'),
     hardboard.width,
     hardboard.height,
     hardboard.priceEur,
+    settings.billWholeSheets,
   )
   const edge = panelsEdgeMeters(panels)
   const edgeEur = edgeBandingCostEur(edge.mm2, edge.mm05, {

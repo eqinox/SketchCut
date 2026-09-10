@@ -111,6 +111,7 @@ export {
   partKind,
   normalizeSheet,
   usedBoardCostEur,
+  billedSheetCount,
   edgeBandingCostEur,
   referenceSheet,
   firstSheetOfKind,

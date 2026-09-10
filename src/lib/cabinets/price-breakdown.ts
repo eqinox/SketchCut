@@ -7,6 +7,7 @@ import {
   EDGE_PRICE_MM2_EUR,
   EDGE_PRICE_MM05_EUR,
   edgeBandingCostEur,
+  billedSheetCount,
   referenceSheet,
   sheetAreaM2,
   sheetFraction,
@@ -76,6 +77,12 @@ function formatPct(fraction: number): string {
   return `${(fraction * 100).toFixed(1).replace('.', ',')}%`
 }
 
+function formatSheetQty(count: number): string {
+  const rounded = Math.round(count * 1000) / 1000
+  if (Number.isInteger(rounded)) return String(rounded)
+  return rounded.toFixed(2).replace('.', ',')
+}
+
 const EDGE_SIDE_LABEL = {
   top: 'горен ръб (по широчина)',
   bottom: 'долен ръб (по широчина)',
@@ -103,11 +110,13 @@ function boardSection(
   title: string,
   panels: GeneratedPanel[],
   sheet: { width: number; height: number; priceEur: number },
+  billWholeSheets: boolean,
 ): PriceBreakdownSection {
   const used = panelsAreaM2(panels, id)
   const full = sheetAreaM2(sheet.width, sheet.height)
   const frac = sheetFraction(used, sheet.width, sheet.height)
-  const cost = usedBoardCostEur(used, sheet.width, sheet.height, sheet.priceEur)
+  const billed = billedSheetCount(used, sheet.width, sheet.height, billWholeSheets)
+  const cost = usedBoardCostEur(used, sheet.width, sheet.height, sheet.priceEur, billWholeSheets)
   const lines: PriceBreakdownLine[] = billablePanels(panels)
     .filter((p) => panelKind(p) === id)
     .map((p) => {
@@ -122,18 +131,25 @@ function boardSection(
   if (lines.length === 0) {
     return { id, title, lines: [{ label: 'Няма детайли', amountEur: 0 }], subtotalEur: 0 }
   }
+  const usedHint =
+    sheet.priceEur > 0
+      ? `използвано ${formatArea(used)} от ${formatArea(full)} (${formatPct(frac)} = ${formatSheetQty(frac)} плочи)`
+      : 'плочата няма зададена цена — материалът не влиза в сметката'
   lines.push({
-    label: `Плоча ${mmSize(sheet.width, sheet.height)} · ${formatEur(sheet.priceEur)}`,
-    hint:
-      sheet.priceEur > 0
-        ? `използвано ${formatArea(used)} от ${formatArea(full)} (${formatPct(frac)})`
-        : 'плочата няма зададена цена — материалът не влиза в сметката',
+    label: billWholeSheets
+      ? `За закупуване ${formatSheetQty(billed)} плочи × ${formatEur(sheet.priceEur)}`
+      : `Плоча ${mmSize(sheet.width, sheet.height)} · ${formatEur(sheet.priceEur)}`,
+    hint: billWholeSheets
+      ? `${usedHint} → закръглено до ${formatSheetQty(billed)} цели плочи`
+      : usedHint,
     amountEur: cost,
   })
   return {
     id,
     title,
-    intro: `Цената е дял от една плоча (${mmSize(sheet.width, sheet.height)} = ${formatArea(full)} на ${formatEur(sheet.priceEur)}).`,
+    intro: billWholeSheets
+      ? `Цената е за цели закупени плочи (${mmSize(sheet.width, sheet.height)} = ${formatEur(sheet.priceEur)}/бр.). Използвано ${formatSheetQty(frac)} → ${formatSheetQty(billed)} бр.`
+      : `Цената е дял от една плоча (${mmSize(sheet.width, sheet.height)} = ${formatArea(full)} на ${formatEur(sheet.priceEur)}).`,
     lines,
     subtotalEur: cost,
   }
@@ -348,11 +364,12 @@ export function explainCabinetPrice(input: {
   const hardboard = referenceSheet(input.sheets, 'hardboard')
   const billed = billablePanels(input.panels)
   const sections: PriceBreakdownSection[] = []
+  const billWholeSheets = settings.billWholeSheets
   if (billed.some((p) => panelKind(p) === 'chipboard')) {
-    sections.push(boardSection('chipboard', 'ПДЧ', input.panels, chipboard))
+    sections.push(boardSection('chipboard', 'ПДЧ', input.panels, chipboard, billWholeSheets))
   }
   if (billed.some((p) => panelKind(p) === 'hardboard')) {
-    sections.push(boardSection('hardboard', 'Фазер', input.panels, hardboard))
+    sections.push(boardSection('hardboard', 'Фазер', input.panels, hardboard, billWholeSheets))
   }
   const edge = edgeSection(input.panels, settings)
   if (edge.lines.length > 1 || (edge.subtotalEur ?? 0) > 0) {
@@ -389,7 +406,12 @@ export function explainCabinetsPrice(
   const hw = settings ?? DEFAULT_HARDWARE_SETTINGS
   const each = rows.map((row) => ({
     label: row.label,
-    explained: explainCabinetPrice({ ...row, dailyRateEur, sheets, settings: hw }),
+    explained: explainCabinetPrice({
+      ...row,
+      dailyRateEur,
+      sheets,
+      settings: { ...hw, billWholeSheets: false },
+    }),
   }))
   const merged = explainCabinetPrice({
     panels: rows.flatMap((r) => r.panels),
@@ -405,7 +427,9 @@ export function explainCabinetsPrice(
       {
         id: 'cabinets',
         title: 'По шкафове',
-        intro: 'Крайната цена е сборът на всички шкафове по-долу, разбит по материали, кант, фурнитура и труд.',
+        intro: hw.billWholeSheets
+          ? 'По шкафове е делът от изразходваната плоча. ПДЧ и фазерът в общата цена са по цели закупени плочи за всички шкафове заедно.'
+          : 'Крайната цена е сборът на всички шкафове по-долу, разбит по материали, кант, фурнитура и труд.',
         lines: each.map((row) => ({
           label: row.label,
           amountEur: row.explained.totalEur,

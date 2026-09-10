@@ -398,6 +398,10 @@ function App() {
           dailyRateEur={dailyRateEur}
           settings={{ hardware: settings, assemblyTime: assemblyTimeSettings }}
           onDailyRateChange={setDailyRateEur}
+          onHardwareSettingsChange={(hardware) => {
+            setSettings(hardware)
+            saveSettings(hardware)
+          }}
           applyAdd={handleAddCabinet}
           applyUpdate={handleUpdateCabinet}
           applyRemove={handleRemoveCabinet}
