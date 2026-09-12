@@ -3,7 +3,7 @@ import type { CabinetPartColors } from './colors'
 import type { AssemblyStep } from '@/lib/assembly-time'
 
 /** Actual working hours counted per day (breaks are not billed). */
-export const WORK_HOURS_PER_DAY = 6
+export const WORK_HOURS_PER_DAY = 5
 
 export const DEFAULT_PANEL_THICKNESS = 18
 export const DEFAULT_RAIL_WIDTH = 100

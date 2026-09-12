@@ -50,10 +50,11 @@ export function expandParts(parts: PartInput[]): ExpandedPart[] {
 
 export function expandSheetPool(
   sheets: { id: string; width: number; height: number; quantity?: number }[],
+  minCopies = 0,
 ): SheetDef[] {
   const pool: SheetDef[] = []
   for (const sheet of sheets) {
-    const qty = sheet.quantity ?? 1
+    const qty = Math.max(sheet.quantity ?? 1, minCopies)
     for (let i = 0; i < qty; i++) {
       pool.push({
         id: qty > 1 ? `${sheet.id}-${i}` : sheet.id,
@@ -63,6 +64,40 @@ export function expandSheetPool(
     }
   }
   return pool
+}
+
+function sourceSheetId(packedId: string, sheets: { id: string }[]): string | undefined {
+  if (sheets.some((s) => s.id === packedId)) return packedId
+  const dash = packedId.lastIndexOf('-')
+  if (dash <= 0) return undefined
+  const suffix = packedId.slice(dash + 1)
+  if (!/^\d+$/.test(suffix)) return undefined
+  const base = packedId.slice(0, dash)
+  return sheets.some((s) => s.id === base) ? base : undefined
+}
+
+/** Raise each sheet's quantity to cover how many copies the layout actually used. */
+export function raiseSheetQuantities<T extends { id: string; quantity?: number }>(
+  sheets: T[],
+  packed: { sheetId: string }[],
+): T[] {
+  if (packed.length === 0) return sheets
+  const used = new Map<string, number>()
+  for (const p of packed) {
+    const id = sourceSheetId(p.sheetId, sheets)
+    if (!id) continue
+    used.set(id, (used.get(id) ?? 0) + 1)
+  }
+  let changed = false
+  const next = sheets.map((s) => {
+    const needed = used.get(s.id)
+    if (needed == null) return s
+    const qty = s.quantity ?? 1
+    if (needed <= qty) return s
+    changed = true
+    return { ...s, quantity: needed }
+  })
+  return changed ? next : sheets
 }
 
 export function getOrientations(part: ExpandedPart): { w: number; h: number; rotated: boolean }[] {

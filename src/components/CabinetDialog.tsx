@@ -299,7 +299,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
             </p>
           </div>
           <div>
-            <Label htmlFor="cab-qty">Брой шкафа</Label>
+            <Label htmlFor="cab-qty">Брой еднакви</Label>
             <Input
               id="cab-qty"
               type="number"
@@ -308,6 +308,9 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
               value={quantity}
               onChange={(e) => setQuantity(e.target.value)}
             />
+            <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
+              Един шкаф, повторен толкова пъти в разкроя и цената. Например 10.
+            </p>
           </div>
         </div>
 

@@ -147,7 +147,7 @@ export function optimizeAllVariants(
   parts: PartInput[],
 ): PackingVariantOption[] {
   const expanded = expandParts(parts)
-  const sheetPool = expandSheetPool(sheetDefs)
+  const sheetPool = expandSheetPool(sheetDefs, expanded.length)
 
   if (expanded.length === 0) {
     return [
@@ -204,7 +204,7 @@ export function optimizePacking(
   clickIndex: number,
 ): { result: import('@/types').PackingResult; variantIndex: number } {
   const expanded = expandParts(parts)
-  const sheetPool = expandSheetPool(sheetDefs)
+  const sheetPool = expandSheetPool(sheetDefs, expanded.length)
 
   if (expanded.length === 0) {
     return {
@@ -238,5 +238,5 @@ export function getVariantLabel(clickIndex: number): string {
   return `Разкрой · ${names[clickIndex % 3]}`
 }
 
-export { KERF, expandSheetPool } from './types'
+export { KERF, expandSheetPool, raiseSheetQuantities } from './types'
 export type { FreeRect } from './types'

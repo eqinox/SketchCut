@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Box, Pencil, Plus, Trash2 } from 'lucide-react'
+import { Box, Copy, Pencil, Plus, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -108,6 +108,24 @@ export function CabinetsPanel({
     setOpen(true)
   }
 
+  const copyCabinet = (cabinet: CabinetInstance) => {
+    applyAdd({
+      typeId: cabinet.typeId,
+      params: structuredClone(cabinet.params),
+      quantity: 1,
+    })
+  }
+
+  const setCabinetQuantity = (cabinet: CabinetInstance, raw: string) => {
+    const n = parseInt(raw, 10)
+    if (!Number.isFinite(n) || n < 1) return
+    applyUpdate(cabinet.id, {
+      typeId: cabinet.typeId,
+      params: cabinet.params,
+      quantity: n,
+    })
+  }
+
   return (
     <div className="flex flex-col gap-4 rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -214,13 +232,35 @@ export function CabinetsPanel({
                     </p>
                   </div>
                   <div className="flex shrink-0 items-center gap-1">
-                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(c)}>
+                    <Input
+                      type="number"
+                      inputMode="numeric"
+                      min={1}
+                      step={1}
+                      title="Брой еднакви шкафа"
+                      aria-label={`Брой еднакви за Ш${i + 1}`}
+                      className="h-7 w-12 px-1 text-center"
+                      value={c.quantity}
+                      onChange={(e) => setCabinetQuantity(c, e.target.value)}
+                    />
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7"
+                      title="Копирай шкафа"
+                      aria-label={`Копирай Ш${i + 1}`}
+                      onClick={() => copyCabinet(c)}
+                    >
+                      <Copy className="h-4 w-4" />
+                    </Button>
+                    <Button variant="ghost" size="icon" className="h-7 w-7" title="Редактирай" onClick={() => openEdit(c)}>
                       <Pencil className="h-4 w-4" />
                     </Button>
                     <Button
                       variant="ghost"
                       size="icon"
                       className="h-7 w-7"
+                      title="Изтрий"
                       onClick={() => applyRemove(c.id)}
                     >
                       <Trash2 className="h-4 w-4 text-[var(--color-destructive)]" />

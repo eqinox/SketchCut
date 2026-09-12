@@ -19,6 +19,63 @@ function money(value: number | null): string {
   return formatEur(value)
 }
 
+function BreakdownSection({
+  section,
+}: {
+  section: PriceBreakdown['sections'][number]
+}) {
+  const [open, setOpen] = useState(true)
+
+  return (
+    <section className="space-y-2">
+      <button
+        type="button"
+        className="flex w-full items-center gap-2 rounded-md px-1 py-1 text-left hover:bg-[var(--color-accent)]/60"
+        aria-expanded={open}
+        aria-label={open ? `Скрий ${section.title}` : `Покажи ${section.title}`}
+        onClick={() => setOpen((value) => !value)}
+      >
+        {open ? <ChevronUp className="h-4 w-4 shrink-0" /> : <ChevronDown className="h-4 w-4 shrink-0" />}
+        <span className="min-w-0 flex-1 font-medium">{section.title}</span>
+        <span className="shrink-0 tabular-nums text-muted-foreground">{money(section.subtotalEur)}</span>
+      </button>
+      {open && (
+        <>
+          {section.intro && (
+            <p className="text-xs text-muted-foreground">{section.intro}</p>
+          )}
+          <Table>
+            <TableHeader>
+              <TableRow className="hover:[&>th]:bg-transparent">
+                <TableHead className="w-[38%]">Позиция</TableHead>
+                <TableHead>Бележка</TableHead>
+                <TableHead className="w-24 text-right">Сума</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {section.lines.map((line, i) => (
+                <TableRow key={`${section.id}-${i}`}>
+                  <TableCell className="whitespace-normal font-medium">{line.label}</TableCell>
+                  <TableCell className="whitespace-normal text-muted-foreground">
+                    {line.hint ?? '—'}
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums">{money(line.amountEur)}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+            <TableFooter>
+              <TableRow className="hover:[&>td]:bg-transparent">
+                <TableCell colSpan={2}>Общо {section.title}</TableCell>
+                <TableCell className="text-right tabular-nums">{money(section.subtotalEur)}</TableCell>
+              </TableRow>
+            </TableFooter>
+          </Table>
+        </>
+      )}
+    </section>
+  )
+}
+
 export function PriceBreakdownView({
   breakdown,
   className,
@@ -62,38 +119,7 @@ export function PriceBreakdownView({
         <div className="mt-3 space-y-4">
           <Separator />
           {breakdown.sections.map((section) => (
-            <section key={section.id} className="space-y-2">
-              <h3 className="font-medium">{section.title}</h3>
-              {section.intro && (
-                <p className="text-xs text-muted-foreground">{section.intro}</p>
-              )}
-              <Table>
-                <TableHeader>
-                  <TableRow className="hover:[&>th]:bg-transparent">
-                    <TableHead className="w-[38%]">Позиция</TableHead>
-                    <TableHead>Бележка</TableHead>
-                    <TableHead className="w-24 text-right">Сума</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {section.lines.map((line, i) => (
-                    <TableRow key={`${section.id}-${i}`}>
-                      <TableCell className="whitespace-normal font-medium">{line.label}</TableCell>
-                      <TableCell className="whitespace-normal text-muted-foreground">
-                        {line.hint ?? '—'}
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums">{money(line.amountEur)}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-                <TableFooter>
-                  <TableRow className="hover:[&>td]:bg-transparent">
-                    <TableCell colSpan={2}>Общо {section.title}</TableCell>
-                    <TableCell className="text-right tabular-nums">{money(section.subtotalEur)}</TableCell>
-                  </TableRow>
-                </TableFooter>
-              </Table>
-            </section>
+            <BreakdownSection key={section.id} section={section} />
           ))}
         </div>
       )}

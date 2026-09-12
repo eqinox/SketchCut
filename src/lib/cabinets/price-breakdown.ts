@@ -15,10 +15,14 @@ import {
 } from './materials'
 import {
   FASTENERS,
+  HANDLE_NORMAL,
+  HINGE_NORMAL,
+  HINGE_SOFT_CLOSE,
   SCREW_4X16,
   SCREW_4X20,
   SCREW_35X16,
   SCREW_5X60,
+  SHELF_PIN,
 } from './hardware'
 import type { AssemblyStep } from '@/lib/assembly-time'
 import { describeAssemblyCalc } from '@/lib/assembly-time'
@@ -83,12 +87,31 @@ function formatSheetQty(count: number): string {
   return rounded.toFixed(2).replace('.', ',')
 }
 
-const EDGE_SIDE_LABEL = {
-  top: 'горен ръб (по широчина)',
-  bottom: 'долен ръб (по широчина)',
-  left: 'ляв ръб (по височина)',
-  right: 'десен ръб (по височина)',
-} as const
+function bgCount(n: number, one: string, many: string): string {
+  return `${n} ${n === 1 ? one : many}`
+}
+
+function edgePatternHint(panel: GeneratedPanel, totalM: number, unitEur: number): string {
+  const longLen = Math.max(panel.width, panel.height)
+  const equal = panel.width === panel.height
+  let long = 0
+  let short = 0
+  const add = (on: boolean, len: number) => {
+    if (!on) return
+    if (equal || len === longLen) long += 1
+    else short += 1
+  }
+  add(panel.edges.top, panel.width)
+  add(panel.edges.bottom, panel.width)
+  add(panel.edges.left, panel.height)
+  add(panel.edges.right, panel.height)
+  const pattern = equal
+    ? bgCount(long, 'страна', 'страни')
+    : [long > 0 ? bgCount(long, 'дълга', 'дълги') : '', short > 0 ? bgCount(short, 'къса', 'къси') : '']
+        .filter(Boolean)
+        .join(' и ')
+  return `${pattern} (${formatM(totalM)}) = ${formatM(totalM)} × ${formatEur(unitEur, 2)}/м`
+}
 
 function fastenerPackHint(id: string | undefined, settings: HardwareSettings): string | undefined {
   if (!id) return undefined
@@ -124,7 +147,7 @@ function boardSection(
       const partCost = usedBoardCostEur(area, sheet.width, sheet.height, sheet.priceEur)
       return {
         label: `${p.name} · ${p.quantity} бр. · ${mmSize(p.width, p.height)}`,
-        hint: `${formatArea(area)}${p.note ? ` · ${p.note}` : ''}`,
+        hint: formatArea(area),
         amountEur: sheet.priceEur > 0 ? partCost : 0,
       }
     })
@@ -162,30 +185,20 @@ function edgeSection(panels: GeneratedPanel[], settings: HardwareSettings): Pric
   let mm2 = 0
   let mm05 = 0
   for (const p of billablePanels(panels)) {
-    const parts: string[] = []
-    const add = (side: keyof typeof EDGE_SIDE_LABEL, lenMm: number) => {
-      if (!p.edges[side]) return
-      const meters = (lenMm * p.quantity) / 1000
-      if (p.edges.thickness === 'mm2') mm2 += meters
-      else mm05 += meters
-      parts.push(`${EDGE_SIDE_LABEL[side]} ${formatM(meters)}`)
-    }
-    add('top', p.width)
-    add('bottom', p.width)
-    add('left', p.height)
-    add('right', p.height)
-    if (parts.length === 0) continue
-    const thick = p.edges.thickness === 'mm2' ? '2 мм' : '0.5 мм'
     const panelMeters =
       (p.edges.top ? p.width : 0) +
       (p.edges.bottom ? p.width : 0) +
       (p.edges.left ? p.height : 0) +
       (p.edges.right ? p.height : 0)
+    if (panelMeters <= 0) continue
+    const thick = p.edges.thickness === 'mm2' ? '2 мм' : '0.5 мм'
     const totalM = (panelMeters * p.quantity) / 1000
     const unit = p.edges.thickness === 'mm2' ? mm2Price : mm05Price
+    if (p.edges.thickness === 'mm2') mm2 += totalM
+    else mm05 += totalM
     lines.push({
       label: `${p.name} · кант ${thick} · ${p.quantity} бр.`,
-      hint: `${parts.join(', ')} = ${formatM(totalM)} × ${formatEur(unit, 2)}/м`,
+      hint: edgePatternHint(p, totalM, unit),
       amountEur: totalM * unit,
     })
   }
@@ -214,18 +227,91 @@ function edgeSection(panels: GeneratedPanel[], settings: HardwareSettings): Pric
   }
 }
 
-function hardwareSection(hardware: HardwareItem[], settings: HardwareSettings): PriceBreakdownSection {
-  const lines: PriceBreakdownLine[] = hardware.map((h) => {
-    const pack = fastenerPackHint(h.id, settings)
-    const unit = h.unitPriceEur
-    const total = unit != null ? unit * h.quantity : null
-    const unitHint = unit != null ? `${h.quantity} бр. × ${formatEur(unit, unit < 0.1 ? 3 : 2)}` : `${h.quantity} бр. · няма зададена цена`
-    return {
-      label: h.name,
-      hint: [h.note, pack, unitHint].filter(Boolean).join(' · '),
-      amountEur: total,
+function isScrewItem(item: HardwareItem): boolean {
+  return Boolean(item.id && item.id in FASTENERS)
+}
+
+function isHingeItem(item: HardwareItem): boolean {
+  return item.id === HINGE_SOFT_CLOSE.id || item.id === HINGE_NORMAL.id
+}
+
+function isHandleItem(item: HardwareItem): boolean {
+  return item.id === HANDLE_NORMAL.id
+}
+
+function isShelfPinItem(item: HardwareItem): boolean {
+  return item.id === SHELF_PIN.id
+}
+
+function screwSizeLabel(item: HardwareItem): string {
+  return item.name.replace(/^Винтче\s+|^Винт\s+/u, '')
+}
+
+function screwLine(screws: HardwareItem[]): PriceBreakdownLine {
+  const qty = screws.reduce((s, h) => s + h.quantity, 0)
+  const total = screws.reduce((s, h) => s + (h.unitPriceEur ?? 0) * h.quantity, 0)
+  const byType: { label: string; qty: number }[] = []
+  for (const h of screws) {
+    const label = screwSizeLabel(h)
+    const prev = byType.find((t) => t.label === label)
+    if (prev) prev.qty += h.quantity
+    else byType.push({ label, qty: h.quantity })
+  }
+  const parts = byType.map((t) => `${t.qty} бр. ${t.label}`)
+  return {
+    label: 'Винтове',
+    hint: `${parts.join(', ')} · ${qty} бр. общо`,
+    amountEur: total,
+  }
+}
+
+function mergeHardwareById(items: HardwareItem[]): HardwareItem[] {
+  const order: string[] = []
+  const map = new Map<string, HardwareItem>()
+  for (const h of items) {
+    const key = h.id ?? `name:${h.name}`
+    const prev = map.get(key)
+    if (!prev) {
+      order.push(key)
+      map.set(key, { ...h })
+      continue
     }
-  })
+    map.set(key, {
+      ...prev,
+      quantity: prev.quantity + h.quantity,
+      note: (prev.note ?? '') === (h.note ?? '') ? prev.note : undefined,
+    })
+  }
+  return order.map((key) => map.get(key)!)
+}
+
+function hardwareLine(h: HardwareItem, settings: HardwareSettings): PriceBreakdownLine {
+  const pack = fastenerPackHint(h.id, settings)
+  const unit = h.unitPriceEur
+  const total = unit != null ? unit * h.quantity : null
+  const unitHint =
+    unit != null ? `${h.quantity} бр. × ${formatEur(unit, unit < 0.1 ? 3 : 2)}` : `${h.quantity} бр. · няма зададена цена`
+  return {
+    label: h.name,
+    hint: [h.note, pack, unitHint].filter(Boolean).join(' · '),
+    amountEur: total,
+  }
+}
+
+function hardwareSection(hardware: HardwareItem[], settings: HardwareSettings): PriceBreakdownSection {
+  const screws = hardware.filter(isScrewItem)
+  const hinges = hardware.filter(isHingeItem)
+  const pins = hardware.filter(isShelfPinItem)
+  const handles = hardware.filter(isHandleItem)
+  const rest = hardware.filter(
+    (h) => !isScrewItem(h) && !isHingeItem(h) && !isShelfPinItem(h) && !isHandleItem(h),
+  )
+  const lines: PriceBreakdownLine[] = []
+  if (screws.length > 0) lines.push(screwLine(screws))
+  lines.push(...mergeHardwareById(hinges).map((h) => hardwareLine(h, settings)))
+  lines.push(...mergeHardwareById(pins).map((h) => hardwareLine(h, settings)))
+  lines.push(...mergeHardwareById(handles).map((h) => hardwareLine(h, settings)))
+  lines.push(...rest.map((h) => hardwareLine(h, settings)))
   const subtotal = hardware.reduce((s, h) => s + (h.unitPriceEur ?? 0) * h.quantity, 0)
   if (lines.length === 0) {
     return { id: 'hardware', title: 'Фурнитура', lines: [{ label: 'Няма фурнитура', amountEur: 0 }], subtotalEur: 0 }
@@ -233,7 +319,8 @@ function hardwareSection(hardware: HardwareItem[], settings: HardwareSettings): 
   return {
     id: 'hardware',
     title: 'Фурнитура',
-    intro: 'Всяка позиция е количество × цена за брой. Винтовете се смятат от цената на кутията.',
+    intro:
+      'Винтовете са сбор на всички размери. Панти, рафтоносачи и дръжки се събират, ако са от един тип.',
     lines,
     subtotalEur: subtotal,
   }

@@ -419,7 +419,7 @@ export function collectCabinetAssembly(input: {
       quantity: panel.quantity,
       unitOne: 'бр.',
       unitMany: 'бр.',
-      hint: 'изчукване и шлайфане след лепене според дължината на ръба',
+      hint: 'изчукване и шлайфане след лепене според дължината на страната',
     })
   }
 
