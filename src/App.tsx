@@ -10,7 +10,7 @@ import { EdgeBandingDialog } from '@/components/EdgeBandingDialog'
 import { AuthDialog, HeaderActions, ProjectDialog } from '@/components/AuthDialog'
 import { CabinetsPanel } from '@/components/CabinetsPanel'
 import { SettingsDialog } from '@/components/SettingsDialog'
-import { optimizeAllVariants, raiseSheetQuantities, type PackingVariantOption } from '@/lib/packing/optimizer'
+import { optimizeAllVariants, raiseSheetQuantities } from '@/lib/packing/optimizer'
 import { syncEdgeBanding } from '@/lib/edge-banding'
 import {
   addCabinetAndLabel,
@@ -46,11 +46,7 @@ function App() {
   const [edgeBanding, setEdgeBanding] = useState<PartEdgeBanding[]>(initialDraft.edgeBanding)
   const [cabinets, setCabinets] = useState<CabinetInstance[]>(initialDraft.cabinets)
   const [dailyRateEur, setDailyRateEur] = useState(initialDraft.dailyRateEur)
-  const [packingVariants, setPackingVariants] = useState<PackingVariantOption[]>([])
-  const [selectedVariantIndex, setSelectedVariantIndex] = useState(0)
   const [packingResult, setPackingResult] = useState<PackingResult | null>(null)
-  const [hardboardVariants, setHardboardVariants] = useState<PackingVariantOption[]>([])
-  const [hardboardVariantIndex, setHardboardVariantIndex] = useState(0)
   const [hardboardResult, setHardboardResult] = useState<PackingResult | null>(null)
   const saveReadyRef = useRef(false)
 
@@ -77,11 +73,7 @@ function App() {
     setCabinets(project.cabinets ?? [])
     setDailyRateEur(project.dailyRateEur ?? 0)
     setPackingResult(null)
-    setPackingVariants([])
-    setSelectedVariantIndex(0)
     setHardboardResult(null)
-    setHardboardVariants([])
-    setHardboardVariantIndex(0)
   }, [])
 
   useEffect(() => {
@@ -177,18 +169,14 @@ function App() {
     const chipboardSheets = sheets.filter((s) => sheetKind(s) === 'chipboard')
     const hardboardSheets = sheets.filter((s) => sheetKind(s) === 'hardboard')
 
-    let chipVariants: PackingVariantOption[] = []
     let chipResult: PackingResult | null = null
     if (chipboardParts.length > 0) {
-      chipVariants = optimizeAllVariants(chipboardSheets, chipboardParts)
-      chipResult = chipVariants[0]?.result ?? null
+      chipResult = optimizeAllVariants(chipboardSheets, chipboardParts)[0]?.result ?? null
     }
 
-    let boardVariants: PackingVariantOption[] = []
     let boardResult: PackingResult | null = null
     if (hardboardParts.length > 0) {
-      boardVariants = optimizeAllVariants(hardboardSheets, hardboardParts)
-      boardResult = boardVariants[0]?.result ?? null
+      boardResult = optimizeAllVariants(hardboardSheets, hardboardParts)[0]?.result ?? null
     }
 
     setSheets((prev) =>
@@ -197,33 +185,17 @@ function App() {
         ...(boardResult?.sheets ?? []),
       ]),
     )
-    setPackingVariants(chipVariants)
-    setSelectedVariantIndex(0)
     setPackingResult(chipResult)
-    setHardboardVariants(boardVariants)
-    setHardboardVariantIndex(0)
     setHardboardResult(boardResult)
   }
 
-  const handleHardboardLayoutChange = useCallback(
-    (updated: PackingResult) => {
-      setHardboardResult(updated)
-      setHardboardVariants((prev) =>
-        prev.map((v, i) => (i === hardboardVariantIndex ? { ...v, result: updated } : v)),
-      )
-    },
-    [hardboardVariantIndex],
-  )
+  const handleHardboardLayoutChange = useCallback((updated: PackingResult) => {
+    setHardboardResult(updated)
+  }, [])
 
-  const handleLayoutChange = useCallback(
-    (updated: PackingResult) => {
-      setPackingResult(updated)
-      setPackingVariants((prev) =>
-        prev.map((v, i) => (i === selectedVariantIndex ? { ...v, result: updated } : v)),
-      )
-    },
-    [selectedVariantIndex],
-  )
+  const handleLayoutChange = useCallback((updated: PackingResult) => {
+    setPackingResult(updated)
+  }, [])
 
   const handleSaveProject = async (name: string) => {
     if (!user) return
@@ -268,9 +240,7 @@ function App() {
 
   const resetPacking = () => {
     setPackingResult(null)
-    setPackingVariants([])
     setHardboardResult(null)
-    setHardboardVariants([])
   }
 
   const ensureHardboardSheet = (params: Record<string, unknown>) => {
