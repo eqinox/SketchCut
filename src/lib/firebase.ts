@@ -15,6 +15,7 @@ import {
   collection,
   doc,
   setDoc,
+  getDoc,
   getDocs,
   deleteDoc,
   query,
@@ -24,6 +25,8 @@ import {
 import type { SavedProject } from '@/types'
 import { getClientEnv, getMissingClientEnvKeys } from '@/lib/env'
 import { formatFirebaseError } from '@/lib/firebase-errors'
+import { parseHardwareSettings, type HardwareSettings } from '@/lib/settings'
+import { parseAssemblyTimeSettings, type AssemblyTimeSettings } from '@/lib/assembly-time'
 
 let app: FirebaseApp | null = null
 let auth: Auth | null = null
@@ -132,4 +135,29 @@ export async function loadProjects(userId: string): Promise<SavedProject[]> {
 export async function deleteProject(userId: string, projectId: string): Promise<void> {
   await ensureAuthReady(userId)
   await deleteDoc(doc(requireDb(), 'users', userId, 'projects', projectId))
+}
+
+export async function saveUserSettings(
+  userId: string,
+  payload: { hardware: HardwareSettings; assemblyTime: AssemblyTimeSettings },
+): Promise<void> {
+  await ensureAuthReady(userId)
+  await setDoc(doc(requireDb(), 'users', userId, 'settings', 'workshop'), {
+    hardware: payload.hardware,
+    assemblyTime: payload.assemblyTime,
+    updatedAt: Date.now(),
+  })
+}
+
+export async function loadUserSettings(
+  userId: string,
+): Promise<{ hardware: HardwareSettings; assemblyTime: AssemblyTimeSettings } | null> {
+  await ensureAuthReady(userId)
+  const snap = await getDoc(doc(requireDb(), 'users', userId, 'settings', 'workshop'))
+  if (!snap.exists()) return null
+  const data = snap.data()
+  return {
+    hardware: parseHardwareSettings(data.hardware),
+    assemblyTime: parseAssemblyTimeSettings(data.assemblyTime),
+  }
 }

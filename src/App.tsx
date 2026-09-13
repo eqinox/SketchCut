@@ -22,7 +22,7 @@ import {
   sheetKind,
   normalizeSheet,
 } from '@/lib/cabinets'
-import { subscribeAuth, saveProject, loadProjects, getFirebaseInitError } from '@/lib/firebase'
+import { subscribeAuth, saveProject, loadProjects, loadUserSettings, saveUserSettings, getFirebaseInitError } from '@/lib/firebase'
 import { saveDraft, readInitialDraft, setLastProjectId } from '@/lib/draft-storage'
 import { loadSettings, saveSettings, resetSettings, type HardwareSettings } from '@/lib/settings'
 import {
@@ -162,6 +162,33 @@ function App() {
     loadUserProjects().catch(() => {})
   }, [user, loadUserProjects])
 
+  useEffect(() => {
+    if (!user) return
+    let cancelled = false
+    loadUserSettings(user.uid)
+      .then((remote) => {
+        if (cancelled) return
+        if (remote) {
+          setSettings(remote.hardware)
+          saveSettings(remote.hardware)
+          setAssemblyTimeSettings(remote.assemblyTime)
+          saveAssemblyTimeSettings(remote.assemblyTime)
+          return
+        }
+        return saveUserSettings(user.uid, {
+          hardware: loadSettings(),
+          assemblyTime: loadAssemblyTimeSettings(),
+        })
+      })
+      .catch((e) => {
+        if (cancelled) return
+        showDbError('Грешка при зареждане на настройките', formatFirebaseError(e), 'loadUserSettings')
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [user, showDbError])
+
   const handleGenerate = () => {
     if (parts.length === 0) return
     const chipboardParts = parts.filter((p) => partKind(p) === 'chipboard')
@@ -284,15 +311,27 @@ function App() {
     resetPacking()
   }
 
+  const persistAccountSettings = useCallback(
+    (hardware: HardwareSettings, assemblyTime: AssemblyTimeSettings) => {
+      if (!user) return
+      saveUserSettings(user.uid, { hardware, assemblyTime }).catch((e) => {
+        showDbError('Грешка при запазване на настройките', formatFirebaseError(e), 'saveUserSettings')
+      })
+    },
+    [user, showDbError],
+  )
+
   const handleSaveSettings = (newSettings: HardwareSettings) => {
     setSettings(newSettings)
     saveSettings(newSettings)
+    persistAccountSettings(newSettings, assemblyTimeSettings)
     resetPacking()
   }
 
   const handleResetSettings = () => {
     const defaults = resetSettings()
     setSettings(defaults)
+    persistAccountSettings(defaults, assemblyTimeSettings)
     resetPacking()
     return defaults
   }
@@ -300,12 +339,14 @@ function App() {
   const handleSaveAssemblyTimeSettings = (newSettings: AssemblyTimeSettings) => {
     setAssemblyTimeSettings(newSettings)
     saveAssemblyTimeSettings(newSettings)
+    persistAccountSettings(settings, newSettings)
     resetPacking()
   }
 
   const handleResetAssemblyTimeSettings = () => {
     const defaults = resetAssemblyTimeSettings()
     setAssemblyTimeSettings(defaults)
+    persistAccountSettings(settings, defaults)
     resetPacking()
     return defaults
   }
@@ -358,6 +399,7 @@ function App() {
           onHardwareSettingsChange={(hardware) => {
             setSettings(hardware)
             saveSettings(hardware)
+            persistAccountSettings(hardware, assemblyTimeSettings)
           }}
           applyAdd={handleAddCabinet}
           applyUpdate={handleUpdateCabinet}
@@ -435,6 +477,7 @@ function App() {
         assemblyTimeSettings={assemblyTimeSettings}
         onSaveAssemblyTime={handleSaveAssemblyTimeSettings}
         onResetAssemblyTime={handleResetAssemblyTimeSettings}
+        signedIn={user != null}
       />
 
       <AuthDialog open={authOpen} onOpenChange={setAuthOpen} user={user} />

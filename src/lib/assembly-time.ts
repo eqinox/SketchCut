@@ -18,6 +18,13 @@ export interface EdgeBandingTimeSettings {
 export const BACK_LARGE_MIN_HEIGHT_MM = 1000
 export const BACK_LARGE_MIN_WIDTH_MM = 500
 
+/** Shelf pins take the longer time when cabinet depth is over this (mm). */
+export const DEEP_CABINET_MIN_DEPTH_MM = 400
+/** @deprecated Use DEEP_CABINET_MIN_DEPTH_MM */
+export const SHELF_PIN_DEEP_MIN_DEPTH_MM = DEEP_CABINET_MIN_DEPTH_MM
+/** Drawer slides on the sides stay “small” when height is under this, even if deep. */
+export const DRAWER_GUIDE_DEEP_MIN_HEIGHT_MM = 700
+
 /** Inclusive upper bound for a small width (mm). */
 export const SIZE_WIDTH_SMALL_MAX_MM = 500
 /** Inclusive upper bound for a medium width (mm). Wider is large. */
@@ -148,6 +155,25 @@ export function isLargeBack(
   return heightMm > minHeight && widthMm > minWidth
 }
 
+export function isDeepCabinet(
+  depthMm: number,
+  settings?: Pick<AssemblyTimeSettings, 'shelfPinDeepMinDepthMm'> | null,
+): boolean {
+  const min = settings?.shelfPinDeepMinDepthMm ?? DEEP_CABINET_MIN_DEPTH_MM
+  return depthMm > min
+}
+
+/** Drawer slides on the sides: deep only if over the depth threshold and at least this tall. */
+export function isDeepDrawerGuides(
+  depthMm: number,
+  heightMm: number,
+  settings?: Pick<AssemblyTimeSettings, 'shelfPinDeepMinDepthMm' | 'drawerGuideDeepMinHeightMm'> | null,
+): boolean {
+  const minDepth = settings?.shelfPinDeepMinDepthMm ?? DEEP_CABINET_MIN_DEPTH_MM
+  const minHeight = settings?.drawerGuideDeepMinHeightMm ?? DRAWER_GUIDE_DEEP_MIN_HEIGHT_MM
+  return depthMm > minDepth && heightMm >= minHeight
+}
+
 const AXIS_TIER_FEMININE: Record<CarcassSizeTier, string> = {
   small: 'малка',
   medium: 'средна',
@@ -214,8 +240,12 @@ export interface AssemblyTimeSettings {
   /** Time to assemble top 2 plinths/rails (minutes) — kitchen бленди */
   assembleTopRailsMinutes: number
 
-  /** Minutes to install the 4 shelf pins of one shelf. */
+  /** Minutes to install the 4 shelf pins of one shelf when depth is not over the deep threshold. */
   shelfPinPairMinutes: number
+  /** Minutes to install the 4 shelf pins of one shelf when cabinet depth is over the deep threshold. */
+  shelfPinPairDeepMinutes: number
+  /** Deep shelf-pin time applies when cabinet depth is over this (mm). */
+  shelfPinDeepMinDepthMm: number
 
   backSmallMinutes: number
   backLargeMinutes: number
@@ -236,8 +266,12 @@ export interface AssemblyTimeSettings {
   clothesRailCutMinutes: number
   clothesRailInstallMinutes: number
   
-  /** Time to install guides on one drawer (minutes per guide pair) */
+  /** Time to install guides on the cabinet sides for one drawer (small, including deep-but-short). */
   installDrawerGuidesMinutes: number
+  /** Same, when cabinet is both deeper than the depth threshold and at least drawerGuideDeepMinHeightMm tall. */
+  installDrawerGuidesDeepMinutes: number
+  /** Below this height, drawer slides on the sides stay at the small time even if the cabinet is deep. */
+  drawerGuideDeepMinHeightMm: number
   
   /** Time to assemble the drawer box itself (minutes) */
   assembleDrawerBoxMinutes: number
@@ -276,6 +310,8 @@ export const DEFAULT_ASSEMBLY_TIME_SETTINGS: AssemblyTimeSettings = {
   installLegsMinutes: 6,
   assembleTopRailsMinutes: 10,
   shelfPinPairMinutes: 3,
+  shelfPinPairDeepMinutes: 5,
+  shelfPinDeepMinDepthMm: SHELF_PIN_DEEP_MIN_DEPTH_MM,
   backSmallMinutes: 6,
   backLargeMinutes: 10,
   plinthSmallMinutes: 7,
@@ -290,7 +326,9 @@ export const DEFAULT_ASSEMBLY_TIME_SETTINGS: AssemblyTimeSettings = {
   clothesRailConsoleMinutes: 5,
   clothesRailCutMinutes: 10,
   clothesRailInstallMinutes: 2,
-  installDrawerGuidesMinutes: 6,
+  installDrawerGuidesMinutes: 5,
+  installDrawerGuidesDeepMinutes: 6,
+  drawerGuideDeepMinHeightMm: DRAWER_GUIDE_DEEP_MIN_HEIGHT_MM,
   assembleDrawerBoxMinutes: 7,
   attachDrawerBackMinutes: 4,
   attachDrawerRunnersMinutes: 4,
@@ -309,6 +347,26 @@ function numPositive(src: Record<string, unknown>, key: string, fallback: number
 function numMm(src: Record<string, unknown>, key: string, fallback: number): number {
   const v = src[key]
   return typeof v === 'number' && Number.isFinite(v) && v > 0 ? Math.round(v) : fallback
+}
+
+/** Old inverted pair was small=6 / deep=5; a missing deep field with small=6 is the pre-split default. */
+function parseDrawerGuideMinutes(
+  src: Record<string, unknown>,
+  d: AssemblyTimeSettings,
+): Pick<AssemblyTimeSettings, 'installDrawerGuidesMinutes' | 'installDrawerGuidesDeepMinutes'> {
+  const hasDeep = typeof src.installDrawerGuidesDeepMinutes === 'number' && Number.isFinite(src.installDrawerGuidesDeepMinutes)
+  const small = numPositive(src, 'installDrawerGuidesMinutes', d.installDrawerGuidesMinutes)
+  const deep = numPositive(src, 'installDrawerGuidesDeepMinutes', d.installDrawerGuidesDeepMinutes)
+  if ((small === 6 && deep === 5) || (!hasDeep && small === 6)) {
+    return {
+      installDrawerGuidesMinutes: d.installDrawerGuidesMinutes,
+      installDrawerGuidesDeepMinutes: d.installDrawerGuidesDeepMinutes,
+    }
+  }
+  return {
+    installDrawerGuidesMinutes: small,
+    installDrawerGuidesDeepMinutes: deep,
+  }
 }
 
 function parseAxisLimits(
@@ -364,6 +422,8 @@ export function parseAssemblyTimeSettings(raw: unknown): AssemblyTimeSettings {
     installLegsMinutes: numPositive(src, 'installLegsMinutes', d.installLegsMinutes),
     assembleTopRailsMinutes: numPositive(src, 'assembleTopRailsMinutes', d.assembleTopRailsMinutes),
     shelfPinPairMinutes: numPositive(src, 'shelfPinPairMinutes', d.shelfPinPairMinutes),
+    shelfPinPairDeepMinutes: numPositive(src, 'shelfPinPairDeepMinutes', d.shelfPinPairDeepMinutes),
+    shelfPinDeepMinDepthMm: numMm(src, 'shelfPinDeepMinDepthMm', d.shelfPinDeepMinDepthMm),
     backSmallMinutes: numPositive(src, 'backSmallMinutes', d.backSmallMinutes),
     backLargeMinutes: numPositive(src, 'backLargeMinutes', d.backLargeMinutes),
     plinthSmallMinutes: numPositive(src, 'plinthSmallMinutes', d.plinthSmallMinutes),
@@ -378,7 +438,8 @@ export function parseAssemblyTimeSettings(raw: unknown): AssemblyTimeSettings {
     clothesRailConsoleMinutes: numPositive(src, 'clothesRailConsoleMinutes', d.clothesRailConsoleMinutes),
     clothesRailCutMinutes: numPositive(src, 'clothesRailCutMinutes', d.clothesRailCutMinutes),
     clothesRailInstallMinutes: numPositive(src, 'clothesRailInstallMinutes', d.clothesRailInstallMinutes),
-    installDrawerGuidesMinutes: numPositive(src, 'installDrawerGuidesMinutes', d.installDrawerGuidesMinutes),
+    ...parseDrawerGuideMinutes(src, d),
+    drawerGuideDeepMinHeightMm: numMm(src, 'drawerGuideDeepMinHeightMm', d.drawerGuideDeepMinHeightMm),
     assembleDrawerBoxMinutes: numPositive(src, 'assembleDrawerBoxMinutes', d.assembleDrawerBoxMinutes),
     attachDrawerBackMinutes: numPositive(src, 'attachDrawerBackMinutes', d.attachDrawerBackMinutes),
     attachDrawerRunnersMinutes: numPositive(src, 'attachDrawerRunnersMinutes', d.attachDrawerRunnersMinutes),
@@ -648,14 +709,19 @@ export function collectCabinetAssembly(input: {
   }
 
   if (input.shelfCount > 0) {
+    const deep = isDeepCabinet(input.depth, s)
+    const per = deep ? s.shelfPinPairDeepMinutes : s.shelfPinPairMinutes
+    const threshold = s.shelfPinDeepMinDepthMm ?? DEEP_CABINET_MIN_DEPTH_MM
     pushStep(steps, {
       id: 'shelf-pins',
       label: 'Слагане на рафтоносачи',
-      minutes: s.shelfPinPairMinutes * input.shelfCount,
+      minutes: per * input.shelfCount,
       quantity: input.shelfCount,
       unitOne: 'рафт',
       unitMany: 'рафта',
-      hint: '4 рафтоносача на рафт',
+      hint: deep
+        ? `4 рафтоносача на рафт · дълбочина над ${threshold} мм`
+        : `4 рафтоносача на рафт · дълбочина до ${threshold} мм`,
     })
   }
 
@@ -720,14 +786,22 @@ export function collectCabinetAssembly(input: {
 
   if (input.drawerCount > 0) {
     const n = input.drawerCount
+    const deep = isDeepDrawerGuides(input.depth, input.height, s)
+    const guidePer = deep ? s.installDrawerGuidesDeepMinutes : s.installDrawerGuidesMinutes
+    const minDepth = s.shelfPinDeepMinDepthMm ?? DEEP_CABINET_MIN_DEPTH_MM
+    const minHeight = s.drawerGuideDeepMinHeightMm ?? DRAWER_GUIDE_DEEP_MIN_HEIGHT_MM
     pushStep(steps, {
       id: 'drawer-guides-sides',
       label: 'Слагане на водачи на страниците',
-      minutes: s.installDrawerGuidesMinutes * n,
+      minutes: guidePer * n,
       quantity: n,
       unitOne: 'чекмедже',
       unitMany: 'чекмеджета',
-      hint: 'водачите на страниците за всяко чекмедже',
+      hint: deep
+        ? `водачи на страниците · дълбочина над ${minDepth} мм и височина от ${minHeight} мм`
+        : input.depth > minDepth
+          ? `водачи на страниците · висок под ${minHeight} мм — брои се за малък`
+          : `водачи на страниците · дълбочина до ${minDepth} мм`,
     })
     pushStep(steps, {
       id: 'drawer-box',

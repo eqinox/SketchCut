@@ -1,0 +1,14 @@
+---
+description: Workshop settings (prices and assembly times) are per-user in Firestore, not only local.
+alwaysApply: true
+---
+
+# Настройки по акаунт (SketchCut)
+
+Всичко в **Настройки** (цени и време за изработка) се пази **отделно за всеки потребител** в Firestore: `users/{uid}/settings/workshop`.
+
+- Нов потребител: при първи вход се качват текущите/стандартните настройки като негово копие.
+- Вход: дърпат се неговите настройки от базата.
+- Запис: localStorage е кеш; ако има вход, винаги се пише и в базата.
+- Ново поле в настройките: добави го в типа, `parse*` (default за стари записи) и в save/load. Не оставяй настройка само в UI или само локално.
+- Правила: `firestore.rules` → `users/{userId}/settings/{docId}` (read/write само за собствения uid).

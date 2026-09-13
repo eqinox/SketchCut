@@ -41,6 +41,7 @@ interface SettingsDialogProps {
   assemblyTimeSettings: AssemblyTimeSettings
   onSaveAssemblyTime: (settings: AssemblyTimeSettings) => void
   onResetAssemblyTime: () => AssemblyTimeSettings
+  signedIn?: boolean
 }
 
 function packUnit(packEur: string, packQty: number): number {
@@ -119,6 +120,7 @@ export function SettingsDialog({
   assemblyTimeSettings,
   onSaveAssemblyTime,
   onResetAssemblyTime,
+  signedIn = false,
 }: SettingsDialogProps) {
   const [hingeSoftClose, setHingeSoftClose] = useState('')
   const [hingeNormal, setHingeNormal] = useState('')
@@ -143,6 +145,8 @@ export function SettingsDialog({
   const [installLegs, setInstallLegs] = useState('')
   const [assembleRails, setAssembleRails] = useState('')
   const [shelfPinPair, setShelfPinPair] = useState('')
+  const [shelfPinPairDeep, setShelfPinPairDeep] = useState('')
+  const [shelfPinDeepMinDepth, setShelfPinDeepMinDepth] = useState('')
   const [backSmall, setBackSmall] = useState('')
   const [backLarge, setBackLarge] = useState('')
   const [plinthSmall, setPlinthSmall] = useState('')
@@ -158,6 +162,8 @@ export function SettingsDialog({
   const [clothesCut, setClothesCut] = useState('')
   const [clothesInstall, setClothesInstall] = useState('')
   const [drawerGuides, setDrawerGuides] = useState('')
+  const [drawerGuidesDeep, setDrawerGuidesDeep] = useState('')
+  const [drawerGuideDeepMinHeight, setDrawerGuideDeepMinHeight] = useState('')
   const [drawerBox, setDrawerBox] = useState('')
   const [drawerBack, setDrawerBack] = useState('')
   const [drawerRunners, setDrawerRunners] = useState('')
@@ -197,6 +203,8 @@ export function SettingsDialog({
     setInstallLegs(String(s.installLegsMinutes))
     setAssembleRails(String(s.assembleTopRailsMinutes))
     setShelfPinPair(String(s.shelfPinPairMinutes))
+    setShelfPinPairDeep(String(s.shelfPinPairDeepMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.shelfPinPairDeepMinutes))
+    setShelfPinDeepMinDepth(String(s.shelfPinDeepMinDepthMm ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.shelfPinDeepMinDepthMm))
     setBackSmall(String(s.backSmallMinutes))
     setBackLarge(String(s.backLargeMinutes))
     setPlinthSmall(String(s.plinthSmallMinutes))
@@ -212,6 +220,8 @@ export function SettingsDialog({
     setClothesCut(String(s.clothesRailCutMinutes))
     setClothesInstall(String(s.clothesRailInstallMinutes))
     setDrawerGuides(String(s.installDrawerGuidesMinutes))
+    setDrawerGuidesDeep(String(s.installDrawerGuidesDeepMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.installDrawerGuidesDeepMinutes))
+    setDrawerGuideDeepMinHeight(String(s.drawerGuideDeepMinHeightMm ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.drawerGuideDeepMinHeightMm))
     setDrawerBox(String(s.assembleDrawerBoxMinutes))
     setDrawerBack(String(s.attachDrawerBackMinutes))
     setDrawerRunners(String(s.attachDrawerRunnersMinutes))
@@ -283,6 +293,7 @@ export function SettingsDialog({
       installLegsMinutes: parseFloat(installLegs) || DEFAULT_ASSEMBLY_TIME_SETTINGS.installLegsMinutes,
       assembleTopRailsMinutes: parseFloat(assembleRails) || DEFAULT_ASSEMBLY_TIME_SETTINGS.assembleTopRailsMinutes,
       shelfPinPairMinutes: parseFloat(shelfPinPair) || DEFAULT_ASSEMBLY_TIME_SETTINGS.shelfPinPairMinutes,
+      shelfPinPairDeepMinutes: parseFloat(shelfPinPairDeep) || DEFAULT_ASSEMBLY_TIME_SETTINGS.shelfPinPairDeepMinutes,
       backSmallMinutes: parseFloat(backSmall) || DEFAULT_ASSEMBLY_TIME_SETTINGS.backSmallMinutes,
       backLargeMinutes: parseFloat(backLarge) || DEFAULT_ASSEMBLY_TIME_SETTINGS.backLargeMinutes,
       plinthSmallMinutes: parseFloat(plinthSmall) || DEFAULT_ASSEMBLY_TIME_SETTINGS.plinthSmallMinutes,
@@ -298,6 +309,8 @@ export function SettingsDialog({
       clothesRailCutMinutes: parseFloat(clothesCut) || DEFAULT_ASSEMBLY_TIME_SETTINGS.clothesRailCutMinutes,
       clothesRailInstallMinutes: parseFloat(clothesInstall) || DEFAULT_ASSEMBLY_TIME_SETTINGS.clothesRailInstallMinutes,
       installDrawerGuidesMinutes: parseFloat(drawerGuides) || DEFAULT_ASSEMBLY_TIME_SETTINGS.installDrawerGuidesMinutes,
+      installDrawerGuidesDeepMinutes: parseFloat(drawerGuidesDeep) || DEFAULT_ASSEMBLY_TIME_SETTINGS.installDrawerGuidesDeepMinutes,
+      drawerGuideDeepMinHeightMm: parsePositiveMm(drawerGuideDeepMinHeight, DEFAULT_ASSEMBLY_TIME_SETTINGS.drawerGuideDeepMinHeightMm),
       assembleDrawerBoxMinutes: parseFloat(drawerBox) || DEFAULT_ASSEMBLY_TIME_SETTINGS.assembleDrawerBoxMinutes,
       attachDrawerBackMinutes: parseFloat(drawerBack) || DEFAULT_ASSEMBLY_TIME_SETTINGS.attachDrawerBackMinutes,
       attachDrawerRunnersMinutes: parseFloat(drawerRunners) || DEFAULT_ASSEMBLY_TIME_SETTINGS.attachDrawerRunnersMinutes,
@@ -311,6 +324,7 @@ export function SettingsDialog({
       depthMediumMaxMm: depth.mediumMaxMm,
       backLargeMinHeightMm: parsePositiveMm(backLargeMinHeight, DEFAULT_ASSEMBLY_TIME_SETTINGS.backLargeMinHeightMm),
       backLargeMinWidthMm: parsePositiveMm(backLargeMinWidth, DEFAULT_ASSEMBLY_TIME_SETTINGS.backLargeMinWidthMm),
+      shelfPinDeepMinDepthMm: parsePositiveMm(shelfPinDeepMinDepth, DEFAULT_ASSEMBLY_TIME_SETTINGS.shelfPinDeepMinDepthMm),
     })
     onOpenChange(false)
   }
@@ -347,6 +361,8 @@ export function SettingsDialog({
   const previewSizeText = `Пример 600 × 720 × 560 мм → ${formatCabinetSizeBreakdown(previewExample)} (${previewExample.score} т.)`
   const previewBackHeight = parsePositiveMm(backLargeMinHeight, DEFAULT_ASSEMBLY_TIME_SETTINGS.backLargeMinHeightMm)
   const previewBackWidth = parsePositiveMm(backLargeMinWidth, DEFAULT_ASSEMBLY_TIME_SETTINGS.backLargeMinWidthMm)
+  const previewShelfPinDepth = parsePositiveMm(shelfPinDeepMinDepth, DEFAULT_ASSEMBLY_TIME_SETTINGS.shelfPinDeepMinDepthMm)
+  const previewDrawerGuideHeight = parsePositiveMm(drawerGuideDeepMinHeight, DEFAULT_ASSEMBLY_TIME_SETTINGS.drawerGuideDeepMinHeightMm)
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -357,7 +373,9 @@ export function SettingsDialog({
             Настройки
           </DialogTitle>
           <DialogDescription>
-            Всички настройки се записват локално. После ще се дърпат от базата.
+            {signedIn
+              ? 'Настройките се пазят в акаунта ти и се дърпат при вход. Копие остава и на това устройство.'
+              : 'Без вход настройките се пазят само на това устройство. След вход се записват в акаунта.'}
           </DialogDescription>
         </DialogHeader>
 
@@ -802,7 +820,28 @@ export function SettingsDialog({
                     <Label htmlFor="shelf-pin-pair">Рафтоносачи за 1 рафт (минути)</Label>
                     <Input id="shelf-pin-pair" type="number" step="0.5" min="0" value={shelfPinPair} onChange={(e) => setShelfPinPair(e.target.value)} />
                     <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
-                      4 рафтоносача на рафт. 7 рафта × това време.
+                      4 рафтоносача на рафт, при дълбочина до {previewShelfPinDepth} мм.
+                    </p>
+                  </div>
+                  <div>
+                    <Label htmlFor="shelf-pin-pair-deep">Рафтоносачи — дълбок шкаф (минути)</Label>
+                    <Input id="shelf-pin-pair-deep" type="number" step="0.5" min="0" value={shelfPinPairDeep} onChange={(e) => setShelfPinPairDeep(e.target.value)} />
+                    <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
+                      При дълбочина над {previewShelfPinDepth} мм.
+                    </p>
+                  </div>
+                  <div>
+                    <Label htmlFor="shelf-pin-deep-min">Дълбок шкаф — над (мм)</Label>
+                    <Input
+                      id="shelf-pin-deep-min"
+                      type="number"
+                      step="1"
+                      min="1"
+                      value={shelfPinDeepMinDepth}
+                      onChange={(e) => setShelfPinDeepMinDepth(e.target.value)}
+                    />
+                    <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
+                      Над {previewShelfPinDepth} мм дълбочина се ползва по-дългото време за рафтоносачи. Водачите имат и условие за височина.
                     </p>
                   </div>
                   <div>
@@ -824,7 +863,7 @@ export function SettingsDialog({
                 <h3 className="mb-3 font-medium">Сглобяване на чекмедже</h3>
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div>
-                    <Label htmlFor="drawer-guides">Слагане на водачи на страниците (мин/водач)</Label>
+                    <Label htmlFor="drawer-guides">Водачи на страниците (минути)</Label>
                     <Input
                       id="drawer-guides"
                       type="number"
@@ -834,7 +873,35 @@ export function SettingsDialog({
                       onChange={(e) => setDrawerGuides(e.target.value)}
                     />
                     <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
-                      За всеки следващ водач се добавя това време
+                      За 1 чекмедже. И при дълбочина над {previewShelfPinDepth} мм, ако височината е под {previewDrawerGuideHeight} мм.
+                    </p>
+                  </div>
+                  <div>
+                    <Label htmlFor="drawer-guides-deep">Водачи — дълбок шкаф (минути)</Label>
+                    <Input
+                      id="drawer-guides-deep"
+                      type="number"
+                      step="0.5"
+                      min="0"
+                      value={drawerGuidesDeep}
+                      onChange={(e) => setDrawerGuidesDeep(e.target.value)}
+                    />
+                    <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
+                      Дълбочина над {previewShelfPinDepth} мм и височина от {previewDrawerGuideHeight} мм нагоре.
+                    </p>
+                  </div>
+                  <div>
+                    <Label htmlFor="drawer-guide-deep-min-height">Водачи — мин. височина (мм)</Label>
+                    <Input
+                      id="drawer-guide-deep-min-height"
+                      type="number"
+                      step="1"
+                      min="1"
+                      value={drawerGuideDeepMinHeight}
+                      onChange={(e) => setDrawerGuideDeepMinHeight(e.target.value)}
+                    />
+                    <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
+                      Дълбок над {previewShelfPinDepth} мм, но висок под {previewDrawerGuideHeight} мм, все още се брои за малък.
                     </p>
                   </div>
                   <div>

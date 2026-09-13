@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Box, Copy, Pencil, Plus, Trash2 } from 'lucide-react'
+import { Box, ChevronDown, ChevronUp, Copy, Pencil, Plus, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -10,6 +10,7 @@ import { PriceBreakdownView } from '@/components/PriceBreakdown'
 import {
   WORK_HOURS_PER_DAY,
   cabinetPrice,
+  explainCabinetPrice,
   explainCabinetsPrice,
   formatEur,
   generateCabinet,
@@ -55,10 +56,12 @@ export function CabinetsPanel({
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<CabinetInstance | null>(null)
   const [formKey, setFormKey] = useState(0)
+  const [openCabinetId, setOpenCabinetId] = useState<string | null>(null)
   const hourly = hourlyRateEur(dailyRateEur)
   const priced = cabinets.flatMap((c) => {
     try {
       const result = scaleCabinetResult(generateCabinet(c.typeId, c.params, settings), c.quantity)
+      const perCabinetHardware = { ...settings.hardware, billWholeSheets: false }
       return [
         {
           cabinet: c,
@@ -69,8 +72,17 @@ export function CabinetsPanel({
             dailyRateEur,
             result.panels,
             sheets,
-            { ...settings.hardware, billWholeSheets: false },
+            perCabinetHardware,
           ),
+          breakdown: explainCabinetPrice({
+            panels: result.panels,
+            hardware: result.hardware,
+            assemblyMinutes: result.labor.assemblyMinutes,
+            assemblySteps: result.labor.assemblySteps,
+            dailyRateEur,
+            sheets,
+            settings: perCabinetHardware,
+          }),
         },
       ]
     } catch {
@@ -202,10 +214,11 @@ export function CabinetsPanel({
               return (
                 <li
                   key={c.id}
-                  className="flex items-center justify-between gap-2 rounded-md border border-[var(--color-border)] bg-[var(--color-background)] px-3 py-2"
+                  className="rounded-md border border-[var(--color-border)] bg-[var(--color-background)] px-3 py-2"
                 >
+                  <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <Box className="h-4 w-4 shrink-0 text-[var(--color-primary)]" />
                       <span className="truncate text-sm font-medium">
                         Ш{i + 1} · {type?.name ?? c.name}
@@ -219,12 +232,15 @@ export function CabinetsPanel({
                       {c.quantity > 1 && (
                         <span className="text-xs text-[var(--color-muted-foreground)]">× {c.quantity}</span>
                       )}
-                      {row && (
-                        <span className="ml-auto shrink-0 text-xs tabular-nums text-[var(--color-muted-foreground)]">
-                          {formatEur(row.price.totalEur)}
-                        </span>
-                      )}
                     </div>
+                    {row && (
+                      <p className="mt-0.5 text-xs tabular-nums">
+                        <strong>{formatEur(row.price.totalEur)}</strong>
+                        <span className="text-[var(--color-muted-foreground)]">
+                          {` (материал ${formatEur(row.price.materialEur)} · труд ${row.price.laborEur != null ? formatEur(row.price.laborEur) : '—'})`}
+                        </span>
+                      </p>
+                    )}
                     <p className="truncate text-xs text-[var(--color-muted-foreground)]">
                       {p.width} × {p.height} × {p.depth} мм · крачета {p.legHeight} мм
                       {fit.fixedShelves > 0
@@ -278,6 +294,31 @@ export function CabinetsPanel({
                       <Trash2 className="h-4 w-4 text-[var(--color-destructive)]" />
                     </Button>
                   </div>
+                  </div>
+                  {row && (
+                    <div className="mt-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        aria-expanded={openCabinetId === c.id}
+                        aria-label={
+                          openCabinetId === c.id
+                            ? `Скрий информацията за Ш${i + 1}`
+                            : `Повече информация за Ш${i + 1}`
+                        }
+                        onClick={() => setOpenCabinetId((id) => (id === c.id ? null : c.id))}
+                      >
+                        {openCabinetId === c.id ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                        {openCabinetId === c.id ? 'Скрий информацията' : 'Повече информация'}
+                      </Button>
+                      {openCabinetId === c.id && (
+                        <div className="mt-2">
+                          <PriceBreakdownView breakdown={row.breakdown} showSummary={false} />
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </li>
               )
             })}

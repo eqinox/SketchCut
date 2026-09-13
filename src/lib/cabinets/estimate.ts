@@ -141,6 +141,8 @@ export interface CabinetPrice {
   chipboardEur: number
   hardboardEur: number
   edgeEur: number
+  /** Boards + edge + fittings (everything except labor). */
+  materialEur: number
   cuttingMinutes: number
   edgingMinutes: number
   laborMinutes: number
@@ -181,16 +183,18 @@ export function cabinetPrice(
     mm05: settings.edgeMm05Eur ?? EDGE_PRICE_MM05_EUR,
   })
   const minutes = laborMinutes(computed) ?? 0
+  const materialEur = hardwareEur + chipboardEur + hardboardEur + edgeEur
   return {
     hardwareEur,
     chipboardEur,
     hardboardEur,
     edgeEur,
+    materialEur,
     cuttingMinutes: computed.cuttingMinutes ?? 0,
     edgingMinutes: computed.edgingMinutes ?? 0,
     laborMinutes: minutes,
     laborEur,
-    totalEur: hardwareEur + chipboardEur + hardboardEur + edgeEur + (laborEur ?? 0),
+    totalEur: materialEur + (laborEur ?? 0),
   }
 }
 

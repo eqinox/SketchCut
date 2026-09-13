@@ -79,12 +79,29 @@ function BreakdownSection({
 export function PriceBreakdownView({
   breakdown,
   className,
+  showSummary = true,
+  defaultOpen = false,
 }: {
   breakdown: PriceBreakdown
   className?: string
+  /** Compact totals row + toggle. When false, always show the tables. */
+  showSummary?: boolean
+  defaultOpen?: boolean
 }) {
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(defaultOpen)
   const compact = breakdown.sections.filter((s) => s.id !== 'cabinets')
+  const details = (
+    <div className={showSummary ? 'mt-3 space-y-4' : 'space-y-4'}>
+      {showSummary && <Separator />}
+      {breakdown.sections.map((section) => (
+        <BreakdownSection key={section.id} section={section} />
+      ))}
+    </div>
+  )
+
+  if (!showSummary) {
+    return <div className={cn(className)}>{details}</div>
+  }
 
   return (
     <div className={cn('rounded-md bg-secondary px-3 py-2 text-sm', className)}>
@@ -115,14 +132,7 @@ export function PriceBreakdownView({
         </Button>
       </div>
 
-      {open && (
-        <div className="mt-3 space-y-4">
-          <Separator />
-          {breakdown.sections.map((section) => (
-            <BreakdownSection key={section.id} section={section} />
-          ))}
-        </div>
-      )}
+      {open && details}
     </div>
   )
 }
