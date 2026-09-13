@@ -14,9 +14,42 @@ export type {
 } from './types'
 export type { CabinetInstance } from '@/types'
 
-export { clothesRailLengthMm } from './fronts'
+export { clothesRailLengthMm, parseInteriorFittings } from './fronts'
+export type { InteriorFittings } from './fronts'
 export { CABINET_TYPES, getCabinetType, generateCabinet, scaleCabinetResult, cabinetDisplayName } from './catalog'
 export { measureCarcass, evenShelfBottoms, evenShelfGap, KITCHEN_BASE_JOINERY } from './joinery'
+export {
+  MAX_FIXED_SHELVES,
+  MIN_ZONE_CLEAR_MM,
+  ZONE_LABELS,
+  EMPTY_ZONE_FITTINGS,
+  parseFixedShelves,
+  parseDoorSpan,
+  parseZoneMap,
+  defaultFixedOffsetMm,
+  resolveFixedShelves,
+  cabinetZones,
+  layoutInterior,
+  layoutCounts,
+  fittingsCountsFromParams,
+  zoneFrontBox,
+  stackFronts,
+  validateZoneFronts,
+  allDrawerFrontHeights,
+  defaultShelfFaces,
+  measureFixedShelf,
+  fixedShelfMeasureLabel,
+} from './zones'
+export type {
+  FixedShelfSpec,
+  FixedShelfFrom,
+  PanelFace,
+  CabinetZoneId,
+  DoorSpan,
+  ZoneFittings,
+  ResolvedZone,
+  InteriorLayout,
+} from './zones'
 export {
   KITCHEN_BASE_TYPE_ID,
   DEFAULT_KITCHEN_BASE_PARAMS,
@@ -96,6 +129,7 @@ export {
   DOOR_CLEARANCE_TOP,
   DOOR_CLEARANCE_BOTTOM,
   DOOR_GAP_X,
+  DOOR_SIDE_GAP_EACH,
   DRAWER_DOOR_GAP,
   DRAWER_RAIL_BELOW_FRONT,
   DEFAULT_DRAWER_FRONT_HEIGHT,
@@ -106,6 +140,7 @@ export {
   SOFT_SLIDE_SIDE_GAP,
   SOFT_SLIDE_OUTER_RAIL_SHORTEN,
   SOFT_INNER_RAIL_HEIGHT_DROP,
+  DOOR_EDGE_MM,
   DOOR_EDGE_BOTH,
   sheetKind,
   partKind,
@@ -116,6 +151,7 @@ export {
   referenceSheet,
   firstSheetOfKind,
   doorCutSize,
+  doorCutRuleNote,
   drawerFrontCutSize,
   doorWithDrawersCutSize,
   doorWithDrawerCutSize,
@@ -125,6 +161,8 @@ export {
   parseShelfCount,
   hardboardCutSize,
   remainingFrontHeight,
+  equalDrawerFrontHeights,
+  drawerFrontsAreEven,
   canCombineFronts,
   combinedFrontCutHeight,
   boardKindLabel,

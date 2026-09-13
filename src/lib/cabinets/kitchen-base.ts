@@ -5,12 +5,9 @@ import {
   KITCHEN_BASE_SCREWS_RAILS,
   KITCHEN_BASE_SCREWS_TOTAL,
   SCREW_5X60,
-  parseSlideKind,
-  parseSlideLength,
 } from './hardware'
 import { KITCHEN_BASE_JOINERY, measureCarcass } from './joinery'
-import { parseDoorCount, parseDrawerFrontHeights, parseShelfCount } from './materials'
-import { appendDoorsAndDrawers, appendHardboard, appendShelves, appendClothesRail } from './fronts'
+import { appendHardboard, appendZonedInterior, parseInteriorFittings } from './fronts'
 import {
   DEFAULT_LEG_HEIGHT,
   DEFAULT_PANEL_THICKNESS,
@@ -48,6 +45,9 @@ export const DEFAULT_KITCHEN_BASE_PARAMS: KitchenBaseParams = {
   hasClothesRail: false,
   slideKind: 'roller',
   slideLength: 500,
+  fixedShelves: [],
+  doorSpan: 'full',
+  zones: {},
   colors: { ...DEFAULT_PART_COLORS },
 }
 
@@ -59,7 +59,7 @@ export function parseKitchenBaseParams(raw: Record<string, unknown>): KitchenBas
   }
   const leg = num('legHeight', d.legHeight)
   const depth = num('depth', d.depth)
-  const slideKind = parseSlideKind(raw.slideKind)
+  const fittings = parseInteriorFittings(raw, depth)
   return {
     width: num('width', d.width),
     height: num('height', d.height),
@@ -67,15 +67,8 @@ export function parseKitchenBaseParams(raw: Record<string, unknown>): KitchenBas
     thickness: num('thickness', d.thickness),
     legHeight: leg === 150 ? 150 : 100,
     railWidth: num('railWidth', d.railWidth),
-    shelfCount: parseShelfCount(raw.shelfCount),
+    ...fittings,
     hasBack: typeof raw.hasBack === 'boolean' ? raw.hasBack : false,
-    doorCount: parseDoorCount(raw.doorCount),
-    drawerFrontHeights: parseDrawerFrontHeights(raw.drawerFrontHeights, raw.drawerFrontHeight),
-    cutFromOneBoard: typeof raw.cutFromOneBoard === 'boolean' ? raw.cutFromOneBoard : false,
-    includeHandles: raw.includeHandles !== false,
-    hasClothesRail: raw.hasClothesRail === true,
-    slideKind,
-    slideLength: parseSlideLength(raw.slideLength, depth, slideKind),
     colors: parsePartColors(raw.colors),
   }
 }
@@ -150,13 +143,15 @@ export function generateKitchenBase(
     },
   ]
 
-  appendShelves(
+  const interior = appendZonedInterior(
     {
-      shelfCount: p.shelfCount,
+      fittings: p,
       innerW: m.innerW,
       innerH: m.innerH,
       sideD: m.sideD,
       thickness: p.thickness,
+      width: p.width,
+      frontHeight: p.height,
     },
     panels,
     hardware,
@@ -168,48 +163,24 @@ export function generateKitchenBase(
     appendHardboard({ width: p.width, height: p.height }, panels, notes)
   }
 
-  if (p.hasClothesRail) {
-    appendClothesRail(
-      { width: p.width, thickness: p.thickness },
-      hardware,
-      notes,
-      hardwareSettings,
-    )
-  }
-
-  const { doorCount, drawerCount } = appendDoorsAndDrawers(
-    {
-      width: p.width,
-      frontHeight: p.height,
-      thickness: p.thickness,
-      doorCount: p.doorCount,
-      drawerFrontHeights: p.drawerFrontHeights,
-      cutFromOneBoard: p.cutFromOneBoard,
-      includeHandles: p.includeHandles,
-      slideKind: p.slideKind,
-      slideLength: p.slideLength,
-    },
-    panels,
-    hardware,
-    notes,
-    hardwareSettings,
-  )
-
   const assembly = collectCabinetAssembly({
     settings: assemblyTimeSettings,
     panels,
     width: p.width,
     height: p.height,
+    depth: p.depth,
     hasLegs: p.legHeight > 0,
     hasTopRails: true,
     hasTop: false,
     plinthCount: 0,
     hasBack: p.hasBack,
-    shelfCount: p.shelfCount,
-    doorCount,
-    drawerCount,
-    hasClothesRail: p.hasClothesRail,
+    shelfCount: interior.shelfCount,
+    doorCount: interior.doorCount,
+    drawerCount: interior.drawerCount,
+    hasClothesRail: interior.clothesRailCount > 0,
+    clothesRailCount: interior.clothesRailCount,
     clothesRailLengthMm: p.width - 2 * p.thickness,
+    fixedShelfCount: interior.fixedShelfCount,
   })
 
   return {

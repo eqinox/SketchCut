@@ -1,6 +1,5 @@
 import { FileDown, Printer } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { VariantPicker } from '@/components/VariantPicker'
 import { SheetSvg, formatDim, labelableWasteRects } from '@/lib/layout-drawing'
 import { updatePackingResultPart } from '@/lib/layout-edit'
 import { exportCuttingPlanPdf, printCuttingPlan } from '@/lib/pdf-export'
@@ -9,21 +8,13 @@ import { useState } from 'react'
 
 interface CuttingLayoutProps {
   result: PackingResult
-  variantLabel: string
   title?: string
-  variants?: { label: string; wastePercent: number }[]
-  selectedVariantIndex?: number
-  onVariantSelect?: (index: number) => void
   onResultChange?: (result: PackingResult) => void
 }
 
 export function CuttingLayout({
   result,
-  variantLabel,
   title = 'Разкрой',
-  variants,
-  selectedVariantIndex = 0,
-  onVariantSelect,
   onResultChange,
 }: CuttingLayoutProps) {
   const [exporting, setExporting] = useState(false)
@@ -40,7 +31,7 @@ export function CuttingLayout({
   const handlePdf = async () => {
     setExporting(true)
     try {
-      await exportCuttingPlanPdf(result, variantLabel)
+      await exportCuttingPlanPdf(result)
     } finally {
       setExporting(false)
     }
@@ -54,8 +45,7 @@ export function CuttingLayout({
           <span className="rounded-md bg-[var(--color-secondary)] px-2 py-1 text-sm">
             Фира: <strong>{totalWastePercent.toFixed(1)}%</strong>
           </span>
-          <span className="text-sm text-[var(--color-muted-foreground)]">{variantLabel}</span>
-          <Button variant="outline" size="sm" onClick={() => printCuttingPlan(result, variantLabel)}>
+          <Button variant="outline" size="sm" onClick={() => printCuttingPlan(result)}>
             <Printer className="h-4 w-4" />
             Принтирай
           </Button>
@@ -65,14 +55,6 @@ export function CuttingLayout({
           </Button>
         </div>
       </div>
-
-      {variants && variants.length > 1 && onVariantSelect && (
-        <VariantPicker
-          variants={variants}
-          selectedIndex={selectedVariantIndex}
-          onSelect={onVariantSelect}
-        />
-      )}
 
       <p className="text-xs text-[var(--color-muted-foreground)]">
         Задръж детайл, докато се маркира, после влачи — приближават се автоматично към разрез

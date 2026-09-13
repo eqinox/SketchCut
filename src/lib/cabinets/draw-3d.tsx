@@ -99,6 +99,7 @@ export function Board({
   cam,
   faces = BOX_FACES,
   strokeWidth = 1.2,
+  opacity,
 }: {
   x: number
   y: number
@@ -110,6 +111,7 @@ export function Board({
   cam: DrawCam
   faces?: DrawFaces
   strokeWidth?: number
+  opacity?: number
 }) {
   const c = partFaces(color)
   const { proj } = cam
@@ -119,7 +121,7 @@ export function Board({
   const sw = strokeWidth
   const topSw = sw === 0 ? 0 : Math.max(sw, 1.5)
   return (
-    <g>
+    <g opacity={opacity}>
       {faces.back && (
         <Face
           pts={[proj(x, y, z2), proj(x2, y, z2), proj(x2, yb, z2), proj(x, yb, z2)]}

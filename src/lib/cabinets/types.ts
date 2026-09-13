@@ -1,6 +1,7 @@
 import type { BoardKind, EdgeBandingSides } from '@/types'
 import type { CabinetPartColors } from './colors'
 import type { AssemblyStep } from '@/lib/assembly-time'
+import type { CabinetZoneId, DoorSpan, FixedShelfSpec, ZoneFittings } from './zones'
 
 /** Actual working hours counted per day (breaks are not billed). */
 export const WORK_HOURS_PER_DAY = 5
@@ -168,6 +169,11 @@ export interface KitchenBaseParams {
   slideKind: 'roller' | 'soft-full' | 'soft-partial'
   /** Runner length in mm (must fit in carcass depth). */
   slideLength: number
+  /** Up to 2 shelves screwed through the sides. */
+  fixedShelves: FixedShelfSpec[]
+  /** Full-height doors vs doors only on some compartments. */
+  doorSpan: DoorSpan
+  zones: Partial<Record<CabinetZoneId, ZoneFittings>>
   colors: CabinetPartColors
   [key: string]: unknown
 }

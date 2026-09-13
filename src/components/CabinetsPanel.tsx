@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
 import { CabinetDialog } from '@/components/CabinetDialog'
+import { CabinetSizeBadge } from '@/components/CabinetSizeBadge'
 import { PriceBreakdownView } from '@/components/PriceBreakdown'
 import {
   WORK_HOURS_PER_DAY,
@@ -15,6 +16,7 @@ import {
   getCabinetType,
   hourlyRateEur,
   parseKitchenBaseParams,
+  fittingsCountsFromParams,
   scaleCabinetResult,
   type CabinetInstance,
 } from '@/lib/cabinets'
@@ -195,6 +197,7 @@ export function CabinetsPanel({
             {cabinets.map((c, i) => {
               const type = getCabinetType(c.typeId)
               const p = parseKitchenBaseParams(c.params)
+              const fit = fittingsCountsFromParams(p)
               const row = priced.find((r) => r.cabinet.id === c.id)
               return (
                 <li
@@ -207,6 +210,12 @@ export function CabinetsPanel({
                       <span className="truncate text-sm font-medium">
                         Ш{i + 1} · {type?.name ?? c.name}
                       </span>
+                      <CabinetSizeBadge
+                        width={p.width}
+                        height={p.height}
+                        depth={p.depth}
+                        settings={settings.assemblyTime}
+                      />
                       {c.quantity > 1 && (
                         <span className="text-xs text-[var(--color-muted-foreground)]">× {c.quantity}</span>
                       )}
@@ -218,16 +227,19 @@ export function CabinetsPanel({
                     </div>
                     <p className="truncate text-xs text-[var(--color-muted-foreground)]">
                       {p.width} × {p.height} × {p.depth} мм · крачета {p.legHeight} мм
-                      {p.shelfCount > 0
-                        ? ` · ${p.shelfCount} ${p.shelfCount === 1 ? 'рафт' : 'рафта'}`
+                      {fit.fixedShelves > 0
+                        ? ` · ${fit.fixedShelves} ${fit.fixedShelves === 1 ? 'фиксиран рафт' : 'фиксирани рафта'}`
+                        : ''}
+                      {fit.shelfCount > 0
+                        ? ` · ${fit.shelfCount} ${fit.shelfCount === 1 ? 'рафт' : 'рафта'}`
                         : ''}
                       {p.hasBack ? ' · фазер' : ''}
-                      {p.hasClothesRail ? ' · лост' : ''}
-                      {p.doorCount === 1 ? ' · 1 врата' : p.doorCount === 2 ? ' · 2 врати' : ''}
-                      {p.drawerFrontHeights.length === 1
-                        ? ` · 1 чекмедже ${p.drawerFrontHeights[0]} мм · водачи ${p.slideLength}`
-                        : p.drawerFrontHeights.length > 1
-                          ? ` · ${p.drawerFrontHeights.length} чекмеджета ${p.drawerFrontHeights.join('/')} мм · водачи ${p.slideLength}`
+                      {fit.clothesRailCount > 0 ? ' · лост' : ''}
+                      {fit.doorCount === 1 ? ' · 1 врата' : fit.doorCount > 1 ? ` · ${fit.doorCount} врати` : ''}
+                      {fit.drawerCount === 1
+                        ? ` · 1 чекмедже · водачи ${p.slideLength}`
+                        : fit.drawerCount > 1
+                          ? ` · ${fit.drawerCount} чекмеджета · водачи ${p.slideLength}`
                           : ''}
                     </p>
                   </div>

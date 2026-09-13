@@ -21,12 +21,22 @@ export const CUTTING_MINUTES_PER_SHEET = 40
 /** Edgebander time for one full chipboard sheet (hardboard is not edged). */
 export const EDGING_MINUTES_PER_SHEET = 30
 
-/** Gap at the top of a door, mm. */
-export const DOOR_CLEARANCE_TOP = 5
-/** Gap at the bottom of a door, mm. */
+/**
+ * Overlay door / front sizing — keep in sync with `.cursor/rules/door-fronts.mdc`.
+ * Cut size is before banding; banding is glued on after the saw.
+ *
+ * Height: bottom of the door sits at 0 on the opening; subtract DOOR_CLEARANCE_TOP
+ * at the top (фуга), then DOOR_EDGE_MM on top and bottom for banding.
+ * Width: DOOR_GAP_X total (DOOR_SIDE_GAP_EACH each side), then banding on both sides.
+ */
+/** Фуга at the top of a door (and of the topmost front in a stack), mm. */
+export const DOOR_CLEARANCE_TOP = 3
+/** Фуга at the bottom of a door, mm. Door sits at 0 on the opening. */
 export const DOOR_CLEARANCE_BOTTOM = 0
-/** Gaps (фуги) subtracted from each door's share of the cabinet width, mm. */
+/** Total side фуга subtracted from each door's share of the width, mm. */
 export const DOOR_GAP_X = 3
+/** Left / right share of DOOR_GAP_X, mm. */
+export const DOOR_SIDE_GAP_EACH = 1.5
 /** Gap between stacked fronts (drawer–drawer or drawer–door), mm. */
 export const DRAWER_DOOR_GAP = 3
 /** Default finished drawer-front height when adding a drawer, mm. */
@@ -37,11 +47,15 @@ export const MAX_DRAWERS = 6
 export const MAX_SHELVES = 8
 /** Extra mm between stacked fronts when first cut as one board, then resawn after edging. */
 export const COMBINED_FRONT_SAW_BUFFER = 6
+/** Thick (2 mm) banding on one edge. */
+export const DOOR_EDGE_MM = 2
 /** 2 mm banding on both opposite edges. */
-export const DOOR_EDGE_BOTH = 4
+export const DOOR_EDGE_BOTH = DOOR_EDGE_MM * 2
 
-/** Drawer box rails sit this much shorter than the drawer front, mm. */
+/** Drawer box rails sit this much shorter than the drawer front, mm — then the height is rounded to 10. */
 export const DRAWER_RAIL_BELOW_FRONT = 50
+/** Rail cut height is always a multiple of this, mm. */
+export const DRAWER_RAIL_HEIGHT_STEP = 10
 /** Clearance each side of a roller slide, mm. */
 export const ROLLER_SLIDE_SIDE_GAP = 12.5
 /** Clearance each side of a soft-close slide, mm. */
@@ -206,6 +220,18 @@ export function doorCutSize(
   }
 }
 
+/** Short Bulgarian note of the overlay + banding rule, for prices and dialogs. */
+export function doorCutRuleNote(opts?: { withDrawerGaps?: boolean }): string {
+  const stacked = opts?.withDrawerGaps
+    ? `${DRAWER_DOOR_GAP} мм между челата, `
+    : ''
+  return (
+    `фуга ${DOOR_CLEARANCE_TOP} мм отгоре` +
+    (DOOR_CLEARANCE_BOTTOM > 0 ? `, ${DOOR_CLEARANCE_BOTTOM} мм отдолу` : ', долу на 0') +
+    `, ${stacked}странично ${DOOR_GAP_X} мм общо (${DOOR_SIDE_GAP_EACH} мм отляво и отдясно), кант ${DOOR_EDGE_MM} мм от 4 страни`
+  )
+}
+
 /** Calculate drawer front size (before edging) */
 export function drawerFrontCutSize(
   cabinetWidth: number,
@@ -232,7 +258,7 @@ export function parseDrawerFrontHeights(raw: unknown, legacySingle?: unknown): n
 
 /**
  * Height taken by drawer fronts plus the 3 mm gaps between them
- * (and before a door, when there is one). Does not include the 5 mm top clearance.
+ * (and before a door, when there is one). Does not include the top фуга.
  */
 export function drawerStackUsed(drawerFrontHeights: number[], hasDoor: boolean): number {
   const heights = drawerFrontHeights.filter((h) => h > 0)
@@ -249,6 +275,34 @@ export function remainingFrontHeight(
   hasDoor: boolean,
 ): number {
   return cabinetHeight - DOOR_CLEARANCE_TOP - DOOR_CLEARANCE_BOTTOM - drawerStackUsed(drawerFrontHeights, hasDoor)
+}
+
+/** Height left for the drawer fronts themselves after top/bottom фуга and gaps between them. */
+export function drawerFrontFillMm(frontHeight: number, count: number): number {
+  if (count < 1) return 0
+  return frontHeight - DOOR_CLEARANCE_TOP - DOOR_CLEARANCE_BOTTOM - (count - 1) * DRAWER_DOOR_GAP
+}
+
+/**
+ * Split a front into `count` equal drawer heights (integer mm).
+ * Remainder millimetres go to the topmost fronts. Fills the opening: top фуга +
+ * fronts + gaps between them, nothing left over.
+ */
+export function equalDrawerFrontHeights(frontHeight: number, count: number): number[] {
+  const n = Math.max(0, Math.floor(count))
+  if (n < 1) return []
+  const available = drawerFrontFillMm(frontHeight, n)
+  if (available <= 0) return Array.from({ length: n }, () => 0)
+  const base = Math.floor(available / n)
+  const rem = available - base * n
+  return Array.from({ length: n }, (_, i) => base + (i < rem ? 1 : 0))
+}
+
+export function drawerFrontsAreEven(frontHeight: number, heights: number[]): boolean {
+  const positive = heights.filter((h) => h > 0)
+  if (positive.length === 0) return true
+  const even = equalDrawerFrontHeights(frontHeight, positive.length)
+  return even.length === positive.length && even.every((h, i) => h === positive[i])
 }
 
 /**
@@ -303,6 +357,12 @@ export interface DrawerBoxRails {
   outer: { width: number; height: number }
 }
 
+/** Cut height of a drawer rail: nearest 10 mm (100, 110, 120…). */
+export function roundDrawerRailHeight(mm: number): number {
+  if (!(mm > 0)) return 0
+  return Math.max(DRAWER_RAIL_HEIGHT_STEP, Math.round(mm / DRAWER_RAIL_HEIGHT_STEP) * DRAWER_RAIL_HEIGHT_STEP)
+}
+
 /** Cut sizes for the four drawer-box rails (царги) of one drawer. */
 export function drawerBoxRails(
   cabinetWidth: number,
@@ -311,7 +371,7 @@ export function drawerBoxRails(
   slideLength: number,
   softClose: boolean,
 ): DrawerBoxRails | null {
-  const outerHeight = drawerFrontHeight - DRAWER_RAIL_BELOW_FRONT
+  const outerHeight = roundDrawerRailHeight(drawerFrontHeight - DRAWER_RAIL_BELOW_FRONT)
   const innerHeight = softClose ? outerHeight - SOFT_INNER_RAIL_HEIGHT_DROP : outerHeight
   if (outerHeight <= 0 || innerHeight <= 0 || thickness <= 0 || slideLength <= 0) return null
 

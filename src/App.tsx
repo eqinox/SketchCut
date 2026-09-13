@@ -205,16 +205,6 @@ function App() {
     setHardboardResult(boardResult)
   }
 
-  const handleVariantSelect = (index: number) => {
-    setSelectedVariantIndex(index)
-    setPackingResult(packingVariants[index]?.result ?? null)
-  }
-
-  const handleHardboardVariantSelect = (index: number) => {
-    setHardboardVariantIndex(index)
-    setHardboardResult(hardboardVariants[index]?.result ?? null)
-  }
-
   const handleHardboardLayoutChange = useCallback(
     (updated: PackingResult) => {
       setHardboardResult(updated)
@@ -350,16 +340,6 @@ function App() {
     return defaults
   }
 
-  const variantLabel = packingVariants[selectedVariantIndex]?.label ?? ''
-  const variantOptions = packingVariants.map((v) => ({
-    label: v.label.replace('Разкрой · ', ''),
-    wastePercent: v.result.totalWastePercent,
-  }))
-  const hardboardVariantLabel = hardboardVariants[hardboardVariantIndex]?.label ?? ''
-  const hardboardVariantOptions = hardboardVariants.map((v) => ({
-    label: v.label.replace('Разкрой · ', ''),
-    wastePercent: v.result.totalWastePercent,
-  }))
   const chipboardPartCount = parts.filter((p) => partKind(p) === 'chipboard').length
   const hardboardPartCount = parts.filter((p) => partKind(p) === 'hardboard').length
   const chipboardSheetCount = sheets.filter((s) => sheetKind(s) === 'chipboard').reduce((s, sh) => s + sh.quantity, 0)
@@ -455,10 +435,6 @@ function App() {
           <CuttingLayout
             title="Разкрой ПДЧ"
             result={packingResult}
-            variantLabel={variantLabel}
-            variants={variantOptions}
-            selectedVariantIndex={selectedVariantIndex}
-            onVariantSelect={handleVariantSelect}
             onResultChange={handleLayoutChange}
           />
         )}
@@ -467,10 +443,6 @@ function App() {
           <CuttingLayout
             title="Разкрой фазер"
             result={hardboardResult}
-            variantLabel={hardboardVariantLabel}
-            variants={hardboardVariantOptions}
-            selectedVariantIndex={hardboardVariantIndex}
-            onVariantSelect={handleHardboardVariantSelect}
             onResultChange={handleHardboardLayoutChange}
           />
         )}

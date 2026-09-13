@@ -24,10 +24,11 @@ import {
 } from '@/lib/settings'
 import {
   DEFAULT_ASSEMBLY_TIME_SETTINGS,
-  SIZE_MEDIUM_SPAN_MM,
-  SIZE_LARGE_SPAN_MM,
-  BACK_LARGE_MIN_HEIGHT_MM,
-  BACK_LARGE_MIN_WIDTH_MM,
+  cabinetSizeAxisDefinitionText,
+  cabinetSizeScoringHelp,
+  classifyCabinetSize,
+  formatCabinetSizeBreakdown,
+  normalizeAxisLimits,
   type AssemblyTimeSettings,
 } from '@/lib/assembly-time'
 
@@ -44,6 +45,69 @@ interface SettingsDialogProps {
 
 function packUnit(packEur: string, packQty: number): number {
   return (parseFloat(packEur) || 0) / packQty
+}
+
+function parsePositiveMm(raw: string, fallback: number): number {
+  const n = Number.parseFloat(raw)
+  if (!Number.isFinite(n) || n <= 0) return fallback
+  return Math.round(n)
+}
+
+function SizeAxisFields({
+  id,
+  title,
+  smallValue,
+  mediumValue,
+  onSmallChange,
+  onMediumChange,
+}: {
+  id: string
+  title: string
+  smallValue: string
+  mediumValue: string
+  onSmallChange: (value: string) => void
+  onMediumChange: (value: string) => void
+}) {
+  const small = parsePositiveMm(smallValue, 1)
+  const mediumRaw = parsePositiveMm(mediumValue, small + 1)
+  const invalid = mediumRaw <= small
+  return (
+    <div>
+      <h4 className="mb-2 text-sm font-medium">{title}</h4>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div>
+          <Label htmlFor={`${id}-small`}>Малък до (мм)</Label>
+          <Input
+            id={`${id}-small`}
+            type="number"
+            step="1"
+            min="1"
+            value={smallValue}
+            onChange={(e) => onSmallChange(e.target.value)}
+          />
+        </div>
+        <div>
+          <Label htmlFor={`${id}-medium`}>Среден до (мм)</Label>
+          <Input
+            id={`${id}-medium`}
+            type="number"
+            step="1"
+            min="1"
+            value={mediumValue}
+            onChange={(e) => onMediumChange(e.target.value)}
+          />
+        </div>
+      </div>
+      <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
+        {cabinetSizeAxisDefinitionText(small, mediumRaw)}
+      </p>
+      {invalid && (
+        <p className="mt-1 text-xs text-red-600">
+          Средният трябва да е над малкия. При запис ще стане {small + 1} мм.
+        </p>
+      )}
+    </div>
+  )
 }
 
 export function SettingsDialog({
@@ -99,6 +163,14 @@ export function SettingsDialog({
   const [drawerRunners, setDrawerRunners] = useState('')
   const [drawerFront, setDrawerFront] = useState('')
   const [installDoor, setInstallDoor] = useState('')
+  const [sizeWidthSmall, setSizeWidthSmall] = useState('')
+  const [sizeWidthMedium, setSizeWidthMedium] = useState('')
+  const [sizeHeightSmall, setSizeHeightSmall] = useState('')
+  const [sizeHeightMedium, setSizeHeightMedium] = useState('')
+  const [sizeDepthSmall, setSizeDepthSmall] = useState('')
+  const [sizeDepthMedium, setSizeDepthMedium] = useState('')
+  const [backLargeMinHeight, setBackLargeMinHeight] = useState('')
+  const [backLargeMinWidth, setBackLargeMinWidth] = useState('')
 
   const applySettings = (s: HardwareSettings) => {
     setHingeSoftClose(String(s.hingeSoftCloseEur))
@@ -145,6 +217,14 @@ export function SettingsDialog({
     setDrawerRunners(String(s.attachDrawerRunnersMinutes))
     setDrawerFront(String(s.installDrawerFrontMinutes))
     setInstallDoor(String(s.installDoorMinutes))
+    setSizeWidthSmall(String(s.widthSmallMaxMm ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.widthSmallMaxMm))
+    setSizeWidthMedium(String(s.widthMediumMaxMm ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.widthMediumMaxMm))
+    setSizeHeightSmall(String(s.heightSmallMaxMm ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.heightSmallMaxMm))
+    setSizeHeightMedium(String(s.heightMediumMaxMm ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.heightMediumMaxMm))
+    setSizeDepthSmall(String(s.depthSmallMaxMm ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.depthSmallMaxMm))
+    setSizeDepthMedium(String(s.depthMediumMaxMm ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.depthMediumMaxMm))
+    setBackLargeMinHeight(String(s.backLargeMinHeightMm ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.backLargeMinHeightMm))
+    setBackLargeMinWidth(String(s.backLargeMinWidthMm ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.backLargeMinWidthMm))
   }
 
   useEffect(() => {
@@ -180,6 +260,18 @@ export function SettingsDialog({
   }
   
   const handleSaveAssemblyTime = () => {
+    const width = normalizeAxisLimits(
+      parsePositiveMm(sizeWidthSmall, DEFAULT_ASSEMBLY_TIME_SETTINGS.widthSmallMaxMm),
+      parsePositiveMm(sizeWidthMedium, DEFAULT_ASSEMBLY_TIME_SETTINGS.widthMediumMaxMm),
+    )
+    const height = normalizeAxisLimits(
+      parsePositiveMm(sizeHeightSmall, DEFAULT_ASSEMBLY_TIME_SETTINGS.heightSmallMaxMm),
+      parsePositiveMm(sizeHeightMedium, DEFAULT_ASSEMBLY_TIME_SETTINGS.heightMediumMaxMm),
+    )
+    const depth = normalizeAxisLimits(
+      parsePositiveMm(sizeDepthSmall, DEFAULT_ASSEMBLY_TIME_SETTINGS.depthSmallMaxMm),
+      parsePositiveMm(sizeDepthMedium, DEFAULT_ASSEMBLY_TIME_SETTINGS.depthMediumMaxMm),
+    )
     onSaveAssemblyTime({
       ...DEFAULT_ASSEMBLY_TIME_SETTINGS,
       edgeBanding: {
@@ -211,6 +303,14 @@ export function SettingsDialog({
       attachDrawerRunnersMinutes: parseFloat(drawerRunners) || DEFAULT_ASSEMBLY_TIME_SETTINGS.attachDrawerRunnersMinutes,
       installDrawerFrontMinutes: parseFloat(drawerFront) || DEFAULT_ASSEMBLY_TIME_SETTINGS.installDrawerFrontMinutes,
       installDoorMinutes: parseFloat(installDoor) || DEFAULT_ASSEMBLY_TIME_SETTINGS.installDoorMinutes,
+      widthSmallMaxMm: width.smallMaxMm,
+      widthMediumMaxMm: width.mediumMaxMm,
+      heightSmallMaxMm: height.smallMaxMm,
+      heightMediumMaxMm: height.mediumMaxMm,
+      depthSmallMaxMm: depth.smallMaxMm,
+      depthMediumMaxMm: depth.mediumMaxMm,
+      backLargeMinHeightMm: parsePositiveMm(backLargeMinHeight, DEFAULT_ASSEMBLY_TIME_SETTINGS.backLargeMinHeightMm),
+      backLargeMinWidthMm: parsePositiveMm(backLargeMinWidth, DEFAULT_ASSEMBLY_TIME_SETTINGS.backLargeMinWidthMm),
     })
     onOpenChange(false)
   }
@@ -220,6 +320,33 @@ export function SettingsDialog({
   }
 
   const currentHinge = useNormal ? hingeNormal : hingeSoftClose
+  const previewWidth = normalizeAxisLimits(
+    parsePositiveMm(sizeWidthSmall, DEFAULT_ASSEMBLY_TIME_SETTINGS.widthSmallMaxMm),
+    parsePositiveMm(sizeWidthMedium, DEFAULT_ASSEMBLY_TIME_SETTINGS.widthMediumMaxMm),
+  )
+  const previewHeight = normalizeAxisLimits(
+    parsePositiveMm(sizeHeightSmall, DEFAULT_ASSEMBLY_TIME_SETTINGS.heightSmallMaxMm),
+    parsePositiveMm(sizeHeightMedium, DEFAULT_ASSEMBLY_TIME_SETTINGS.heightMediumMaxMm),
+  )
+  const previewDepth = normalizeAxisLimits(
+    parsePositiveMm(sizeDepthSmall, DEFAULT_ASSEMBLY_TIME_SETTINGS.depthSmallMaxMm),
+    parsePositiveMm(sizeDepthMedium, DEFAULT_ASSEMBLY_TIME_SETTINGS.depthMediumMaxMm),
+  )
+  const previewExample = classifyCabinetSize(
+    { width: 600, height: 720, depth: 560 },
+    {
+      ...DEFAULT_ASSEMBLY_TIME_SETTINGS,
+      widthSmallMaxMm: previewWidth.smallMaxMm,
+      widthMediumMaxMm: previewWidth.mediumMaxMm,
+      heightSmallMaxMm: previewHeight.smallMaxMm,
+      heightMediumMaxMm: previewHeight.mediumMaxMm,
+      depthSmallMaxMm: previewDepth.smallMaxMm,
+      depthMediumMaxMm: previewDepth.mediumMaxMm,
+    },
+  )
+  const previewSizeText = `Пример 600 × 720 × 560 мм → ${formatCabinetSizeBreakdown(previewExample)} (${previewExample.score} т.)`
+  const previewBackHeight = parsePositiveMm(backLargeMinHeight, DEFAULT_ASSEMBLY_TIME_SETTINGS.backLargeMinHeightMm)
+  const previewBackWidth = parsePositiveMm(backLargeMinWidth, DEFAULT_ASSEMBLY_TIME_SETTINGS.backLargeMinWidthMm)
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -535,11 +662,42 @@ export function SettingsDialog({
               </div>
 
               <div className="rounded-md border border-[var(--color-border)] p-4">
-                <h3 className="mb-3 font-medium">Сглобяване на корпус</h3>
+                <h3 className="mb-3 font-medium">Размер на шкафа</h3>
                 <p className="mb-3 text-xs text-[var(--color-muted-foreground)]">
-                  Малък: широчина до {SIZE_MEDIUM_SPAN_MM} мм. Среден: над {SIZE_MEDIUM_SPAN_MM} мм.
-                  Голям: над {SIZE_LARGE_SPAN_MM} мм.
+                  Малък, среден и голям се смятат по широчина, височина и дълбочина заедно. Времената за
+                  цокъл, страници и плот ползват общия размер. {cabinetSizeScoringHelp()}
                 </p>
+                <div className="space-y-4">
+                  <SizeAxisFields
+                    id="size-width"
+                    title="Широчина"
+                    smallValue={sizeWidthSmall}
+                    mediumValue={sizeWidthMedium}
+                    onSmallChange={setSizeWidthSmall}
+                    onMediumChange={setSizeWidthMedium}
+                  />
+                  <SizeAxisFields
+                    id="size-height"
+                    title="Височина"
+                    smallValue={sizeHeightSmall}
+                    mediumValue={sizeHeightMedium}
+                    onSmallChange={setSizeHeightSmall}
+                    onMediumChange={setSizeHeightMedium}
+                  />
+                  <SizeAxisFields
+                    id="size-depth"
+                    title="Дълбочина"
+                    smallValue={sizeDepthSmall}
+                    mediumValue={sizeDepthMedium}
+                    onSmallChange={setSizeDepthSmall}
+                    onMediumChange={setSizeDepthMedium}
+                  />
+                </div>
+                <p className="mt-3 text-xs text-[var(--color-muted-foreground)]">{previewSizeText}</p>
+              </div>
+
+              <div className="rounded-md border border-[var(--color-border)] p-4">
+                <h3 className="mb-3 font-medium">Сглобяване на корпус</h3>
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div>
                     <Label htmlFor="install-legs">Слагане на 4 крачета на дъното (минути)</Label>
@@ -614,8 +772,30 @@ export function SettingsDialog({
                   <div>
                     <Label htmlFor="back-large">Гръб — голям (минути)</Label>
                     <Input id="back-large" type="number" step="0.5" min="0" value={backLarge} onChange={(e) => setBackLarge(e.target.value)} />
+                  </div>
+                  <div>
+                    <Label htmlFor="back-large-min-height">Голям гръб — мин. височина (мм)</Label>
+                    <Input
+                      id="back-large-min-height"
+                      type="number"
+                      step="1"
+                      min="1"
+                      value={backLargeMinHeight}
+                      onChange={(e) => setBackLargeMinHeight(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="back-large-min-width">Голям гръб — мин. широчина (мм)</Label>
+                    <Input
+                      id="back-large-min-width"
+                      type="number"
+                      step="1"
+                      min="1"
+                      value={backLargeMinWidth}
+                      onChange={(e) => setBackLargeMinWidth(e.target.value)}
+                    />
                     <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
-                      Голям: над {BACK_LARGE_MIN_HEIGHT_MM} мм висок и над {BACK_LARGE_MIN_WIDTH_MM} мм широк.
+                      Голям гръб: над {previewBackHeight} мм висок и над {previewBackWidth} мм широк.
                     </p>
                   </div>
                   <div>

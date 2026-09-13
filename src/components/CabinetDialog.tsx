@@ -41,7 +41,13 @@ import {
   slideUnitPriceEur,
   drawerBoxRails,
   remainingFrontHeight,
+  equalDrawerFrontHeights,
+  drawerFrontsAreEven,
   canCombineFronts,
+  doorCutSize,
+  doorCutRuleNote,
+  DOOR_CLEARANCE_TOP,
+  DRAWER_DOOR_GAP,
   DEFAULT_DRAWER_FRONT_HEIGHT,
   DRAWER_RAIL_BELOW_FRONT,
   MAX_DRAWERS,
@@ -52,13 +58,75 @@ import {
   type CabinetInstance,
   type CabinetPartColors,
   type SlideKind,
+  type CabinetZoneId,
+  type DoorSpan,
+  type ZoneFittings,
+  MAX_FIXED_SHELVES,
+  defaultFixedOffsetMm,
+  defaultShelfFaces,
+  fixedShelfMeasureLabel,
+  layoutInterior,
+  fittingsCountsFromParams,
+  allDrawerFrontHeights,
+  validateZoneFronts,
+  type InteriorLayout,
+  type PanelFace,
 } from '@/lib/cabinets'
 import type { HardwareSettings } from '@/lib/settings'
 import { DEFAULT_HARDWARE_SETTINGS } from '@/lib/settings'
 import type { AssemblyTimeSettings } from '@/lib/assembly-time'
 import { DEFAULT_ASSEMBLY_TIME_SETTINGS } from '@/lib/assembly-time'
+import { CabinetSizeBadge } from '@/components/CabinetSizeBadge'
 import type { Sheet } from '@/types'
 import { cn, formatMeters } from '@/lib/utils'
+
+type ZoneUi = {
+  shelfCount: number
+  doorCount: 0 | 1 | 2
+  drawerFrontHeights: string[]
+  cutFromOneBoard: boolean
+  hasClothesRail: boolean
+}
+
+function emptyZoneUi(): ZoneUi {
+  return { shelfCount: 0, doorCount: 0, drawerFrontHeights: [], cutFromOneBoard: false, hasClothesRail: false }
+}
+
+function parseZoneUi(raw: ZoneFittings | undefined): ZoneUi {
+  if (!raw) return emptyZoneUi()
+  return {
+    shelfCount: raw.shelfCount,
+    doorCount: raw.doorCount,
+    drawerFrontHeights: raw.drawerFrontHeights.map(String),
+    cutFromOneBoard: raw.cutFromOneBoard,
+    hasClothesRail: raw.hasClothesRail,
+  }
+}
+
+function zoneUiToParams(z: ZoneUi): ZoneFittings {
+  return {
+    shelfCount: z.shelfCount,
+    doorCount: z.doorCount,
+    drawerFrontHeights: z.drawerFrontHeights.map((s) => parseInt(s, 10) || 0).filter((n) => n > 0),
+    cutFromOneBoard: z.cutFromOneBoard,
+    hasClothesRail: z.hasClothesRail,
+  }
+}
+
+function filledDrawerRows(frontHeight: number, count: number, hasDoor: boolean): string[] {
+  if (count < 1) return []
+  if (hasDoor) return Array.from({ length: count }, () => String(DEFAULT_DRAWER_FRONT_HEIGHT))
+  return equalDrawerFrontHeights(frontHeight, count).map(String)
+}
+
+type FrontTarget = CabinetZoneId | 'full'
+type PendingAdd =
+  | { kind: 'shelf' }
+  | { kind: 'drawer' }
+  | { kind: 'door'; count: 1 | 2 }
+  | { kind: 'rail' }
+
+const FULL_CABINET_LABEL = 'На целия шкаф'
 
 interface CabinetDialogProps {
   open: boolean
@@ -115,27 +183,60 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
   
   const [quantity, setQuantity] = useState(String(editing?.quantity ?? 1))
   const [showDimLines, setShowDimLines] = useState(false)
+  const [showFronts, setShowFronts] = useState(false)
+  const [fixedShelves, setFixedShelves] = useState<
+    { from: 'bottom' | 'top'; fromFace: PanelFace; toFace: PanelFace; offsetMm: string }[]
+  >(
+    (initialFittings.fixedShelves ?? []).map((s) => {
+      const faces = defaultShelfFaces(s.from)
+      return {
+        from: s.from,
+        fromFace: s.fromFace ?? faces.fromFace,
+        toFace: s.toFace ?? faces.toFace,
+        offsetMm: String(s.offsetMm),
+      }
+    }),
+  )
+  const [doorSpan, setDoorSpan] = useState<DoorSpan>(initialFittings.doorSpan === 'zones' ? 'zones' : 'full')
+  const [zoneUi, setZoneUi] = useState<Record<CabinetZoneId, ZoneUi>>({
+    bottom: parseZoneUi(initialFittings.zones?.bottom),
+    middle: parseZoneUi(initialFittings.zones?.middle),
+    top: parseZoneUi(initialFittings.zones?.top),
+  })
+  const [pendingAdd, setPendingAdd] = useState<PendingAdd | null>(null)
   const [colors, setColors] = useState<CabinetPartColors>({
     ...DEFAULT_PART_COLORS,
     ...(editing?.params.colors as CabinetPartColors | undefined),
   })
 
   const params = useMemo(() => {
+    const hasFixed = fixedShelves.length > 0
     const fittings = {
-      shelfCount,
+      shelfCount: hasFixed ? 0 : shelfCount,
       hasBack,
-      hasClothesRail,
+      hasClothesRail: hasFixed ? false : hasClothesRail,
       doorCount,
-      drawerFrontHeights: drawerFrontHeights.map((s) => parseInt(s, 10) || 0),
-      cutFromOneBoard:
-        cutFromOneBoard
-        && canCombineFronts(
-          drawerFrontHeights.filter((s) => (parseInt(s, 10) || 0) > 0).length,
-          doorCount,
-        ),
+      drawerFrontHeights: drawerFrontHeights.map((s) => parseInt(s, 10) || 0).filter((n) => n > 0),
+      cutFromOneBoard,
       includeHandles,
       slideKind,
       slideLength,
+      fixedShelves: fixedShelves
+        .map((s) => ({
+          from: s.from,
+          fromFace: s.fromFace,
+          toFace: s.toFace,
+          offsetMm: parseInt(s.offsetMm, 10) || 0,
+        }))
+        .filter((s) => s.offsetMm > 0),
+      doorSpan: hasFixed ? doorSpan : 'full' as DoorSpan,
+      zones: hasFixed
+        ? {
+            bottom: { ...zoneUiToParams(zoneUi.bottom), cutFromOneBoard },
+            middle: { ...zoneUiToParams(zoneUi.middle), cutFromOneBoard },
+            top: { ...zoneUiToParams(zoneUi.top), cutFromOneBoard },
+          }
+        : {},
     }
     if (typeId === 'nightstand') {
       return parseNightstandParams({
@@ -175,7 +276,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
       colors,
       ...fittings,
     })
-  }, [typeId, width, height, depth, thickness, legHeight, shelfCount, hasBack, hasClothesRail, doorCount, drawerFrontHeights, cutFromOneBoard, includeHandles, slideKind, slideLength, useLegs, plinthCount, plinthHeight, colors])
+  }, [typeId, width, height, depth, thickness, legHeight, shelfCount, hasBack, hasClothesRail, doorCount, drawerFrontHeights, cutFromOneBoard, includeHandles, slideKind, slideLength, useLegs, plinthCount, plinthHeight, colors, fixedShelves, doorSpan, zoneUi])
 
   const qty = Math.max(1, parseInt(quantity, 10) || 1)
   const result = useMemo(() => {
@@ -198,8 +299,6 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
         settings: settings.hardware,
       })
     : null
-  const error = validate(typeId, params)
-  const frontH = dialogFrontHeight(typeId, params)
   const slideDepth =
     typeId === 'kitchen-base'
       ? (params as ReturnType<typeof parseKitchenBaseParams>).depth
@@ -209,12 +308,168 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
     typeId === 'kitchen-base'
       ? params.height - 2 * params.thickness
       : measureNightstand(params as ReturnType<typeof parseNightstandParams>, typeId === 'section').innerH
+  const frontH = dialogFrontHeight(typeId, params)
+  const layout = layoutInterior({
+    innerH,
+    thickness: params.thickness,
+    fixedShelves: params.fixedShelves ?? [],
+    doorSpan: params.doorSpan ?? 'full',
+    doorCount: params.doorCount,
+    shelfCount: params.shelfCount,
+    drawerFrontHeights: params.drawerFrontHeights,
+    cutFromOneBoard: params.cutFromOneBoard,
+    hasClothesRail: params.hasClothesRail,
+    zones: params.zones,
+  })
+  const error = validate(typeId, params, layout, frontH)
+  const counts = fittingsCountsFromParams(params)
+  const hasFixed = (params.fixedShelves?.length ?? 0) > 0
   const shelfGap = evenShelfGap(innerH, shelfCount, params.thickness)
   const backPlinth =
     typeId !== 'kitchen-base' && !(params as ReturnType<typeof parseNightstandParams>).useLegs
       ? (params as ReturnType<typeof parseNightstandParams>).plinthHeight
       : 0
   const backCut = hardboardCutSize(params.width, params.height, backPlinth)
+
+  const patchZone = (id: CabinetZoneId, next: Partial<ZoneUi>) => {
+    setZoneUi((z) => ({ ...z, [id]: { ...z[id], ...next } }))
+  }
+
+  const clearZoneDoors = () => {
+    setZoneUi((z) => ({
+      bottom: { ...z.bottom, doorCount: 0 },
+      middle: { ...z.middle, doorCount: 0 },
+      top: { ...z.top, doorCount: 0 },
+    }))
+  }
+
+  const applyPending = (target: FrontTarget) => {
+    if (!pendingAdd) return
+    if (pendingAdd.kind === 'shelf') {
+      if (target === 'full') {
+        setZoneUi((z) => {
+          const next = { ...z }
+          for (const zone of layout.zones) {
+            next[zone.id] = {
+              ...next[zone.id],
+              shelfCount: Math.min(MAX_SHELVES, next[zone.id].shelfCount + 1),
+            }
+          }
+          return next
+        })
+      } else {
+        patchZone(target, { shelfCount: Math.min(MAX_SHELVES, zoneUi[target].shelfCount + 1) })
+      }
+    } else if (pendingAdd.kind === 'drawer') {
+      if (target === 'full') {
+        const hasDoor = !hasFixed || doorSpan === 'full' ? doorCount > 0 : false
+        setDrawerFrontHeights((rows) =>
+          hasDoor
+            ? [...rows, String(DEFAULT_DRAWER_FRONT_HEIGHT)]
+            : filledDrawerRows(frontH, rows.length + 1, false),
+        )
+      } else {
+        const hasDoor = doorSpan === 'zones' && zoneUi[target].doorCount > 0
+        const zone = layout.zones.find((z) => z.id === target)
+        const n = zoneUi[target].drawerFrontHeights.length + 1
+        if (zone && !hasDoor) {
+          patchZone(target, { drawerFrontHeights: filledDrawerRows(zone.frontHeight, n, false) })
+        } else {
+          patchZone(target, {
+            drawerFrontHeights: [...zoneUi[target].drawerFrontHeights, String(DEFAULT_DRAWER_FRONT_HEIGHT)],
+          })
+        }
+      }
+    } else if (pendingAdd.kind === 'door') {
+      if (target === 'full') {
+        setDoorSpan('full')
+        setDoorCount(pendingAdd.count)
+        clearZoneDoors()
+      } else {
+        setDoorSpan('zones')
+        setDoorCount(0)
+        patchZone(target, { doorCount: pendingAdd.count })
+      }
+    } else if (pendingAdd.kind === 'rail') {
+      if (target === 'full') {
+        setZoneUi((z) => {
+          const next = { ...z }
+          for (const zone of layout.zones) {
+            next[zone.id] = { ...next[zone.id], hasClothesRail: true }
+          }
+          return next
+        })
+      } else {
+        patchZone(target, { hasClothesRail: true })
+      }
+    }
+    setPendingAdd(null)
+  }
+
+  const startAdd = (next: PendingAdd) => {
+    if (hasFixed && !layout.error) {
+      setPendingAdd(next)
+      return
+    }
+    if (next.kind === 'shelf') setShelfCount((n) => Math.min(MAX_SHELVES, n + 1))
+    else if (next.kind === 'drawer') {
+      setDrawerFrontHeights((rows) =>
+        doorCount > 0
+          ? [...rows, String(DEFAULT_DRAWER_FRONT_HEIGHT)]
+          : filledDrawerRows(frontH, rows.length + 1, false),
+      )
+    }
+    else if (next.kind === 'door') setDoorCount(next.count)
+    else if (next.kind === 'rail') setHasClothesRail(true)
+  }
+
+  const parseDrawerRows = (rows: string[]) =>
+    rows.map((s) => parseInt(s, 10) || 0).filter((n) => n > 0)
+
+  const fullDrawerHasDoor = !hasFixed || doorSpan === 'full' ? doorCount > 0 : false
+  const fullDrawerNums = parseDrawerRows(drawerFrontHeights)
+  const canEqualizeFull =
+    fullDrawerNums.length >= 1 && !fullDrawerHasDoor && !drawerFrontsAreEven(frontH, fullDrawerNums)
+  const zoneEqualizeIds = hasFixed
+    ? layout.zones
+        .filter((z) => {
+          const heights = parseDrawerRows(zoneUi[z.id].drawerFrontHeights)
+          const hasDoor = doorSpan === 'zones' && zoneUi[z.id].doorCount > 0
+          return heights.length >= 1 && !hasDoor && !drawerFrontsAreEven(z.frontHeight, heights)
+        })
+        .map((z) => z.id)
+    : []
+  const canEqualizeDrawers = canEqualizeFull || zoneEqualizeIds.length > 0
+  const showCombineFronts =
+    canCombineFronts(fullDrawerNums.length, fullDrawerHasDoor ? doorCount : 0) ||
+    (hasFixed &&
+      layout.zones.some((z) =>
+        canCombineFronts(
+          parseDrawerRows(zoneUi[z.id].drawerFrontHeights).length,
+          doorSpan === 'zones' ? zoneUi[z.id].doorCount : 0,
+        ),
+      ))
+
+  const equalizeDrawers = () => {
+    if (canEqualizeFull) {
+      setDrawerFrontHeights(equalDrawerFrontHeights(frontH, fullDrawerNums.length).map(String))
+    }
+    if (zoneEqualizeIds.length > 0) {
+      setZoneUi((z) => {
+        const next = { ...z }
+        for (const id of zoneEqualizeIds) {
+          const zone = layout.zones.find((row) => row.id === id)
+          if (!zone) continue
+          const n = parseDrawerRows(next[id].drawerFrontHeights).length
+          next[id] = {
+            ...next[id],
+            drawerFrontHeights: equalDrawerFrontHeights(zone.frontHeight, n).map(String),
+          }
+        }
+        return next
+      })
+    }
+  }
 
   const handleSave = () => {
     if (error) return
@@ -262,6 +517,9 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                   setDrawerFrontHeights([])
                   setCutFromOneBoard(false)
                   setIncludeHandles(true)
+                  setFixedShelves([])
+                  setDoorSpan('full')
+                  setZoneUi({ bottom: emptyZoneUi(), middle: emptyZoneUi(), top: emptyZoneUi() })
                 } else if (id === 'section') {
                   setWidth(String(DEFAULT_SECTION_PARAMS.width))
                   setHeight(String(DEFAULT_SECTION_PARAMS.height))
@@ -277,6 +535,9 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                   setDrawerFrontHeights([])
                   setCutFromOneBoard(false)
                   setIncludeHandles(true)
+                  setFixedShelves([])
+                  setDoorSpan('full')
+                  setZoneUi({ bottom: emptyZoneUi(), middle: emptyZoneUi(), top: emptyZoneUi() })
                 } else if (id === 'kitchen-base') {
                   setWidth(String(DEFAULT_KITCHEN_BASE_PARAMS.width))
                   setHeight(String(DEFAULT_KITCHEN_BASE_PARAMS.height))
@@ -285,6 +546,9 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                   setHasBack(DEFAULT_KITCHEN_BASE_PARAMS.hasBack)
                   setHasClothesRail(false)
                   setIncludeHandles(true)
+                  setFixedShelves([])
+                  setDoorSpan('full')
+                  setZoneUi({ bottom: emptyZoneUi(), middle: emptyZoneUi(), top: emptyZoneUi() })
                 }
               }}
             >
@@ -320,6 +584,13 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
           <NumField id="cab-d" label="Дълбочина" value={depth} onChange={setDepth} />
           <NumField id="cab-t" label="Плоскост" value={thickness} onChange={setThickness} />
         </div>
+        <CabinetSizeBadge
+          width={params.width}
+          height={params.height}
+          depth={params.depth}
+          settings={settings.assemblyTime}
+          showInlineDetail
+        />
 
         {hasFittings && (
           <>
@@ -346,11 +617,219 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
             )}
 
             <div>
+              <Label>Фиксиран рафт</Label>
+              <p className="mt-0.5 text-xs text-[var(--color-muted-foreground)]">
+                Хваща се с винтове 5×60 през страниците и разделя шкафа. До 2 рафта — 3 части (долна, средна, горна).
+              </p>
+              {fixedShelves.map((shelf, i) => (
+                <div key={i} className="mt-2 space-y-2 rounded-md border border-[var(--color-border)] p-2">
+                  <div className="flex items-center gap-2">
+                    <span className="w-28 shrink-0 text-xs">Рафт {i + 1}</span>
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      className="h-8 w-8 shrink-0"
+                      onClick={() => {
+                        const next = fixedShelves.filter((_, j) => j !== i)
+                        if (next.length === 0) {
+                          setShelfCount(
+                            zoneUi.bottom.shelfCount + zoneUi.middle.shelfCount + zoneUi.top.shelfCount,
+                          )
+                          setDrawerFrontHeights([
+                            ...zoneUi.top.drawerFrontHeights,
+                            ...zoneUi.middle.drawerFrontHeights,
+                            ...zoneUi.bottom.drawerFrontHeights,
+                          ])
+                          setHasClothesRail(
+                            zoneUi.bottom.hasClothesRail || zoneUi.middle.hasClothesRail || zoneUi.top.hasClothesRail,
+                          )
+                          if (doorSpan === 'zones') {
+                            const first = [zoneUi.top, zoneUi.middle, zoneUi.bottom].find((z) => z.doorCount > 0)
+                            setDoorCount(first?.doorCount ?? 0)
+                          }
+                          setCutFromOneBoard(zoneUi.bottom.cutFromOneBoard)
+                        }
+                        setFixedShelves(next)
+                      }}
+                      aria-label={`Премахни фиксиран рафт ${i + 1}`}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={shelf.from === 'bottom' ? 'default' : 'outline'}
+                      onClick={() =>
+                        setFixedShelves((rows) =>
+                          rows.map((r, j) =>
+                            j === i ? { ...r, from: 'bottom', ...defaultShelfFaces('bottom') } : r,
+                          ),
+                        )
+                      }
+                    >
+                      Отдолу
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={shelf.from === 'top' ? 'default' : 'outline'}
+                      onClick={() =>
+                        setFixedShelves((rows) =>
+                          rows.map((r, j) =>
+                            j === i ? { ...r, from: 'top', ...defaultShelfFaces('top') } : r,
+                          ),
+                        )
+                      }
+                    >
+                      Отгоре
+                    </Button>
+                  </div>
+                  <p className="text-xs text-[var(--color-muted-foreground)]">
+                    От {shelf.from === 'bottom' ? 'дъното' : typeId === 'kitchen-base' ? 'блендата' : 'плота'}
+                  </p>
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={shelf.fromFace === 'bottom' ? 'default' : 'outline'}
+                      onClick={() =>
+                        setFixedShelves((rows) =>
+                          rows.map((r, j) => (j === i ? { ...r, fromFace: 'bottom' } : r)),
+                        )
+                      }
+                    >
+                      Долна страна
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={shelf.fromFace === 'top' ? 'default' : 'outline'}
+                      onClick={() =>
+                        setFixedShelves((rows) =>
+                          rows.map((r, j) => (j === i ? { ...r, fromFace: 'top' } : r)),
+                        )
+                      }
+                    >
+                      Горна страна
+                    </Button>
+                  </div>
+                  <p className="text-xs text-[var(--color-muted-foreground)]">До рафта</p>
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={shelf.toFace === 'bottom' ? 'default' : 'outline'}
+                      onClick={() =>
+                        setFixedShelves((rows) =>
+                          rows.map((r, j) => (j === i ? { ...r, toFace: 'bottom' } : r)),
+                        )
+                      }
+                    >
+                      Долна страна
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={shelf.toFace === 'top' ? 'default' : 'outline'}
+                      onClick={() =>
+                        setFixedShelves((rows) =>
+                          rows.map((r, j) => (j === i ? { ...r, toFace: 'top' } : r)),
+                        )
+                      }
+                    >
+                      Горна страна
+                    </Button>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Label htmlFor={`fixed-off-${i}`} className="w-28 shrink-0 text-xs">
+                      Размер (мм)
+                    </Label>
+                    <Input
+                      id={`fixed-off-${i}`}
+                      type="number"
+                      inputMode="numeric"
+                      min={1}
+                      value={shelf.offsetMm}
+                      onChange={(e) =>
+                        setFixedShelves((rows) =>
+                          rows.map((r, j) => (j === i ? { ...r, offsetMm: e.target.value } : r)),
+                        )
+                      }
+                    />
+                  </div>
+                  <p className="text-xs text-[var(--color-muted-foreground)]">
+                    {`${fixedShelfMeasureLabel(
+                      {
+                        from: shelf.from,
+                        fromFace: shelf.fromFace,
+                        toFace: shelf.toFace,
+                        offsetMm: parseInt(shelf.offsetMm, 10) || 0,
+                      },
+                      typeId === 'kitchen-base' ? 'блендата' : 'плота',
+                    )}. Линията е на 3D изгледа.`}
+                  </p>
+                </div>
+              ))}
+              <div className="mt-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={fixedShelves.length >= MAX_FIXED_SHELVES}
+                  onClick={() => {
+                    const offset = defaultFixedOffsetMm(innerH, params.thickness, fixedShelves.length)
+                    if (fixedShelves.length === 0) {
+                      setZoneUi({
+                        bottom: {
+                          ...emptyZoneUi(),
+                          shelfCount,
+                          hasClothesRail,
+                        },
+                        middle: emptyZoneUi(),
+                        top: emptyZoneUi(),
+                      })
+                      setDoorSpan(doorCount > 0 ? 'full' : 'zones')
+                      setShelfCount(0)
+                      setHasClothesRail(false)
+                      setPendingAdd(null)
+                      setFixedShelves([
+                        { from: 'bottom', ...defaultShelfFaces('bottom'), offsetMm: String(offset) },
+                      ])
+                    } else {
+                      setFixedShelves((rows) => [
+                        ...rows,
+                        { from: 'top', ...defaultShelfFaces('top'), offsetMm: String(offset) },
+                      ])
+                    }
+                  }}
+                >
+                  <Plus className="h-4 w-4" />
+                  Добави фиксиран рафт
+                </Button>
+              </div>
+              {layout.error && (
+                <p className="mt-1 text-xs text-[var(--color-destructive)]">{layout.error}</p>
+              )}
+              {hasFixed && !layout.error && (
+                <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
+                  Шкафът е разделен на {layout.zones.length} части:{' '}
+                  {layout.zones.map((z) => `${z.label} ${Math.round(z.innerH)} мм`).join(' · ')}. При
+                  рафт, врата или чекмедже се пита в коя част.
+                </p>
+              )}
+            </div>
+
+            <div>
               <Label>Рафтове</Label>
               <p className="mt-0.5 text-xs text-[var(--color-muted-foreground)]">
-                Равни празнини над, между и под рафтовете.
+                {hasFixed
+                  ? 'Подвижни рафтове с рафтоносачи — във всяка част отделно.'
+                  : 'Равни празнини над, между и под рафтовете.'}
               </p>
-              {shelfCount > 0 && (
+              {!hasFixed && shelfCount > 0 && (
                 <div className="mt-2 flex items-center gap-2">
                   <span className="w-28 shrink-0 text-xs">
                     {shelfCount} {shelfCount === 1 ? 'рафт' : 'рафта'}
@@ -367,22 +846,52 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                   </Button>
                 </div>
               )}
+              {hasFixed &&
+                layout.zones.map((z) =>
+                  zoneUi[z.id].shelfCount > 0 ? (
+                    <div key={z.id} className="mt-2 flex items-center gap-2">
+                      <span className="shrink-0 text-xs">
+                        {zoneUi[z.id].shelfCount} {zoneUi[z.id].shelfCount === 1 ? 'рафт' : 'рафта'} · {z.label}
+                      </span>
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        className="h-8 w-8 shrink-0"
+                        onClick={() => patchZone(z.id, { shelfCount: Math.max(0, zoneUi[z.id].shelfCount - 1) })}
+                        aria-label={`Премахни рафт от ${z.label}`}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ) : null,
+                )}
               <div className="mt-2 flex flex-wrap items-center gap-2">
                 <Button
                   type="button"
                   size="sm"
-                  variant="outline"
-                  disabled={shelfCount >= MAX_SHELVES}
-                  onClick={() => setShelfCount((n) => Math.min(MAX_SHELVES, n + 1))}
+                  variant={pendingAdd?.kind === 'shelf' ? 'default' : 'outline'}
+                  disabled={counts.shelfCount >= MAX_SHELVES * Math.max(1, layout.zones.length)}
+                  onClick={() => startAdd({ kind: 'shelf' })}
                 >
                   <Plus className="h-4 w-4" />
                   Добави рафт
                 </Button>
               </div>
+              {pendingAdd?.kind === 'shelf' && (
+                <WherePicker
+                  zones={layout.zones}
+                  allowFull
+                  onPick={applyPending}
+                  onCancel={() => setPendingAdd(null)}
+                />
+              )}
               <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
-                {shelfCount === 0
-                  ? 'Без рафт'
-                  : `Разстояние между рафтовете: ${Math.round(shelfGap)} мм · ${shelfCount * SHELF_PINS_PER_SHELF} рафтоносача · ${formatEur(settings.hardware.shelfPinEur)}/бр. · дълбочина ${slideDepth - DEFAULT_SHELF_FRONT_INSET} мм`}
+                {counts.shelfCount === 0
+                  ? 'Без подвижен рафт'
+                  : hasFixed
+                    ? `${counts.shelfCount * SHELF_PINS_PER_SHELF} рафтоносача · ${formatEur(settings.hardware.shelfPinEur)}/бр.`
+                    : `Разстояние между рафтовете: ${Math.round(shelfGap)} мм · ${shelfCount * SHELF_PINS_PER_SHELF} рафтоносача · ${formatEur(settings.hardware.shelfPinEur)}/бр. · дълбочина ${slideDepth - DEFAULT_SHELF_FRONT_INSET} мм`}
               </p>
             </div>
 
@@ -421,22 +930,50 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
             <Button
               type="button"
               size="sm"
-              variant={hasClothesRail ? 'default' : 'outline'}
-              onClick={() => setHasClothesRail(true)}
+              variant={
+                (hasFixed ? counts.clothesRailCount > 0 : hasClothesRail) || pendingAdd?.kind === 'rail'
+                  ? 'default'
+                  : 'outline'
+              }
+              onClick={() => startAdd({ kind: 'rail' })}
             >
               С лост
             </Button>
             <Button
               type="button"
               size="sm"
-              variant={!hasClothesRail ? 'default' : 'outline'}
-              onClick={() => setHasClothesRail(false)}
+              variant={!(hasFixed ? counts.clothesRailCount > 0 : hasClothesRail) ? 'default' : 'outline'}
+              onClick={() => {
+                setPendingAdd(null)
+                setHasClothesRail(false)
+                setZoneUi((z) => ({
+                  bottom: { ...z.bottom, hasClothesRail: false },
+                  middle: { ...z.middle, hasClothesRail: false },
+                  top: { ...z.top, hasClothesRail: false },
+                }))
+              }}
             >
               Без
             </Button>
           </div>
+          {pendingAdd?.kind === 'rail' && (
+            <WherePicker
+              zones={layout.zones}
+              allowFull
+              onPick={applyPending}
+              onCancel={() => setPendingAdd(null)}
+            />
+          )}
+          {hasFixed &&
+            layout.zones
+              .filter((z) => zoneUi[z.id].hasClothesRail)
+              .map((z) => (
+                <p key={z.id} className="mt-1 text-xs text-[var(--color-muted-foreground)]">
+                  Лост в {z.label}.
+                </p>
+              ))}
           <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
-            {hasClothesRail
+            {(hasFixed ? counts.clothesRailCount > 0 : hasClothesRail)
               ? `Лост ${clothesRailLengthMm(params.width, params.thickness)} мм между страниците · ${formatEur(settings.hardware.clothesRailEurPerM)}/м.`
               : 'Без лост.'}
           </p>
@@ -444,32 +981,93 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
 
         <div>
           <Label>Врати</Label>
+          <p className="mt-0.5 text-xs text-[var(--color-muted-foreground)]">
+            {hasFixed
+              ? 'Могат да са на една част или на целия шкаф. Долу на 0, горе фуга 3 мм.'
+              : 'Долу на 0, горе фуга 3 мм, странично 1.5 мм отляво и отдясно.'}
+          </p>
           <div className="mt-1 flex gap-2">
-            {([0, 1, 2] as const).map((n) => (
+            <Button
+              type="button"
+              size="sm"
+              variant={counts.doorCount === 0 && pendingAdd?.kind !== 'door' ? 'default' : 'outline'}
+              onClick={() => {
+                setPendingAdd(null)
+                setDoorCount(0)
+                setDoorSpan('full')
+                clearZoneDoors()
+              }}
+            >
+              Без
+            </Button>
+            {([1, 2] as const).map((n) => (
               <Button
                 key={n}
                 type="button"
                 size="sm"
-                variant={doorCount === n ? 'default' : 'outline'}
-                onClick={() => setDoorCount(n)}
+                variant={
+                  pendingAdd?.kind === 'door' && pendingAdd.count === n
+                    ? 'default'
+                    : !hasFixed && doorCount === n
+                      ? 'default'
+                      : 'outline'
+                }
+                onClick={() => startAdd({ kind: 'door', count: n })}
               >
-                {n === 0 ? 'Без' : n === 1 ? '1 врата' : '2 врати'}
+                {n === 1 ? '1 врата' : '2 врати'}
               </Button>
             ))}
           </div>
+          {pendingAdd?.kind === 'door' && (
+            <WherePicker
+              zones={layout.zones}
+              allowFull
+              onPick={applyPending}
+              onCancel={() => setPendingAdd(null)}
+            />
+          )}
+          {hasFixed && doorSpan === 'full' && doorCount > 0 && (
+            <div className="mt-2 flex items-center gap-2">
+              <span className="text-xs">
+                {doorCount === 1 ? '1 врата' : '2 врати'} · {FULL_CABINET_LABEL}
+              </span>
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                className="h-8 w-8"
+                onClick={() => setDoorCount(0)}
+                aria-label="Премахни вратите на целия шкаф"
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </div>
+          )}
+          {hasFixed &&
+            layout.zones.map((z) =>
+              zoneUi[z.id].doorCount > 0 ? (
+                <div key={z.id} className="mt-2 flex items-center gap-2">
+                  <span className="text-xs">
+                    {zoneUi[z.id].doorCount === 1 ? '1 врата' : '2 врати'} · {z.label} · фронт{' '}
+                    {Math.round(z.frontHeight)} мм
+                  </span>
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    className="h-8 w-8"
+                    onClick={() => patchZone(z.id, { doorCount: 0 })}
+                    aria-label={`Премахни вратите от ${z.label}`}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              ) : null,
+            )}
           <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
-            {doorCount === 0
+            {counts.doorCount === 0
               ? 'Без врати — шкафът може да е само с чекмеджета.'
-              : (() => {
-                  const leftover = remainingFrontHeight(frontH, drawerFrontHeights.map((s) => parseInt(s, 10) || 0).filter((n) => n > 0), true)
-                  const d = {
-                    width: params.width / doorCount - 3 - 4,
-                    height: leftover - 4,
-                  }
-                  return leftover > 4
-                    ? `Рязане ${Math.round(d.width)} × ${Math.round(d.height)} мм · кант 2 мм от 4 страни`
-                    : 'Няма място за врата — намалени челата или махни вратата.'
-                })()}
+              : doorSizeHint(params.width, frontH, layout, drawerFrontHeights, doorCount, doorSpan)}
           </p>
           <label className="mt-2 flex cursor-pointer items-center gap-2 text-sm">
             <Checkbox
@@ -480,9 +1078,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
           </label>
           <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
             {(() => {
-              const n =
-                doorCount +
-                drawerFrontHeights.filter((s) => (parseInt(s, 10) || 0) > 0).length
+              const n = counts.doorCount + counts.drawerCount
               if (n === 0) return 'По 1 обикновена дръжка на врата и на чекмедже.'
               if (!includeHandles) return 'Дръжките не влизат в цената.'
               const unit = settings.hardware.handleNormalEur
@@ -494,16 +1090,16 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
         <div>
           <Label>Чекмеджета</Label>
           <p className="mt-0.5 text-xs text-[var(--color-muted-foreground)]">
-            Отгоре надолу, всяко със своя височина. Може без врата.
+            Отгоре надолу в избраната част, всяко със своя височина.
           </p>
           <div className="mt-2 space-y-2">
             {drawerFrontHeights.map((value, i) => (
-              <div key={i} className="flex items-center gap-2">
-                <Label htmlFor={`drawer-h-${i}`} className="w-28 shrink-0 text-xs">
-                  Чело {i + 1} (мм)
+              <div key={`full-${i}`} className="flex items-center gap-2">
+                <Label htmlFor={`drawer-h-full-${i}`} className="w-36 shrink-0 text-xs">
+                  Чело {i + 1}{hasFixed ? ` · ${FULL_CABINET_LABEL}` : ''} (мм)
                 </Label>
                 <Input
-                  id={`drawer-h-${i}`}
+                  id={`drawer-h-full-${i}`}
                   type="number"
                   inputMode="numeric"
                   min={0}
@@ -518,34 +1114,113 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                   size="icon"
                   variant="ghost"
                   className="h-8 w-8 shrink-0"
-                  onClick={() => setDrawerFrontHeights((rows) => rows.filter((_, j) => j !== i))}
+                  onClick={() =>
+                    setDrawerFrontHeights((rows) => {
+                      const next = rows.filter((_, j) => j !== i)
+                      if (fullDrawerHasDoor) return next
+                      return filledDrawerRows(frontH, next.length, false)
+                    })
+                  }
                   aria-label={`Премахни чекмедже ${i + 1}`}
                 >
                   <Trash2 className="h-4 w-4" />
                 </Button>
               </div>
             ))}
+            {hasFixed &&
+              layout.zones.flatMap((z) =>
+                zoneUi[z.id].drawerFrontHeights.map((value, i) => (
+                  <div key={`${z.id}-${i}`} className="flex items-center gap-2">
+                    <Label htmlFor={`drawer-h-${z.id}-${i}`} className="w-36 shrink-0 text-xs">
+                      Чело {i + 1} · {z.label} (мм)
+                    </Label>
+                    <Input
+                      id={`drawer-h-${z.id}-${i}`}
+                      type="number"
+                      inputMode="numeric"
+                      min={0}
+                      value={value}
+                      onChange={(e) =>
+                        patchZone(z.id, {
+                          drawerFrontHeights: zoneUi[z.id].drawerFrontHeights.map((v, j) =>
+                            j === i ? e.target.value : v,
+                          ),
+                        })
+                      }
+                      placeholder={String(DEFAULT_DRAWER_FRONT_HEIGHT)}
+                    />
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      className="h-8 w-8 shrink-0"
+                      onClick={() => {
+                        const nextRows = zoneUi[z.id].drawerFrontHeights.filter((_, j) => j !== i)
+                        const hasDoor = doorSpan === 'zones' && zoneUi[z.id].doorCount > 0
+                        patchZone(z.id, {
+                          drawerFrontHeights: hasDoor
+                            ? nextRows
+                            : filledDrawerRows(z.frontHeight, nextRows.length, false),
+                        })
+                      }}
+                      aria-label={`Премахни чекмедже от ${z.label}`}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                )),
+              )}
           </div>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <Button
               type="button"
               size="sm"
-              variant="outline"
-              disabled={drawerFrontHeights.length >= MAX_DRAWERS}
-              onClick={() => {
-                setDrawerFrontHeights((rows) => [...rows, String(DEFAULT_DRAWER_FRONT_HEIGHT)])
-              }}
+              variant={pendingAdd?.kind === 'drawer' ? 'default' : 'outline'}
+              disabled={counts.drawerCount >= MAX_DRAWERS}
+              onClick={() => startAdd({ kind: 'drawer' })}
             >
               <Plus className="h-4 w-4" />
               Добави чекмедже
             </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={!canEqualizeDrawers}
+              onClick={equalizeDrawers}
+            >
+              Разпредели поравно
+            </Button>
           </div>
+          {pendingAdd?.kind === 'drawer' && (
+            <WherePicker
+              zones={layout.zones}
+              allowFull
+              onPick={applyPending}
+              onCancel={() => setPendingAdd(null)}
+            />
+          )}
           <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
-            {drawerHint(frontH, doorCount, (params as { drawerFrontHeights: number[] }).drawerFrontHeights)}
+            {hasFixed
+              ? [
+                  fullDrawerNums.length > 0
+                    ? drawerHint(frontH, fullDrawerHasDoor ? doorCount : 0, fullDrawerNums)
+                    : null,
+                  ...layout.zones.map((z) => {
+                    const heights = parseDrawerRows(zoneUi[z.id].drawerFrontHeights)
+                    if (heights.length === 0) return null
+                    const hasDoor = doorSpan === 'zones' && zoneUi[z.id].doorCount > 0
+                    return `${z.label}: ${drawerHint(z.frontHeight, hasDoor ? zoneUi[z.id].doorCount : 0, heights)}`
+                  }),
+                ]
+                  .filter(Boolean)
+                  .join(' ') ||
+                'Добави едно или повече чекмеджета — могат да са с различни височини, с или без врата отдолу.'
+              : drawerHint(frontH, doorCount, (params as { drawerFrontHeights: number[] }).drawerFrontHeights)}
           </p>
         </div>
 
-        {canCombineFronts((params as { drawerFrontHeights: number[] }).drawerFrontHeights.length, doorCount) && (
+        {showCombineFronts && (
           <div>
             <Label>Рязане</Label>
             <div className="mt-1 flex gap-2">
@@ -567,12 +1242,12 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
               </Button>
             </div>
             <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
-              {combineHint(doorCount, cutFromOneBoard)}
+              {combineHint(!hasFixed || doorSpan === 'full' ? doorCount : 0, cutFromOneBoard)}
             </p>
           </div>
         )}
 
-        {(params as { drawerFrontHeights: number[] }).drawerFrontHeights.length > 0 && (
+        {counts.drawerCount > 0 && (
           <div>
             <Label>Водачи</Label>
             <div className="mt-1 flex flex-wrap gap-2">
@@ -618,13 +1293,13 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                 return (
                   <>
                     {SLIDE_KIND_LABEL[fit.slideKind]} · {fit.slideLength} мм ·{' '}
-                    {SLIDES_PER_DRAWER * fit.drawerFrontHeights.length} бр. ×{' '}
+                    {SLIDES_PER_DRAWER * counts.drawerCount} бр. ×{' '}
                     {formatEur(slideUnitPriceEur(fit.slideKind, fit.slideLength, settings.hardware))} ={' '}
                     <strong>
                       {formatEur(
                         slideUnitPriceEur(fit.slideKind, fit.slideLength, settings.hardware)
                           * SLIDES_PER_DRAWER
-                          * fit.drawerFrontHeights.length,
+                          * counts.drawerCount,
                       )}
                     </strong>
                     {eligibleSlideLengths(slideDepth, fit.slideKind).length === 0
@@ -645,7 +1320,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                 width: number
                 thickness: number
               }
-              return [...new Set(fit.drawerFrontHeights)].map((drawerH) => {
+              return [...new Set(allDrawerFrontHeights(layout))].map((drawerH) => {
               const box = drawerBoxRails(
                 fit.width,
                 fit.thickness,
@@ -654,7 +1329,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                 isSoftCloseSlide(fit.slideKind),
               )
               if (!box) return null
-              const many = fit.drawerFrontHeights.length > 1
+              const many = counts.drawerCount > 1
               return (
                 <p key={drawerH} className="mt-1 text-xs text-[var(--color-muted-foreground)]">
                   Царги{many ? ` ${drawerH} мм` : ''}: вътрешни {Math.round(box.inner.width)}×{Math.round(box.inner.height)} мм (2 бр.) · външни{' '}
@@ -788,7 +1463,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
           <div className="mt-2 flex flex-wrap items-center gap-3">
             {PART_COLOR_FIELDS.filter(({ key }) => {
               if (typeId === 'nightstand' || typeId === 'section') {
-                if (key === 'shelf' && shelfCount === 0) return false
+                if (key === 'shelf' && counts.shelfCount === 0 && counts.fixedShelves === 0) return false
                 if (key === 'leg' && (typeId === 'section' || !useLegs)) return false
               }
               return true
@@ -815,7 +1490,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
           </div>
         </div>
 
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <label className="flex cursor-pointer items-center gap-2 text-sm">
             <Checkbox
               checked={showDimLines}
@@ -823,9 +1498,16 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
             />
             Оразмерителни линии
           </label>
+          <label className="flex cursor-pointer items-center gap-2 text-sm">
+            <Checkbox
+              checked={showFronts}
+              onCheckedChange={(c) => setShowFronts(c === true)}
+            />
+            Покажи вратите и челата
+          </label>
         </div>
 
-        <CabinetPreview typeId={typeId} params={{ ...params }} showDimLines={showDimLines} />
+        <CabinetPreview typeId={typeId} params={{ ...params }} showDimLines={showDimLines} showFronts={showFronts} />
 
         {error && <p className="text-sm text-[var(--color-destructive)]">{error}</p>}
 
@@ -960,6 +1642,76 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
   )
 }
 
+
+function WherePicker({
+  zones,
+  allowFull,
+  onPick,
+  onCancel,
+}: {
+  zones: { id: CabinetZoneId; label: string }[]
+  allowFull: boolean
+  onPick: (target: FrontTarget) => void
+  onCancel: () => void
+}) {
+  return (
+    <div className="mt-2 rounded-md border border-[var(--color-border)] p-2">
+      <p className="text-xs font-medium">В коя част?</p>
+      <div className="mt-1 flex flex-wrap gap-2">
+        {zones.map((z) => (
+          <Button key={z.id} type="button" size="sm" variant="outline" onClick={() => onPick(z.id)}>
+            {z.label}
+          </Button>
+        ))}
+        {allowFull && (
+          <Button type="button" size="sm" variant="outline" onClick={() => onPick('full')}>
+            {FULL_CABINET_LABEL}
+          </Button>
+        )}
+        <Button type="button" size="sm" variant="ghost" onClick={onCancel}>
+          Отказ
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+function doorSizeHint(
+  width: number,
+  frontH: number,
+  layout: InteriorLayout,
+  drawerFrontHeights: string[],
+  doorCount: 0 | 1 | 2,
+  doorSpan: DoorSpan,
+): string {
+  const fullDrawers = drawerFrontHeights.map((s) => parseInt(s, 10) || 0).filter((n) => n > 0)
+  const parts: string[] = []
+  if (doorSpan === 'full' && (doorCount === 1 || doorCount === 2)) {
+    const leftover = remainingFrontHeight(frontH, fullDrawers, true)
+    if (leftover <= 4) parts.push('Няма място за врата на целия шкаф.')
+    else {
+      const d = doorCutSize(width, frontH, doorCount)
+      parts.push(
+        `Цял шкаф: рязане ${Math.round(d.width)} × ${Math.round(leftover - 4)} мм · ${doorCutRuleNote({ withDrawerGaps: fullDrawers.length > 0 })}`,
+      )
+    }
+  }
+  for (const z of layout.zones) {
+    if (layout.shelves.length === 0) continue
+    if (!(z.doorCount === 1 || z.doorCount === 2)) continue
+    const leftover = remainingFrontHeight(z.frontHeight, z.drawerFrontHeights, true)
+    if (leftover <= 4) {
+      parts.push(`${z.label}: няма място за врата.`)
+      continue
+    }
+    const d = doorCutSize(width, leftover + DOOR_CLEARANCE_TOP, z.doorCount)
+    parts.push(
+      `${z.label}: рязане ${Math.round(d.width)} × ${Math.round(leftover - 4)} мм (отвор ${Math.round(z.frontHeight)} мм, ${doorCutRuleNote()})`,
+    )
+  }
+  return parts.join(' ')
+}
+
 function dialogFrontHeight(
   typeId: string,
   params: { height: number; useLegs?: boolean; legHeight?: number; plinthHeight?: number },
@@ -981,6 +1733,8 @@ function validate(
     legHeight?: number
     plinthHeight?: number
   },
+  layout: InteriorLayout,
+  frontH: number,
 ): string | null {
   if (typeId !== 'kitchen-base' && typeId !== 'nightstand' && typeId !== 'section') return null
   if (p.width <= p.thickness * 2) return 'Ширината трябва да е по-голяма от двете страници.'
@@ -988,12 +1742,19 @@ function validate(
   if (p.depth <= 0 || p.width <= 0) return 'Въведи валидни размери.'
   if (p.thickness < 8 || p.thickness > 36) return 'Дебелината на плоскостта трябва да е между 8 и 36 мм.'
   const minFront = DRAWER_RAIL_BELOW_FRONT + 20
-  for (const h of p.drawerFrontHeights) {
+  const allDrawers = allDrawerFrontHeights(layout)
+  for (const h of allDrawers) {
     if (h < minFront) return `Челото на чекмеджето трябва да е поне ${minFront} мм.`
   }
-  const leftover = remainingFrontHeight(dialogFrontHeight(typeId, p), p.drawerFrontHeights, p.doorCount > 0)
-  if (leftover < 0) return 'Челата на чекмеджетата не събират във височината на корпуса (фуга 5 мм отгоре и 3 мм между тях).'
-  if (p.doorCount > 0 && leftover < 80) return 'Останалата височина за вратата е твърде малка.'
+  const zoneErr = validateZoneFronts(layout, frontH)
+  if (zoneErr) return zoneErr
+  if (layout.shelves.length === 0) {
+    const leftover = remainingFrontHeight(frontH, p.drawerFrontHeights, p.doorCount > 0)
+    if (leftover < 0) {
+      return `Челата на чекмеджетата не събират във височината на корпуса (фуга ${DOOR_CLEARANCE_TOP} мм отгоре и ${DRAWER_DOOR_GAP} мм между тях).`
+    }
+    if (p.doorCount > 0 && leftover < 80) return 'Останалата височина за вратата е твърде малка.'
+  }
   return null
 }
 
@@ -1004,12 +1765,16 @@ function drawerHint(frontHeight: number, doorCount: number, drawerFrontHeights: 
   const leftover = remainingFrontHeight(frontHeight, drawerFrontHeights, doorCount > 0)
   if (doorCount > 0) {
     return leftover > 0
-      ? `Вратата отдолу е ${Math.round(leftover)} мм. Фуга 5 мм отгоре, 3 мм между челата.`
+      ? `Вратата отдолу е ${Math.round(leftover)} мм. ${doorCutRuleNote({ withDrawerGaps: true })}.`
       : 'Челата заемат целия корпус — няма място за врата.'
   }
-  if (leftover > 4) return `Остават ${Math.round(leftover)} мм. Коригирай височините или добави още чекмедже.`
+  if (leftover > 4) {
+    return leftover >= 80
+      ? `Остават ${Math.round(leftover)} мм. „Разпредели поравно“ ги слага в челата (фуга ${DOOR_CLEARANCE_TOP} мм отгоре, ${DRAWER_DOOR_GAP} мм между тях) или добави врата отдолу.`
+      : `Остават ${Math.round(leftover)} мм. Натисни „Разпредели поравно“, за да влязат в челата с фугите.`
+  }
   if (leftover < 0) return 'Челата излизат над корпуса.'
-  return 'Челата запълват корпуса. Фуга 5 мм отгоре, 3 мм между тях.'
+  return `Челата запълват корпуса. Фуга ${DOOR_CLEARANCE_TOP} мм отгоре, ${DRAWER_DOOR_GAP} мм между тях.`
 }
 
 function combineHint(doorCount: number, fromOneBoard: boolean): string {

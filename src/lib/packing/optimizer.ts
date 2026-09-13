@@ -123,19 +123,6 @@ const SORT_VARIANTS = [
 
 const VARIANT_COUNT = 10
 
-const VARIANT_NAMES = [
-  'площ ↓',
-  'страна ↓',
-  'ширина ↓',
-  'височина ↓',
-  'периметър ↓',
-  'площ ↑',
-  'мин. страна ↓',
-  'съотношение ↓',
-  'височина ↑',
-  'ширина ↑',
-]
-
 export interface PackingVariantOption {
   result: import('@/types').PackingResult
   label: string
@@ -187,14 +174,10 @@ export function optimizeAllVariants(
 
   const filtered = filterMinimalWasteVariants(allResults)
 
-  return filtered.map((result) => {
-    const idx = parseInt(result.variantKey.replace('v', ''), 10)
-    const name = VARIANT_NAMES[idx] ?? `вариант ${idx + 1}`
-    return {
-      result,
-      label: `Разкрой · ${name}`,
-    }
-  })
+  return filtered.map((result, i) => ({
+    result,
+    label: `Вариант ${i + 1}`,
+  }))
 }
 
 /** One calculation per click. Re-click for up to 2 alternate sort orders. */
@@ -231,11 +214,6 @@ export function optimizePacking(
   const result = packSequential(sheetPool, sorted, `v${clickIndex % 3}`)
 
   return { result, variantIndex: clickIndex + 1 }
-}
-
-export function getVariantLabel(clickIndex: number): string {
-  const names = ['площ ↓', 'страна ↓', 'периметър ↓']
-  return `Разкрой · ${names[clickIndex % 3]}`
 }
 
 export { KERF, expandSheetPool, raiseSheetQuantities } from './types'

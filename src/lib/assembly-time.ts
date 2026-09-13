@@ -14,36 +14,194 @@ export interface EdgeBandingTimeSettings {
   thinEdgeAdditionalPer50cm: number
 }
 
-/** Width above this (mm) is medium / „голям“. */
-export const SIZE_MEDIUM_SPAN_MM = 800
-/** Width above this (mm) is large / „много голям“ / над метър и половина. */
-export const SIZE_LARGE_SPAN_MM = 1500
 /** Back is „голям“ when height and width both exceed these. */
 export const BACK_LARGE_MIN_HEIGHT_MM = 1000
 export const BACK_LARGE_MIN_WIDTH_MM = 500
 
+/** Inclusive upper bound for a small width (mm). */
+export const SIZE_WIDTH_SMALL_MAX_MM = 500
+/** Inclusive upper bound for a medium width (mm). Wider is large. */
+export const SIZE_WIDTH_MEDIUM_MAX_MM = 700
+export const SIZE_HEIGHT_SMALL_MAX_MM = 800
+export const SIZE_HEIGHT_MEDIUM_MAX_MM = 1600
+export const SIZE_DEPTH_SMALL_MAX_MM = 450
+export const SIZE_DEPTH_MEDIUM_MAX_MM = 700
+
+/** One large axis or two medium axes. */
+export const SIZE_SCORE_MEDIUM_MIN = 2
+/** Two large axes, or one large + two medium. */
+export const SIZE_SCORE_LARGE_MIN = 4
+
 export type CarcassSizeTier = 'small' | 'medium' | 'large'
 
-export function carcassSizeTier(widthMm: number): CarcassSizeTier {
-  if (widthMm > SIZE_LARGE_SPAN_MM) return 'large'
-  if (widthMm > SIZE_MEDIUM_SPAN_MM) return 'medium'
+export interface CabinetSizeLimits {
+  widthSmallMaxMm: number
+  widthMediumMaxMm: number
+  heightSmallMaxMm: number
+  heightMediumMaxMm: number
+  depthSmallMaxMm: number
+  depthMediumMaxMm: number
+  backLargeMinHeightMm: number
+  backLargeMinWidthMm: number
+}
+
+export const DEFAULT_CABINET_SIZE_LIMITS: CabinetSizeLimits = {
+  widthSmallMaxMm: SIZE_WIDTH_SMALL_MAX_MM,
+  widthMediumMaxMm: SIZE_WIDTH_MEDIUM_MAX_MM,
+  heightSmallMaxMm: SIZE_HEIGHT_SMALL_MAX_MM,
+  heightMediumMaxMm: SIZE_HEIGHT_MEDIUM_MAX_MM,
+  depthSmallMaxMm: SIZE_DEPTH_SMALL_MAX_MM,
+  depthMediumMaxMm: SIZE_DEPTH_MEDIUM_MAX_MM,
+  backLargeMinHeightMm: BACK_LARGE_MIN_HEIGHT_MM,
+  backLargeMinWidthMm: BACK_LARGE_MIN_WIDTH_MM,
+}
+
+export interface CabinetSizeAxes {
+  width: CarcassSizeTier
+  height: CarcassSizeTier
+  depth: CarcassSizeTier
+}
+
+export interface ClassifiedCabinetSize {
+  tier: CarcassSizeTier
+  score: number
+  axes: CabinetSizeAxes
+}
+
+/** Keep the medium ceiling strictly above the small ceiling. */
+export function normalizeAxisLimits(smallMaxMm: number, mediumMaxMm: number): {
+  smallMaxMm: number
+  mediumMaxMm: number
+} {
+  const small = Math.max(1, Math.round(smallMaxMm))
+  const medium = Math.max(small + 1, Math.round(mediumMaxMm))
+  return { smallMaxMm: small, mediumMaxMm: medium }
+}
+
+export function axisSizeTier(valueMm: number, smallMaxMm: number, mediumMaxMm: number): CarcassSizeTier {
+  const { smallMaxMm: small, mediumMaxMm: medium } = normalizeAxisLimits(
+    smallMaxMm > 0 ? smallMaxMm : 1,
+    mediumMaxMm > 0 ? mediumMaxMm : 2,
+  )
+  if (valueMm <= small) return 'small'
+  if (valueMm <= medium) return 'medium'
+  return 'large'
+}
+
+export function sizeTierScore(tier: CarcassSizeTier): number {
+  if (tier === 'large') return 2
+  if (tier === 'medium') return 1
+  return 0
+}
+
+export function sizeTierFromScore(score: number): CarcassSizeTier {
+  if (score >= SIZE_SCORE_LARGE_MIN) return 'large'
+  if (score >= SIZE_SCORE_MEDIUM_MIN) return 'medium'
   return 'small'
 }
 
-export function isLargeBack(widthMm: number, heightMm: number): boolean {
-  return heightMm > BACK_LARGE_MIN_HEIGHT_MM && widthMm > BACK_LARGE_MIN_WIDTH_MM
+function resolvedSizeLimits(limits?: CabinetSizeLimits | null): CabinetSizeLimits {
+  const d = DEFAULT_CABINET_SIZE_LIMITS
+  const width = normalizeAxisLimits(limits?.widthSmallMaxMm ?? d.widthSmallMaxMm, limits?.widthMediumMaxMm ?? d.widthMediumMaxMm)
+  const height = normalizeAxisLimits(limits?.heightSmallMaxMm ?? d.heightSmallMaxMm, limits?.heightMediumMaxMm ?? d.heightMediumMaxMm)
+  const depth = normalizeAxisLimits(limits?.depthSmallMaxMm ?? d.depthSmallMaxMm, limits?.depthMediumMaxMm ?? d.depthMediumMaxMm)
+  return {
+    widthSmallMaxMm: width.smallMaxMm,
+    widthMediumMaxMm: width.mediumMaxMm,
+    heightSmallMaxMm: height.smallMaxMm,
+    heightMediumMaxMm: height.mediumMaxMm,
+    depthSmallMaxMm: depth.smallMaxMm,
+    depthMediumMaxMm: depth.mediumMaxMm,
+    backLargeMinHeightMm: limits?.backLargeMinHeightMm ?? d.backLargeMinHeightMm,
+    backLargeMinWidthMm: limits?.backLargeMinWidthMm ?? d.backLargeMinWidthMm,
+  }
+}
+
+export function classifyCabinetSize(
+  dims: { width: number; height: number; depth: number },
+  limits?: CabinetSizeLimits | null,
+): ClassifiedCabinetSize {
+  const l = resolvedSizeLimits(limits)
+  const axes: CabinetSizeAxes = {
+    width: axisSizeTier(dims.width, l.widthSmallMaxMm, l.widthMediumMaxMm),
+    height: axisSizeTier(dims.height, l.heightSmallMaxMm, l.heightMediumMaxMm),
+    depth: axisSizeTier(dims.depth, l.depthSmallMaxMm, l.depthMediumMaxMm),
+  }
+  const score = sizeTierScore(axes.width) + sizeTierScore(axes.height) + sizeTierScore(axes.depth)
+  return { tier: sizeTierFromScore(score), score, axes }
+}
+
+export function carcassSizeTier(
+  dims: { width: number; height: number; depth: number },
+  limits?: CabinetSizeLimits | null,
+): CarcassSizeTier {
+  return classifyCabinetSize(dims, limits).tier
+}
+
+export function isLargeBack(
+  widthMm: number,
+  heightMm: number,
+  limits?: Pick<CabinetSizeLimits, 'backLargeMinHeightMm' | 'backLargeMinWidthMm'> | null,
+): boolean {
+  const minHeight = limits?.backLargeMinHeightMm ?? BACK_LARGE_MIN_HEIGHT_MM
+  const minWidth = limits?.backLargeMinWidthMm ?? BACK_LARGE_MIN_WIDTH_MM
+  return heightMm > minHeight && widthMm > minWidth
+}
+
+const AXIS_TIER_FEMININE: Record<CarcassSizeTier, string> = {
+  small: 'малка',
+  medium: 'средна',
+  large: 'голяма',
+}
+
+const OVERALL_TIER_BG: Record<CarcassSizeTier, string> = {
+  small: 'малък',
+  medium: 'среден',
+  large: 'голям',
+}
+
+export function cabinetSizeAxisDefinitionText(smallMaxMm: number, mediumMaxMm: number): string {
+  const { smallMaxMm: small, mediumMaxMm: medium } = normalizeAxisLimits(smallMaxMm, mediumMaxMm)
+  return `Малък: до ${small} мм. Среден: ${small + 1}–${medium} мм. Голям: над ${medium} мм.`
+}
+
+export function cabinetSizeScoringHelp(): string {
+  return (
+    `Всяка ос е малка (0 т.), средна (1 т.) или голяма (2 т.). ` +
+    `Сбор: 0–1 малък шкаф, ${SIZE_SCORE_MEDIUM_MIN}–${SIZE_SCORE_LARGE_MIN - 1} среден, ${SIZE_SCORE_LARGE_MIN}–6 голям.`
+  )
+}
+
+export function formatCabinetSizeBreakdown(classified: ClassifiedCabinetSize): string {
+  const overall = OVERALL_TIER_BG[classified.tier]
+  const w = AXIS_TIER_FEMININE[classified.axes.width]
+  const h = AXIS_TIER_FEMININE[classified.axes.height]
+  const d = AXIS_TIER_FEMININE[classified.axes.depth]
+  return `${overall} · Ш ${w} · В ${h} · Д ${d}`
+}
+
+export function cabinetSizeTierLabel(tier: CarcassSizeTier): string {
+  if (tier === 'small') return 'Малък'
+  if (tier === 'medium') return 'Среден'
+  return 'Голям'
+}
+
+export function cabinetSizeExplainLines(
+  dims: { width: number; height: number; depth: number },
+  classified: ClassifiedCabinetSize,
+): string[] {
+  return [
+    `Широчина ${dims.width} мм — ${AXIS_TIER_FEMININE[classified.axes.width]}`,
+    `Височина ${dims.height} мм — ${AXIS_TIER_FEMININE[classified.axes.height]}`,
+    `Дълбочина ${dims.depth} мм — ${AXIS_TIER_FEMININE[classified.axes.depth]}`,
+    `Сбор ${classified.score} т.`,
+  ]
 }
 
 function pickTier<T>(tier: CarcassSizeTier, small: T, medium: T, large: T): T {
   if (tier === 'large') return large
   if (tier === 'medium') return medium
   return small
-}
-
-function sizeHint(tier: CarcassSizeTier): string {
-  if (tier === 'large') return `голям · широчина над ${SIZE_LARGE_SPAN_MM} мм`
-  if (tier === 'medium') return `среден · широчина над ${SIZE_MEDIUM_SPAN_MM} мм`
-  return `малък · широчина до ${SIZE_MEDIUM_SPAN_MM} мм`
 }
 
 export interface AssemblyTimeSettings {
@@ -95,6 +253,17 @@ export interface AssemblyTimeSettings {
   
   /** Time to install one door - cleaning, measuring, drilling for hinges, installing (minutes) */
   installDoorMinutes: number
+
+  widthSmallMaxMm: number
+  widthMediumMaxMm: number
+  heightSmallMaxMm: number
+  heightMediumMaxMm: number
+  depthSmallMaxMm: number
+  depthMediumMaxMm: number
+  /** Back is large when taller than this (mm). */
+  backLargeMinHeightMm: number
+  /** Back is large when wider than this (mm). */
+  backLargeMinWidthMm: number
 }
 
 export const DEFAULT_ASSEMBLY_TIME_SETTINGS: AssemblyTimeSettings = {
@@ -127,6 +296,7 @@ export const DEFAULT_ASSEMBLY_TIME_SETTINGS: AssemblyTimeSettings = {
   attachDrawerRunnersMinutes: 4,
   installDrawerFrontMinutes: 15,
   installDoorMinutes: 15,
+  ...DEFAULT_CABINET_SIZE_LIMITS,
 }
 
 const ASSEMBLY_TIME_SETTINGS_KEY = 'sketchcut-assembly-time-settings'
@@ -134,6 +304,42 @@ const ASSEMBLY_TIME_SETTINGS_KEY = 'sketchcut-assembly-time-settings'
 function numPositive(src: Record<string, unknown>, key: string, fallback: number): number {
   const v = src[key]
   return typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : fallback
+}
+
+function numMm(src: Record<string, unknown>, key: string, fallback: number): number {
+  const v = src[key]
+  return typeof v === 'number' && Number.isFinite(v) && v > 0 ? Math.round(v) : fallback
+}
+
+function parseAxisLimits(
+  src: Record<string, unknown>,
+  smallKey: string,
+  mediumKey: string,
+  fallbackSmall: number,
+  fallbackMedium: number,
+  previousDefaultSmall: number,
+  previousDefaultMedium: number,
+) {
+  const storedSmall = src[smallKey]
+  const storedMedium = src[mediumKey]
+  const hasStored =
+    typeof storedSmall === 'number' &&
+    Number.isFinite(storedSmall) &&
+    storedSmall > 0 &&
+    typeof storedMedium === 'number' &&
+    Number.isFinite(storedMedium) &&
+    storedMedium > 0
+  if (
+    hasStored &&
+    Math.round(storedSmall as number) === previousDefaultSmall &&
+    Math.round(storedMedium as number) === previousDefaultMedium
+  ) {
+    return normalizeAxisLimits(fallbackSmall, fallbackMedium)
+  }
+  return normalizeAxisLimits(
+    numMm(src, smallKey, fallbackSmall),
+    numMm(src, mediumKey, fallbackMedium),
+  )
 }
 
 function parseEdgeBandingSettings(raw: unknown): EdgeBandingTimeSettings {
@@ -150,6 +356,9 @@ function parseEdgeBandingSettings(raw: unknown): EdgeBandingTimeSettings {
 export function parseAssemblyTimeSettings(raw: unknown): AssemblyTimeSettings {
   const src = raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {}
   const d = DEFAULT_ASSEMBLY_TIME_SETTINGS
+  const width = parseAxisLimits(src, 'widthSmallMaxMm', 'widthMediumMaxMm', d.widthSmallMaxMm, d.widthMediumMaxMm, 400, 600)
+  const height = normalizeAxisLimits(numMm(src, 'heightSmallMaxMm', d.heightSmallMaxMm), numMm(src, 'heightMediumMaxMm', d.heightMediumMaxMm))
+  const depth = parseAxisLimits(src, 'depthSmallMaxMm', 'depthMediumMaxMm', d.depthSmallMaxMm, d.depthMediumMaxMm, 350, 500)
   return {
     edgeBanding: parseEdgeBandingSettings(src.edgeBanding),
     installLegsMinutes: numPositive(src, 'installLegsMinutes', d.installLegsMinutes),
@@ -175,6 +384,14 @@ export function parseAssemblyTimeSettings(raw: unknown): AssemblyTimeSettings {
     attachDrawerRunnersMinutes: numPositive(src, 'attachDrawerRunnersMinutes', d.attachDrawerRunnersMinutes),
     installDrawerFrontMinutes: numPositive(src, 'installDrawerFrontMinutes', d.installDrawerFrontMinutes),
     installDoorMinutes: numPositive(src, 'installDoorMinutes', d.installDoorMinutes),
+    widthSmallMaxMm: width.smallMaxMm,
+    widthMediumMaxMm: width.mediumMaxMm,
+    heightSmallMaxMm: height.smallMaxMm,
+    heightMediumMaxMm: height.mediumMaxMm,
+    depthSmallMaxMm: depth.smallMaxMm,
+    depthMediumMaxMm: depth.mediumMaxMm,
+    backLargeMinHeightMm: numMm(src, 'backLargeMinHeightMm', d.backLargeMinHeightMm),
+    backLargeMinWidthMm: numMm(src, 'backLargeMinWidthMm', d.backLargeMinWidthMm),
   }
 }
 
@@ -334,6 +551,7 @@ export function collectCabinetAssembly(input: {
   panels: AssemblyPanelInput[]
   width: number
   height: number
+  depth: number
   hasLegs: boolean
   hasTopRails: boolean
   hasTop: boolean
@@ -343,12 +561,18 @@ export function collectCabinetAssembly(input: {
   doorCount: number
   drawerCount: number
   hasClothesRail: boolean
+  clothesRailCount?: number
   clothesRailLengthMm?: number
+  fixedShelfCount?: number
 }): { steps: AssemblyStep[]; minutes: number } {
   const s = input.settings
   const steps: AssemblyStep[] = []
-  const tier = carcassSizeTier(input.width)
-  const size = sizeHint(tier)
+  const classified = classifyCabinetSize(
+    { width: input.width, height: input.height, depth: input.depth },
+    s,
+  )
+  const tier = classified.tier
+  const size = formatCabinetSizeBreakdown(classified)
 
   if (input.hasLegs) {
     pushStep(steps, {
@@ -435,37 +659,61 @@ export function collectCabinetAssembly(input: {
     })
   }
 
+  if ((input.fixedShelfCount ?? 0) > 0) {
+    const n = input.fixedShelfCount ?? 0
+    const per = pickTier(tier, s.topSmallMinutes, s.topMediumMinutes, s.topLargeMinutes)
+    pushStep(steps, {
+      id: 'fixed-shelf',
+      label: n === 1 ? 'Сглобяване на фиксиран рафт към страниците' : 'Сглобяване на фиксирани рафтове към страниците',
+      minutes: per * n,
+      quantity: n,
+      unitOne: 'рафт',
+      unitMany: 'рафта',
+      hint: 'винтове 5×60 през страниците',
+    })
+  }
+
   if (input.hasBack) {
-    const large = isLargeBack(input.width, input.height)
+    const large = isLargeBack(input.width, input.height, s)
     const minutes = large ? s.backLargeMinutes : s.backSmallMinutes
     pushStep(steps, {
       id: 'back',
       label: 'Слагане на гръб',
       minutes,
       hint: large
-        ? `голям · над ${BACK_LARGE_MIN_HEIGHT_MM} мм висок и над ${BACK_LARGE_MIN_WIDTH_MM} мм широк`
+        ? `голям · над ${s.backLargeMinHeightMm ?? BACK_LARGE_MIN_HEIGHT_MM} мм висок и над ${s.backLargeMinWidthMm ?? BACK_LARGE_MIN_WIDTH_MM} мм широк`
         : 'малък шкаф',
     })
   }
 
-  if (input.hasClothesRail) {
+  const railN = input.clothesRailCount ?? (input.hasClothesRail ? 1 : 0)
+  if (railN > 0) {
     const len = Math.max(0, Math.round(input.clothesRailLengthMm ?? 0))
     pushStep(steps, {
       id: 'clothes-rail-console',
       label: 'Слагане на конзоли за лост',
-      minutes: s.clothesRailConsoleMinutes,
-      hint: 'една двойка конзоли',
+      minutes: s.clothesRailConsoleMinutes * railN,
+      quantity: railN,
+      unitOne: 'лост',
+      unitMany: 'лоста',
+      hint: 'една двойка конзоли на лост',
     })
     pushStep(steps, {
       id: 'clothes-rail-cut',
       label: 'Срязване на лоста за дрехи',
-      minutes: s.clothesRailCutMinutes,
+      minutes: s.clothesRailCutMinutes * railN,
+      quantity: railN,
+      unitOne: 'лост',
+      unitMany: 'лоста',
       hint: len > 0 ? `лост ${len} мм` : 'срязване на лоста',
     })
     pushStep(steps, {
       id: 'clothes-rail-install',
       label: 'Слагане на лоста при сглобяване',
-      minutes: s.clothesRailInstallMinutes,
+      minutes: s.clothesRailInstallMinutes * railN,
+      quantity: railN,
+      unitOne: 'лост',
+      unitMany: 'лоста',
       hint: 'лостът се слага в конзолите',
     })
   }

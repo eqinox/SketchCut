@@ -26,10 +26,8 @@ import {
 import { DEFAULT_ASSEMBLY_TIME_SETTINGS } from '@/lib/assembly-time'
 import type { CabinetPartColors } from './colors'
 import {
-  appendDoorsAndDrawers,
   appendHardboard,
-  appendShelves,
-  appendClothesRail,
+  appendZonedInterior,
   parseInteriorFittings,
   type InteriorFittings,
 } from './fronts'
@@ -102,6 +100,9 @@ export const DEFAULT_NIGHTSTAND_PARAMS: NightstandParams = {
   hasClothesRail: false,
   slideKind: 'roller',
   slideLength: 300,
+  fixedShelves: [],
+  doorSpan: 'full',
+  zones: {},
   colors: { ...DEFAULT_PART_COLORS },
 }
 
@@ -343,13 +344,15 @@ export function generatePlinthCabinet(
     })
   }
 
-  appendShelves(
+  const interior = appendZonedInterior(
     {
-      shelfCount: p.shelfCount,
+      fittings: p,
       innerW: m.innerW,
       innerH: m.innerH,
       sideD: m.sideD,
       thickness: p.thickness,
+      width: p.width,
+      frontHeight: m.frontHeight,
     },
     panels,
     hardware,
@@ -369,48 +372,24 @@ export function generatePlinthCabinet(
     )
   }
 
-  if (p.hasClothesRail) {
-    appendClothesRail(
-      { width: p.width, thickness: p.thickness },
-      hardware,
-      notes,
-      hardwareSettings,
-    )
-  }
-
-  const { doorCount, drawerCount } = appendDoorsAndDrawers(
-    {
-      width: p.width,
-      frontHeight: m.frontHeight,
-      thickness: p.thickness,
-      doorCount: p.doorCount,
-      drawerFrontHeights: p.drawerFrontHeights,
-      cutFromOneBoard: p.cutFromOneBoard,
-      includeHandles: p.includeHandles,
-      slideKind: p.slideKind,
-      slideLength: p.slideLength,
-    },
-    panels,
-    hardware,
-    notes,
-    hardwareSettings,
-  )
-
   const assembly = collectCabinetAssembly({
     settings: assemblyTimeSettings,
     panels,
     width: p.width,
     height: p.height,
+    depth: p.depth,
     hasLegs: p.useLegs,
     hasTopRails: false,
     hasTop: true,
     plinthCount: p.useLegs ? 0 : p.plinthCount,
     hasBack: p.hasBack,
-    shelfCount: p.shelfCount,
-    doorCount,
-    drawerCount,
-    hasClothesRail: p.hasClothesRail,
+    shelfCount: interior.shelfCount,
+    doorCount: interior.doorCount,
+    drawerCount: interior.drawerCount,
+    hasClothesRail: interior.clothesRailCount > 0,
+    clothesRailCount: interior.clothesRailCount,
     clothesRailLengthMm: m.innerW,
+    fixedShelfCount: interior.fixedShelfCount,
   })
 
   return {

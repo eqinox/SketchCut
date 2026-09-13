@@ -13,7 +13,7 @@ const PAGE_W = 297
 const PAGE_H = 210
 const MARGIN = 10
 
-export async function exportCuttingPlanPdf(result: PackingResult, variantLabel: string): Promise<void> {
+export async function exportCuttingPlanPdf(result: PackingResult): Promise<void> {
   const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
 
   for (let i = 0; i < result.sheets.length; i++) {
@@ -31,7 +31,7 @@ export async function exportCuttingPlanPdf(result: PackingResult, variantLabel: 
     pdf.setFontSize(9)
     pdf.setTextColor(100, 116, 139)
     pdf.text(
-      `Фира: ${sheet.wastePercent.toFixed(1)}% · ${sheet.placed.length} детайла · ${variantLabel}`,
+      `Фира: ${sheet.wastePercent.toFixed(1)}% · ${sheet.placed.length} детайла`,
       MARGIN,
       titleY + 5,
     )
@@ -66,7 +66,7 @@ export async function exportCuttingPlanPdf(result: PackingResult, variantLabel: 
   pdf.save(`sketchcut-razkroi-${Date.now()}.pdf`)
 }
 
-export function printCuttingPlan(result: PackingResult, variantLabel: string): void {
+export function printCuttingPlan(result: PackingResult): void {
   const printWindow = window.open('', '_blank')
   if (!printWindow) return
 
@@ -95,7 +95,7 @@ export function printCuttingPlan(result: PackingResult, variantLabel: string): v
       return `
         <div class="sheet-page">
           <h2>Плоча ${i + 1}: ${sheet.sheetWidth} × ${sheet.sheetHeight} мм</h2>
-          <p class="meta">Фира: ${sheet.wastePercent.toFixed(1)}% · ${sheet.placed.length} детайла · ${variantLabel}</p>
+          <p class="meta">Фира: ${sheet.wastePercent.toFixed(1)}% · ${sheet.placed.length} детайла</p>
           ${wasteSummary ? `<p class="meta">Фири: ${wasteSummary} мм</p>` : ''}
           <svg width="${displayW}" height="${displayH}" viewBox="0 0 ${sheet.sheetWidth} ${sheet.sheetHeight}">
             <rect width="${sheet.sheetWidth}" height="${sheet.sheetHeight}" fill="#fff"/>
