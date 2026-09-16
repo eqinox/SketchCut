@@ -274,7 +274,7 @@ function App() {
     if (params.hasBack !== true) return
     setSheets((prev) => {
       if (firstSheetOfKind(prev, 'hardboard')) return prev
-      return [...prev, createHardboardSheet(generateId())]
+      return [...prev, createHardboardSheet(generateId(), settings.hardboardPriceEur)]
     })
   }
 

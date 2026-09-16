@@ -61,7 +61,7 @@ export function CabinetsPanel({
   const priced = cabinets.flatMap((c) => {
     try {
       const result = scaleCabinetResult(generateCabinet(c.typeId, c.params, settings), c.quantity)
-      const perCabinetHardware = { ...settings.hardware, billWholeSheets: false }
+      const perCabinetHardware = { ...settings.hardware, billWholeSheets: false, billWholeHardboardSheets: false }
       return [
         {
           cabinet: c,
