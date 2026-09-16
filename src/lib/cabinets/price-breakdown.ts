@@ -452,11 +452,12 @@ export function explainCabinetPrice(input: {
   const billed = billablePanels(input.panels)
   const sections: PriceBreakdownSection[] = []
   const billWholeSheets = settings.billWholeSheets
+  const billWholeHardboardSheets = settings.billWholeHardboardSheets
   if (billed.some((p) => panelKind(p) === 'chipboard')) {
     sections.push(boardSection('chipboard', 'ПДЧ', input.panels, chipboard, billWholeSheets))
   }
   if (billed.some((p) => panelKind(p) === 'hardboard')) {
-    sections.push(boardSection('hardboard', 'Фазер', input.panels, hardboard, billWholeSheets))
+    sections.push(boardSection('hardboard', 'Фазер', input.panels, hardboard, billWholeHardboardSheets))
   }
   const edge = edgeSection(input.panels, settings)
   if (edge.lines.length > 1 || (edge.subtotalEur ?? 0) > 0) {
@@ -497,7 +498,7 @@ export function explainCabinetsPrice(
       ...row,
       dailyRateEur,
       sheets,
-      settings: { ...hw, billWholeSheets: false },
+      settings: { ...hw, billWholeSheets: false, billWholeHardboardSheets: false },
     }),
   }))
   const merged = explainCabinetPrice({

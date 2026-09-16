@@ -133,6 +133,9 @@ export function SettingsDialog({
   const [edgeMm2, setEdgeMm2] = useState('')
   const [edgeMm05, setEdgeMm05] = useState('')
   const [billWholeSheets, setBillWholeSheets] = useState(true)
+  const [chipboardPrice, setChipboardPrice] = useState('')
+  const [hardboardPrice, setHardboardPrice] = useState('')
+  const [billWholeHardboardSheets, setBillWholeHardboardSheets] = useState(true)
   const [slideRoller, setSlideRoller] = useState<PriceByLength>({})
   const [slideSoftFull, setSlideSoftFull] = useState<PriceByLength>({})
   const [slideSoftPartial, setSlideSoftPartial] = useState<PriceByLength>({})
@@ -190,6 +193,9 @@ export function SettingsDialog({
     setEdgeMm2(String(s.edgeMm2Eur))
     setEdgeMm05(String(s.edgeMm05Eur))
     setBillWholeSheets(s.billWholeSheets)
+    setChipboardPrice(String(s.chipboardPriceEur))
+    setHardboardPrice(String(s.hardboardPriceEur))
+    setBillWholeHardboardSheets(s.billWholeHardboardSheets)
     setSlideRoller({ ...s.slideRollerEur })
     setSlideSoftFull({ ...s.slideSoftFullEur })
     setSlideSoftPartial({ ...s.slideSoftPartialEur })
@@ -258,6 +264,9 @@ export function SettingsDialog({
       edgeMm2Eur: parseFloat(edgeMm2) || DEFAULT_HARDWARE_SETTINGS.edgeMm2Eur,
       edgeMm05Eur: parseFloat(edgeMm05) || DEFAULT_HARDWARE_SETTINGS.edgeMm05Eur,
       billWholeSheets,
+      chipboardPriceEur: parseFloat(chipboardPrice) || DEFAULT_HARDWARE_SETTINGS.chipboardPriceEur,
+      hardboardPriceEur: parseFloat(hardboardPrice) || DEFAULT_HARDWARE_SETTINGS.hardboardPriceEur,
+      billWholeHardboardSheets,
       slideRollerEur: { ...slideRoller },
       slideSoftFullEur: { ...slideSoftFull },
       slideSoftPartialEur: { ...slideSoftPartial },
@@ -596,20 +605,64 @@ export function SettingsDialog({
             </div>
             <div className="rounded-md border border-[var(--color-border)] p-4 sm:col-span-2">
               <h3 className="mb-3 font-medium">Плочи</h3>
-              <label className="flex cursor-pointer items-start gap-2 text-sm">
-                <Checkbox
-                  className="mt-0.5"
-                  checked={billWholeSheets}
-                  onCheckedChange={(c) => setBillWholeSheets(c === true)}
-                />
-                <span>
-                  Цена за цели закупени плочи
-                  <span className="mt-1 block text-xs text-[var(--color-muted-foreground)]">
-                    Ако отидат 3,5 плочи, сметката е за 4 — толкова трябва да се купят. Без отметка се
-                    брои само изразходваната част.
+              <div className="space-y-4">
+                <div>
+                  <Label htmlFor="chipboard-price">Цена на ПДЧ (€/плоча)</Label>
+                  <Input
+                    id="chipboard-price"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={chipboardPrice}
+                    onChange={(e) => setChipboardPrice(e.target.value)}
+                  />
+                  <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
+                    Стандартен размер ПДЧ: 2780 × 2040 мм
+                  </p>
+                </div>
+                <div>
+                  <Label htmlFor="hardboard-price">Цена на фазер (€/плоча)</Label>
+                  <Input
+                    id="hardboard-price"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={hardboardPrice}
+                    onChange={(e) => setHardboardPrice(e.target.value)}
+                  />
+                  <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
+                    Стандартен размер фазер: 2800 × 2070 мм, 3 мм дебелина
+                  </p>
+                </div>
+                <label className="flex cursor-pointer items-start gap-2 text-sm">
+                  <Checkbox
+                    className="mt-0.5"
+                    checked={billWholeSheets}
+                    onCheckedChange={(c) => setBillWholeSheets(c === true)}
+                  />
+                  <span>
+                    Цена за цели закупени плочи ПДЧ
+                    <span className="mt-1 block text-xs text-[var(--color-muted-foreground)]">
+                      Ако отидат 3,5 плочи, сметката е за 4 — толкова трябва да се купят. Без отметка се
+                      брои само изразходваната част.
+                    </span>
                   </span>
-                </span>
-              </label>
+                </label>
+                <label className="flex cursor-pointer items-start gap-2 text-sm">
+                  <Checkbox
+                    className="mt-0.5"
+                    checked={billWholeHardboardSheets}
+                    onCheckedChange={(c) => setBillWholeHardboardSheets(c === true)}
+                  />
+                  <span>
+                    Цена за цели закупени плочи фазер
+                    <span className="mt-1 block text-xs text-[var(--color-muted-foreground)]">
+                      Ако отидат 3,5 плочи, сметката е за 4 — толкова трябва да се купят. Без отметка се
+                      брои само изразходваната част.
+                    </span>
+                  </span>
+                </label>
+              </div>
             </div>
           </div>
         </div>

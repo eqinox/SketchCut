@@ -175,7 +175,7 @@ export function cabinetPrice(
     hardboard.width,
     hardboard.height,
     hardboard.priceEur,
-    settings.billWholeSheets,
+    settings.billWholeHardboardSheets,
   )
   const edge = panelsEdgeMeters(panels)
   const edgeEur = edgeBandingCostEur(edge.mm2, edge.mm05, {

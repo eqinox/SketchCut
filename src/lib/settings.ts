@@ -26,6 +26,18 @@ export interface HardwareSettings {
    */
   billWholeSheets: boolean
 
+  /** Chipboard (ПДЧ) price per sheet, EUR. */
+  chipboardPriceEur: number
+
+  /** Hardboard (фазер) price per sheet, EUR. */
+  hardboardPriceEur: number
+
+  /**
+   * When true, hardboard cost is whole bought sheets (3.5 used → 4 × sheet price).
+   * When false, only the consumed area fraction is billed.
+   */
+  billWholeHardboardSheets: boolean
+
   /** Unit prices by runner length in mm, e.g. { "500": 1.82 }. */
   slideRollerEur: PriceByLength
   slideSoftFullEur: PriceByLength
@@ -73,6 +85,9 @@ export const DEFAULT_HARDWARE_SETTINGS: HardwareSettings = {
   edgeMm2Eur: 0.7,
   edgeMm05Eur: 0.35,
   billWholeSheets: true,
+  chipboardPriceEur: 86,
+  hardboardPriceEur: 20,
+  billWholeHardboardSheets: true,
   slideRollerEur: { ...DEFAULT_SLIDE_ROLLER_EUR },
   slideSoftFullEur: { ...DEFAULT_SLIDE_SOFT_FULL_EUR },
   slideSoftPartialEur: { ...DEFAULT_SLIDE_SOFT_PARTIAL_EUR },
@@ -115,6 +130,9 @@ export function parseHardwareSettings(raw: unknown): HardwareSettings {
     edgeMm2Eur: num(src, 'edgeMm2Eur', d.edgeMm2Eur),
     edgeMm05Eur: num(src, 'edgeMm05Eur', d.edgeMm05Eur),
     billWholeSheets: typeof src.billWholeSheets === 'boolean' ? src.billWholeSheets : d.billWholeSheets,
+    chipboardPriceEur: num(src, 'chipboardPriceEur', d.chipboardPriceEur),
+    hardboardPriceEur: num(src, 'hardboardPriceEur', d.hardboardPriceEur),
+    billWholeHardboardSheets: typeof src.billWholeHardboardSheets === 'boolean' ? src.billWholeHardboardSheets : d.billWholeHardboardSheets,
     slideRollerEur: mergePriceMap(d.slideRollerEur, src.slideRollerEur),
     slideSoftFullEur: mergePriceMap(d.slideSoftFullEur, src.slideSoftFullEur),
     slideSoftPartialEur: mergePriceMap(d.slideSoftPartialEur, src.slideSoftPartialEur),

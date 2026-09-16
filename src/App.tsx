@@ -274,7 +274,7 @@ function App() {
     if (params.hasBack !== true) return
     setSheets((prev) => {
       if (firstSheetOfKind(prev, 'hardboard')) return prev
-      return [...prev, createHardboardSheet(generateId())]
+      return [...prev, createHardboardSheet(generateId(), settings.hardboardPriceEur)]
     })
   }
 
@@ -322,9 +322,26 @@ function App() {
   )
 
   const handleSaveSettings = (newSettings: HardwareSettings) => {
+    const oldSettings = settings
     setSettings(newSettings)
     saveSettings(newSettings)
     persistAccountSettings(newSettings, assemblyTimeSettings)
+    
+    // Актуализирай съществуващите плочи ако цената се е променила
+    if (newSettings.chipboardPriceEur !== oldSettings.chipboardPriceEur || 
+        newSettings.hardboardPriceEur !== oldSettings.hardboardPriceEur) {
+      setSheets((prev) => prev.map((sheet) => {
+        const kind = sheetKind(sheet)
+        if (kind === 'chipboard' && sheet.priceEur === oldSettings.chipboardPriceEur) {
+          return { ...sheet, priceEur: newSettings.chipboardPriceEur }
+        }
+        if (kind === 'hardboard' && sheet.priceEur === oldSettings.hardboardPriceEur) {
+          return { ...sheet, priceEur: newSettings.hardboardPriceEur }
+        }
+        return sheet
+      }))
+    }
+    
     resetPacking()
   }
 
@@ -386,7 +403,12 @@ function App() {
 
       <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-4 p-4">
         <div className="grid min-h-[400px] grid-cols-1 gap-4 lg:grid-cols-2">
-          <SheetsPanel sheets={sheets} onChange={setSheets} />
+          <SheetsPanel 
+            sheets={sheets} 
+            onChange={setSheets}
+            chipboardPriceEur={settings.chipboardPriceEur}
+            hardboardPriceEur={settings.hardboardPriceEur}
+          />
           <PartsPanel parts={parts} onChange={setParts} />
         </div>
 

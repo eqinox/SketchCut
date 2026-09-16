@@ -137,14 +137,14 @@ export function edgeBandingCostEur(
   return mm2Meters * mm2 + mm05Meters * mm05
 }
 
-export function createHardboardSheet(id: string): Sheet {
+export function createHardboardSheet(id: string, priceEur?: number): Sheet {
   return {
     id,
     width: DEFAULT_HARDBOARD_WIDTH,
     height: DEFAULT_HARDBOARD_HEIGHT,
     quantity: 1,
     kind: 'hardboard',
-    priceEur: DEFAULT_HARDBOARD_PRICE_EUR,
+    priceEur: priceEur ?? DEFAULT_HARDBOARD_PRICE_EUR,
   }
 }
 
