@@ -44,6 +44,7 @@ import {
   equalDrawerFrontHeights,
   drawerFrontsAreEven,
   canCombineFronts,
+  canCombineAdjacentZoneFronts,
   doorCutSize,
   doorCutRuleNote,
   DOOR_CLEARANCE_TOP,
@@ -299,16 +300,14 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
         settings: settings.hardware,
       })
     : null
-  const slideDepth =
-    typeId === 'kitchen-base'
-      ? (params as ReturnType<typeof parseKitchenBaseParams>).depth
-      : measureNightstand(params as ReturnType<typeof parseNightstandParams>, typeId === 'section').sideD
   const hasFittings = typeId === 'kitchen-base' || typeId === 'nightstand' || typeId === 'section'
-  const innerH =
+  const nsMeasure =
     typeId === 'kitchen-base'
-      ? params.height - 2 * params.thickness
-      : measureNightstand(params as ReturnType<typeof parseNightstandParams>, typeId === 'section').innerH
-  const frontH = dialogFrontHeight(typeId, params)
+      ? null
+      : measureNightstand(params as ReturnType<typeof parseNightstandParams>, typeId === 'section')
+  const slideDepth = typeId === 'kitchen-base' ? params.depth : nsMeasure!.sideD
+  const innerH = typeId === 'kitchen-base' ? params.height - 2 * params.thickness : nsMeasure!.innerH
+  const frontH = typeId === 'kitchen-base' ? params.height : nsMeasure!.frontHeight
   const layout = layoutInterior({
     innerH,
     thickness: params.thickness,
@@ -320,6 +319,9 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
     cutFromOneBoard: params.cutFromOneBoard,
     hasClothesRail: params.hasClothesRail,
     zones: params.zones,
+    overlayCovers: nsMeasure
+      ? { top: nsMeasure.frontCoversTop, bottom: nsMeasure.frontCoversBottom }
+      : undefined,
   })
   const error = validate(typeId, params, layout, frontH)
   const counts = fittingsCountsFromParams(params)
@@ -440,6 +442,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
         .map((z) => z.id)
     : []
   const canEqualizeDrawers = canEqualizeFull || zoneEqualizeIds.length > 0
+  const adjacentCombine = hasFixed && canCombineAdjacentZoneFronts(layout.zones)
   const showCombineFronts =
     canCombineFronts(fullDrawerNums.length, fullDrawerHasDoor ? doorCount : 0) ||
     (hasFixed &&
@@ -448,7 +451,8 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
           parseDrawerRows(zoneUi[z.id].drawerFrontHeights).length,
           doorSpan === 'zones' ? zoneUi[z.id].doorCount : 0,
         ),
-      ))
+      )) ||
+    adjacentCombine
 
   const equalizeDrawers = () => {
     if (canEqualizeFull) {
@@ -1242,7 +1246,11 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
               </Button>
             </div>
             <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
-              {combineHint(!hasFixed || doorSpan === 'full' ? doorCount : 0, cutFromOneBoard)}
+              {combineHint(
+                !hasFixed || doorSpan === 'full' ? doorCount : 0,
+                cutFromOneBoard,
+                adjacentCombine,
+              )}
             </p>
           </div>
         )}
@@ -1712,14 +1720,6 @@ function doorSizeHint(
   return parts.join(' ')
 }
 
-function dialogFrontHeight(
-  typeId: string,
-  params: { height: number; useLegs?: boolean; legHeight?: number; plinthHeight?: number },
-): number {
-  if (typeId === 'kitchen-base') return params.height
-  return params.height - (params.useLegs ? params.legHeight ?? 0 : params.plinthHeight ?? 0)
-}
-
 function validate(
   typeId: string,
   p: {
@@ -1777,7 +1777,12 @@ function drawerHint(frontHeight: number, doorCount: number, drawerFrontHeights: 
   return `Челата запълват корпуса. Фуга ${DOOR_CLEARANCE_TOP} мм отгоре, ${DRAWER_DOOR_GAP} мм между тях.`
 }
 
-function combineHint(doorCount: number, fromOneBoard: boolean): string {
+function combineHint(doorCount: number, fromOneBoard: boolean, adjacentParts = false): string {
+  if (adjacentParts) {
+    return fromOneBoard
+      ? 'Горните и долните чела/врати се режат от една плоча за продължена фладера, кантират се, после се разрязват. Фуга 3 мм между частите.'
+      : 'Горните и долните чела/врати се режат отделно. Фуга 3 мм между тях.'
+  }
   const withDoor = doorCount === 1
   if (!fromOneBoard) {
     if (withDoor) return 'Челата и вратата се режат отделно.'

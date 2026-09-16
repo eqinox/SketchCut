@@ -58,9 +58,14 @@ import {
   parseFixedShelves,
   parseZoneMap,
   fixedShelfMeasureLabel,
+  consecutiveZoneFrontRuns,
+  canCombineZoneFrontRun,
+  zoneFrontStackKind,
   type CabinetZoneId,
   type DoorSpan,
   type FixedShelfSpec,
+  type OverlayFrontCovers,
+  type LaidOutZone,
   type ZoneFittings,
 } from './zones'
 
@@ -276,6 +281,8 @@ export function appendDoorsAndDrawers(
     slideLength: number
     zoneLabel?: string
     groupKey?: string
+    /** Fronts already first-cut as one board with neighbouring parts. */
+    externalCombined?: { groupId: string }
   },
   panels: GeneratedPanel[],
   hardware: HardwareItem[],
@@ -287,10 +294,12 @@ export function appendDoorsAndDrawers(
   const doorCount = input.doorCount === 1 || input.doorCount === 2 ? input.doorCount : 0
   const hasDoors = doorCount !== 0
   const includeDoorInCombine = doorCount === 1
-  const combineBoard = input.cutFromOneBoard && canCombineFronts(drawerHeights.length, doorCount)
+  const fromExternal = !!input.externalCombined
+  const combineBoard =
+    !fromExternal && input.cutFromOneBoard && canCombineFronts(drawerHeights.length, doorCount)
   const softClose = isSoftCloseSlide(input.slideKind)
-  let combinedGroupId: string | undefined
-  let doorFromCombined = false
+  let combinedGroupId: string | undefined = input.externalCombined?.groupId
+  let doorFromCombined = fromExternal && hasDoors
 
   const door =
     doorCount === 1 || doorCount === 2
@@ -399,6 +408,29 @@ export function appendDoorsAndDrawers(
           highlightColor: 'red',
         })
       }
+    } else if (fromExternal && combinedGroupId) {
+      drawerHeights.forEach((frontH, i) => {
+        const cut = drawerFrontCutSize(input.width, frontH)
+        const name =
+          (n === 1 ? '  ↳ Чело (след разрязване)' : `  ↳ Чело ${i + 1} (${Math.round(frontH)} мм)`) +
+          zoneInName
+        notes.push(
+          `${where}${n === 1 ? 'Чело' : `Чело ${i + 1}`}: рязане ${Math.round(cut.width)} × ${Math.round(cut.height)} мм — от комбинираната плоча.`,
+        )
+        panels.push({
+          role: 'drawer-front',
+          name,
+          width: cut.width,
+          height: cut.height,
+          quantity: 1,
+          canRotate: false,
+          edges: edges({}),
+          note: '⚠️ НЕ СЕ РЕЖЕ ОТДЕЛНО - произлиза от комбинираното парче след разрязване.',
+          groupId: combinedGroupId,
+          excludeFromCutting: true,
+          highlightColor: 'red',
+        })
+      })
     } else {
       drawerHeights.forEach((frontH, i) => {
         const drawerFront = drawerFrontCutSize(input.width, frontH)
@@ -529,6 +561,20 @@ export function appendDoorsAndDrawers(
         edges: edges({ top: true, bottom: true, left: true, right: true }),
         note: `Кант 2 мм от 4 страни. ${doorWord}. Размерът е за рязане (без канта).`,
       })
+    } else if (fromExternal && combinedGroupId && !combineBoard) {
+      panels.push({
+        role: 'door',
+        name: `  ↳ Врата (след разрязване)${zoneInName}`,
+        width: door.width,
+        height: door.height,
+        quantity: doorCount,
+        canRotate: false,
+        edges: edges({}),
+        note: '⚠️ НЕ СЕ РЕЖЕ ОТДЕЛНО - произлиза от комбинираното парче след разрязване.',
+        groupId: combinedGroupId,
+        excludeFromCutting: true,
+        highlightColor: 'red',
+      })
     }
   }
 
@@ -560,6 +606,59 @@ export function appendDoorsAndDrawers(
   return { doorCount, drawerCount: drawerHeights.length }
 }
 
+type CombinedFrontPiece = {
+  width: number
+  height: number
+  role: 'door' | 'drawer-front'
+  label: string
+}
+
+function zoneFullWidthFrontCuts(z: LaidOutZone, cabinetWidth: number): CombinedFrontPiece[] {
+  const drawers = z.drawerFrontHeights.filter((h) => h > 0)
+  const out: CombinedFrontPiece[] = []
+  for (const h of drawers) {
+    const c = drawerFrontCutSize(cabinetWidth, h)
+    out.push({ ...c, role: 'drawer-front', label: `чело ${Math.round(h)} мм (${z.label})` })
+  }
+  if (z.doorCount === 1) {
+    const door = drawers.length
+      ? doorWithDrawersCutSize(cabinetWidth, z.frontHeight, drawers, 1)
+      : doorCutSize(cabinetWidth, z.frontHeight, 1)
+    out.push({ ...door, role: 'door', label: `врата (${z.label})` })
+  }
+  return out
+}
+
+function pushCombinedFirstCut(
+  pieces: CombinedFrontPiece[],
+  opts: { groupId: string; labels: string; quantity: number },
+  panels: GeneratedPanel[],
+  notes: string[],
+) {
+  if (pieces.length < 2) return
+  const combinedHeight = combinedFrontCutHeight(pieces.map((c) => c.height))
+  const width = pieces[0]?.width ?? 0
+  const partsLabel = pieces.map((c) => Math.round(c.height)).join(' + ')
+  const bufferNote = ` + ${COMBINED_FRONT_SAW_BUFFER * (pieces.length - 1)} мм буфер`
+  const qtyNote = opts.quantity > 1 ? ` ×${opts.quantity}` : ''
+  notes.push(
+    `${opts.labels} от една плоча: Първо рязане ${Math.round(width)} × ${Math.round(combinedHeight)} мм${qtyNote} (${partsLabel}${bufferNote}).`,
+  )
+  notes.push(`След кантиране се разрязва на ${pieces.map((p) => p.label).join(', ')}.`)
+  panels.push({
+    role: pieces.some((p) => p.role === 'door') ? 'door' : 'drawer-front',
+    name: `🔴 Чела (комбинирано) (${opts.labels})`,
+    width,
+    height: combinedHeight,
+    quantity: opts.quantity,
+    canRotate: false,
+    edges: edges({ top: true, bottom: true, left: true, right: true }),
+    note: `ПЪРВО РЯЗАНЕ от една плоча за продължена фладера (${opts.labels}). След кантиране се разрязва на ${pieces.length} парчета.`,
+    groupId: opts.groupId,
+    highlightColor: 'red',
+  })
+}
+
 export function appendZonedInterior(
   input: {
     fittings: InteriorFittings
@@ -569,6 +668,7 @@ export function appendZonedInterior(
     thickness: number
     width: number
     frontHeight: number
+    overlayCovers?: OverlayFrontCovers
   },
   panels: GeneratedPanel[],
   hardware: HardwareItem[],
@@ -593,6 +693,7 @@ export function appendZonedInterior(
     cutFromOneBoard: f.cutFromOneBoard,
     hasClothesRail: f.hasClothesRail,
     zones: f.zones,
+    overlayCovers: input.overlayCovers,
   })
   const zoned = layout.shelves.length > 0
   const zoneNote = zoned ? 'zoned' : undefined
@@ -642,6 +743,38 @@ export function appendZonedInterior(
 
   let doorCount = 0
   let drawerCount = 0
+  const crossGroup = new Map<string, string>()
+
+  if (consecutiveZoneFrontRuns(layout.zones).some((r) => r.length >= 2)) {
+    notes.push(
+      'Съседните части имат чела/врати едно след друго: фуга 3 мм между тях, без застъпване върху рафта.',
+    )
+  }
+
+  if (f.cutFromOneBoard) {
+    for (const run of consecutiveZoneFrontRuns(layout.zones)) {
+      if (!canCombineZoneFrontRun(run)) continue
+      const kind = zoneFrontStackKind(run[0])
+      const groupId = `zones-${run.map((z) => z.id).join('-')}`
+      const topFirst = [...run].reverse()
+      const labels = topFirst.map((z) => z.label).join(' + ')
+      if (kind === 'full') {
+        pushCombinedFirstCut(
+          topFirst.flatMap((z) => zoneFullWidthFrontCuts(z, input.width)),
+          { groupId, labels, quantity: 1 },
+          panels,
+          notes,
+        )
+      } else if (kind === 'half') {
+        const pieces: CombinedFrontPiece[] = topFirst.map((z) => {
+          const c = doorCutSize(input.width, z.frontHeight, 2)
+          return { ...c, role: 'door', label: `врата (${z.label})` }
+        })
+        pushCombinedFirstCut(pieces, { groupId, labels, quantity: 2 }, panels, notes)
+      }
+      for (const z of run) crossGroup.set(z.id, groupId)
+    }
+  }
 
   if (layout.fullDoorCount > 0 || layout.fullDrawerFrontHeights.length > 0) {
     const r = appendDoorsAndDrawers(
@@ -676,12 +809,13 @@ export function appendZonedInterior(
         thickness: input.thickness,
         doorCount: z.doorCount,
         drawerFrontHeights: z.drawerFrontHeights,
-        cutFromOneBoard: z.cutFromOneBoard,
+        cutFromOneBoard: crossGroup.has(z.id) ? false : z.cutFromOneBoard,
         includeHandles: f.includeHandles,
         slideKind: f.slideKind,
         slideLength: f.slideLength,
         zoneLabel: zoned ? z.label : undefined,
         groupKey: zoned ? `zone-${z.id}` : zoneNote,
+        externalCombined: crossGroup.has(z.id) ? { groupId: crossGroup.get(z.id)! } : undefined,
       },
       panels,
       hardware,

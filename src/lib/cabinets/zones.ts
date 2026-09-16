@@ -114,8 +114,8 @@ export interface ResolvedZone {
   isLast: boolean
   /**
    * Overlay front in inner-floor coords.
-   * Bottom zone: outer bottom (−T) → top face of the shelf above.
-   * Top zone: bottom face of the shelf below → outer top (innerH + T).
+   * Bottom zone: outer bottom (−T) or top of a covering bottom (0) → top face of the shelf above.
+   * Top zone: bottom face of the shelf below → outer top (innerH + T), or underside of a covering top (innerH).
    * Middle: bottom face of the shelf below → top face of the shelf above.
    */
   frontY0: number
@@ -238,10 +238,106 @@ export function resolveFixedShelves(
   return { shelves: resolved, error: null }
 }
 
+export function zoneHasOverlayFronts(z: {
+  doorCount: DoorCount
+  drawerFrontHeights: number[]
+}): boolean {
+  return z.doorCount > 0 || z.drawerFrontHeights.some((h) => h > 0)
+}
+
+/**
+ * When neighbouring parts both have doors/fronts, they must not overlap on the
+ * shelf: meet at the lower part's top (top face of the shelf). The 3 mm фуга
+ * at the top of the lower stack is then the gap between the two parts.
+ */
+export function joinAdjacentZoneFronts(zones: LaidOutZone[]): void {
+  for (let i = 0; i < zones.length - 1; i++) {
+    const lower = zones[i]
+    const upper = zones[i + 1]
+    if (!zoneHasOverlayFronts(lower) || !zoneHasOverlayFronts(upper)) continue
+    upper.frontY0 = lower.frontY1
+    upper.frontHeight = Math.max(0, upper.frontY1 - upper.frontY0)
+  }
+}
+
+export type ZoneFrontStackKind = 'empty' | 'full' | 'half' | 'mixed'
+
+/** Same-width overlay pieces in a part: full-width (чела / 1 врата) or half (2 врати). */
+export function zoneFrontStackKind(z: {
+  doorCount: DoorCount
+  drawerFrontHeights: number[]
+}): ZoneFrontStackKind {
+  const drawers = z.drawerFrontHeights.filter((h) => h > 0)
+  if (z.doorCount === 0 && drawers.length === 0) return 'empty'
+  if (z.doorCount === 2 && drawers.length > 0) return 'mixed'
+  if (z.doorCount === 2) return 'half'
+  return 'full'
+}
+
+/** Consecutive parts that both have fronts, bottom → top. */
+export function consecutiveZoneFrontRuns(zones: LaidOutZone[]): LaidOutZone[][] {
+  const runs: LaidOutZone[][] = []
+  let current: LaidOutZone[] = []
+  for (const z of zones) {
+    if (zoneHasOverlayFronts(z)) {
+      current.push(z)
+    } else if (current.length > 0) {
+      runs.push(current)
+      current = []
+    }
+  }
+  if (current.length > 0) runs.push(current)
+  return runs
+}
+
+function fullWidthPieceCount(z: { doorCount: DoorCount; drawerFrontHeights: number[] }): number {
+  return z.drawerFrontHeights.filter((h) => h > 0).length + (z.doorCount === 1 ? 1 : 0)
+}
+
+/** Neighbouring parts can share one first-cut board for continuous grain. */
+export function canCombineZoneFrontRun(zones: LaidOutZone[]): boolean {
+  if (zones.length < 2) return false
+  const kinds = zones.map(zoneFrontStackKind)
+  if (kinds.some((k) => k === 'mixed' || k === 'empty')) return false
+  if (kinds.every((k) => k === 'full')) {
+    return zones.reduce((n, z) => n + fullWidthPieceCount(z), 0) >= 2
+  }
+  if (kinds.every((k) => k === 'half')) return true
+  return false
+}
+
+export function canCombineAdjacentZoneFronts(zones: LaidOutZone[]): boolean {
+  return consecutiveZoneFrontRuns(zones).some(canCombineZoneFrontRun)
+}
+
+/**
+ * Whether an overlay door / front covers the front edge of the top or bottom panel.
+ * Default is cover both (kitchen carcass, inner top). Set `top: false` when the top
+ * overhangs the sides — the door stops at the underside so the top's edge banding stays visible.
+ */
+export interface OverlayFrontCovers {
+  top?: boolean
+  bottom?: boolean
+}
+
+/** Inner-floor span of the overlay front for the whole carcass. */
+export function overlayFrontExtent(
+  innerH: number,
+  thickness: number,
+  covers?: OverlayFrontCovers,
+): { frontY0: number; frontY1: number; frontHeight: number } {
+  const coverTop = covers?.top !== false
+  const coverBottom = covers?.bottom !== false
+  const frontY0 = coverBottom ? -thickness : 0
+  const frontY1 = coverTop ? innerH + thickness : innerH
+  return { frontY0, frontY1, frontHeight: Math.max(0, frontY1 - frontY0) }
+}
+
 export function cabinetZones(
   shelves: ResolvedFixedShelf[],
   innerH: number,
   thickness: number,
+  overlayCovers?: OverlayFrontCovers,
 ): ResolvedZone[] {
   const openings: { y0: number; y1: number }[] = []
   let cursor = 0
@@ -253,6 +349,7 @@ export function cabinetZones(
 
   const ids: CabinetZoneId[] =
     openings.length === 1 ? ['bottom'] : openings.length === 2 ? ['bottom', 'top'] : ['bottom', 'middle', 'top']
+  const extent = overlayFrontExtent(innerH, thickness, overlayCovers)
 
   return openings.map((o, i) => {
     const isFirst = i === 0
@@ -260,8 +357,8 @@ export function cabinetZones(
     const inner = Math.max(0, o.y1 - o.y0)
     const shelfBelow = i > 0 ? shelves[i - 1] : undefined
     const shelfAbove = i < shelves.length ? shelves[i] : undefined
-    const frontY0 = isFirst ? -thickness : (shelfBelow?.yBottom ?? o.y0)
-    const frontY1 = isLast ? innerH + thickness : (shelfAbove?.yTop ?? o.y1)
+    const frontY0 = isFirst ? extent.frontY0 : (shelfBelow?.yBottom ?? o.y0)
+    const frontY1 = isLast ? extent.frontY1 : (shelfAbove?.yTop ?? o.y1)
     const id = ids[i] ?? 'bottom'
     return {
       id,
@@ -308,9 +405,10 @@ export function layoutInterior(input: {
   cutFromOneBoard: boolean
   hasClothesRail: boolean
   zones?: Partial<Record<CabinetZoneId, ZoneFittings>>
+  overlayCovers?: OverlayFrontCovers
 }): InteriorLayout {
   const { shelves, error } = resolveFixedShelves(input.fixedShelves, input.innerH, input.thickness)
-  const rawZones = cabinetZones(shelves, input.innerH, input.thickness)
+  const rawZones = cabinetZones(shelves, input.innerH, input.thickness, input.overlayCovers)
   const zoned = shelves.length > 0
   const doorSpan: DoorSpan = zoned ? input.doorSpan : 'full'
 
@@ -332,6 +430,7 @@ export function layoutInterior(input: {
       doorCount: doorSpan === 'zones' ? f.doorCount : 0,
     }
   })
+  joinAdjacentZoneFronts(zones)
 
   return {
     shelves,

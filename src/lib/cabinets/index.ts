@@ -36,11 +36,17 @@ export {
   stackFronts,
   validateZoneFronts,
   allDrawerFrontHeights,
+  overlayFrontExtent,
+  zoneHasOverlayFronts,
+  consecutiveZoneFrontRuns,
+  canCombineAdjacentZoneFronts,
+  canCombineZoneFrontRun,
   defaultShelfFaces,
   measureFixedShelf,
   fixedShelfMeasureLabel,
 } from './zones'
 export type {
+  OverlayFrontCovers,
   FixedShelfSpec,
   FixedShelfFrom,
   PanelFace,

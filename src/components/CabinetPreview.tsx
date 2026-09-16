@@ -1005,6 +1005,7 @@ function PlinthBoxPreview({
     cutFromOneBoard: p.cutFromOneBoard,
     hasClothesRail: p.hasClothesRail,
     zones: p.zones,
+    overlayCovers: { top: m.frontCoversTop, bottom: m.frontCoversBottom },
   })
   const counts = layoutCounts(layout)
   const drawerViews = uniqueDrawerViews({ ...p, drawerFrontHeights: allDrawerFrontHeights(layout) })
@@ -1156,6 +1157,8 @@ function PlinthBoxFront3DView({
   const shelfDepth = m.sideD - DEFAULT_SHELF_FRONT_INSET
   const innerFloorY = bottomY
   const carcassBotY = floor - supportH
+  const frontTopY = m.frontCoversTop ? topY : topY + T
+  const frontBotY = m.frontCoversBottom ? carcassBotY : bottomY
 
   const leftInnerH = Math.max(T, bottomY - (topInner ? topY + T : sideY))
   const leftInnerY = topInner ? topY + T : sideY
@@ -1388,8 +1391,8 @@ function PlinthBoxFront3DView({
 
       {drawerSlideStacks(layout, {
         innerFloorY,
-        carcassTopY: topY,
-        carcassBotY,
+        carcassTopY: frontTopY,
+        carcassBotY: frontBotY,
         thickness: T,
       }).flatMap((src) =>
         src.heights.map((frontH, i) => {
@@ -1457,8 +1460,8 @@ function PlinthBoxFront3DView({
           W={W}
           T={T}
           innerFloorY={innerFloorY}
-          carcassTopY={topY}
-          carcassBotY={carcassBotY}
+          carcassTopY={frontTopY}
+          carcassBotY={frontBotY}
           z={0}
           d={T}
           cam={view}

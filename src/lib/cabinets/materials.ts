@@ -27,6 +27,7 @@ export const EDGING_MINUTES_PER_SHEET = 30
  *
  * Height: bottom of the door sits at 0 on the opening; subtract DOOR_CLEARANCE_TOP
  * at the top (фуга), then DOOR_EDGE_MM on top and bottom for banding.
+ * When the top overhangs the sides, the opening's top is the underside of the top.
  * Width: DOOR_GAP_X total (DOOR_SIDE_GAP_EACH each side), then banding on both sides.
  */
 /** Фуга at the top of a door (and of the topmost front in a stack), mm. */

@@ -147,6 +147,11 @@ export function measureNightstand(p: NightstandParams, topInner = false) {
   const plinthLength = p.width - 2 * T
   const plinthZ = frontOverhang + PLINTH_INSET
   const backPlinthZ = frontOverhang + sideD - PLINTH_INSET - T
+  /** Door stops at the underside when the top overhangs the sides (edge banding stays visible). */
+  const frontCoversTop = topD <= sideD
+  /** Same at the bottom when the bottom also overhangs (legs + outer bottom). */
+  const frontCoversBottom = bottomD <= sideD
+  const frontHeight = innerH + (frontCoversTop ? T : 0) + (frontCoversBottom ? T : 0)
 
   return {
     thickness: T,
@@ -166,7 +171,9 @@ export function measureNightstand(p: NightstandParams, topInner = false) {
     backPlinthZ,
     plinthInset: PLINTH_INSET,
     topInner,
-    frontHeight: p.height - supportH,
+    frontCoversTop,
+    frontCoversBottom,
+    frontHeight,
   }
 }
 
@@ -199,6 +206,7 @@ export function generatePlinthCabinet(
     notes.push(
       `Дъното е външно (${m.bottomW} × ${m.bottomD} мм), страниците влизат в него. Плотът е външен върху страниците (${m.topW} × ${m.topD} мм).`,
       `Страниците са ${m.sideD} мм дълбоки — общата дълбочина ${p.depth} мм включва врата/чело ${p.thickness} мм + 2 мм кант.`,
+      'Плотът и дъното стърчат отпред — вратата/челото стига до долната страна на плота и до горната на дъното, кантовете остават видими.',
       'Плотът се хваща отвътре с 4 ъгълчета, без винтове 5×60 през горната страна.',
       `4 крачета ${p.legHeight} мм под дъното. Винтове 5×60 отдолу през дъното в страниците.`,
     )
@@ -217,6 +225,7 @@ export function generatePlinthCabinet(
     notes.push(
       `Страниците са външни на дъното (${m.bottomW} мм между тях). Плотът е външен върху страниците (${m.topW} × ${m.topD} мм).`,
       `Страниците са ${m.sideD} мм дълбоки — общата дълбочина ${p.depth} мм включва врата/чело ${p.thickness} мм + 2 мм кант на плота.`,
+      'Плотът стърчи отпред — вратата/челото стига до долната му страна, кантът на плота остава видим.',
       'Плотът се хваща отвътре с 4 ъгълчета, без винтове 5×60 през горната страна.',
       'Цокъл с канта надолу, дъното върху него, пробив отгоре през дъното. После дъното между страниците.',
       `Дъното е на ${p.plinthHeight} мм от земята. Долу опират само двете страници и цокълът.`,
@@ -353,6 +362,7 @@ export function generatePlinthCabinet(
       thickness: p.thickness,
       width: p.width,
       frontHeight: m.frontHeight,
+      overlayCovers: { top: m.frontCoversTop, bottom: m.frontCoversBottom },
     },
     panels,
     hardware,
