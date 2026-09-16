@@ -322,9 +322,26 @@ function App() {
   )
 
   const handleSaveSettings = (newSettings: HardwareSettings) => {
+    const oldSettings = settings
     setSettings(newSettings)
     saveSettings(newSettings)
     persistAccountSettings(newSettings, assemblyTimeSettings)
+    
+    // Актуализирай съществуващите плочи ако цената се е променила
+    if (newSettings.chipboardPriceEur !== oldSettings.chipboardPriceEur || 
+        newSettings.hardboardPriceEur !== oldSettings.hardboardPriceEur) {
+      setSheets((prev) => prev.map((sheet) => {
+        const kind = sheetKind(sheet)
+        if (kind === 'chipboard' && sheet.priceEur === oldSettings.chipboardPriceEur) {
+          return { ...sheet, priceEur: newSettings.chipboardPriceEur }
+        }
+        if (kind === 'hardboard' && sheet.priceEur === oldSettings.hardboardPriceEur) {
+          return { ...sheet, priceEur: newSettings.hardboardPriceEur }
+        }
+        return sheet
+      }))
+    }
+    
     resetPacking()
   }
 

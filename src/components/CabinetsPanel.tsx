@@ -176,21 +176,38 @@ export function CabinetsPanel({
             {WORK_HOURS_PER_DAY} ч работа
             {hourly > 0 ? ` · ${formatEur(hourly)}/ч` : ''}
           </p>
-          <label className="flex max-w-[16rem] cursor-pointer items-start gap-2 pb-1 text-xs leading-snug">
-            <Checkbox
-              className="mt-0.5"
-              checked={settings.hardware.billWholeSheets}
-              onCheckedChange={(c) =>
-                onHardwareSettingsChange?.({ ...settings.hardware, billWholeSheets: c === true })
-              }
-            />
-            <span>
-              Цели закупени плочи
-              <span className="mt-0.5 block text-[var(--color-muted-foreground)]">
-                3,5 изразходвани → цена за 4 плочи
+          <div className="space-y-2">
+            <label className="flex max-w-[16rem] cursor-pointer items-start gap-2 text-xs leading-snug">
+              <Checkbox
+                className="mt-0.5"
+                checked={settings.hardware.billWholeSheets}
+                onCheckedChange={(c) =>
+                  onHardwareSettingsChange?.({ ...settings.hardware, billWholeSheets: c === true })
+                }
+              />
+              <span>
+                Цели закупени плочи ПДЧ
+                <span className="mt-0.5 block text-[var(--color-muted-foreground)]">
+                  3,5 изразходвани → цена за 4 плочи
+                </span>
               </span>
-            </span>
-          </label>
+            </label>
+            <label className="flex max-w-[16rem] cursor-pointer items-start gap-2 text-xs leading-snug">
+              <Checkbox
+                className="mt-0.5"
+                checked={settings.hardware.billWholeHardboardSheets}
+                onCheckedChange={(c) =>
+                  onHardwareSettingsChange?.({ ...settings.hardware, billWholeHardboardSheets: c === true })
+                }
+              />
+              <span>
+                Цели закупени плочи фазер
+                <span className="mt-0.5 block text-[var(--color-muted-foreground)]">
+                  3,5 изразходвани → цена за 4 плочи
+                </span>
+              </span>
+            </label>
+          </div>
         </div>
       </div>
 
