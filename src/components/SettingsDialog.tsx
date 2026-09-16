@@ -133,6 +133,7 @@ export function SettingsDialog({
   const [edgeMm2, setEdgeMm2] = useState('')
   const [edgeMm05, setEdgeMm05] = useState('')
   const [billWholeSheets, setBillWholeSheets] = useState(true)
+  const [chipboardPrice, setChipboardPrice] = useState('')
   const [hardboardPrice, setHardboardPrice] = useState('')
   const [billWholeHardboardSheets, setBillWholeHardboardSheets] = useState(true)
   const [slideRoller, setSlideRoller] = useState<PriceByLength>({})
@@ -192,6 +193,7 @@ export function SettingsDialog({
     setEdgeMm2(String(s.edgeMm2Eur))
     setEdgeMm05(String(s.edgeMm05Eur))
     setBillWholeSheets(s.billWholeSheets)
+    setChipboardPrice(String(s.chipboardPriceEur))
     setHardboardPrice(String(s.hardboardPriceEur))
     setBillWholeHardboardSheets(s.billWholeHardboardSheets)
     setSlideRoller({ ...s.slideRollerEur })
@@ -262,6 +264,7 @@ export function SettingsDialog({
       edgeMm2Eur: parseFloat(edgeMm2) || DEFAULT_HARDWARE_SETTINGS.edgeMm2Eur,
       edgeMm05Eur: parseFloat(edgeMm05) || DEFAULT_HARDWARE_SETTINGS.edgeMm05Eur,
       billWholeSheets,
+      chipboardPriceEur: parseFloat(chipboardPrice) || DEFAULT_HARDWARE_SETTINGS.chipboardPriceEur,
       hardboardPriceEur: parseFloat(hardboardPrice) || DEFAULT_HARDWARE_SETTINGS.hardboardPriceEur,
       billWholeHardboardSheets,
       slideRollerEur: { ...slideRoller },
@@ -603,6 +606,20 @@ export function SettingsDialog({
             <div className="rounded-md border border-[var(--color-border)] p-4 sm:col-span-2">
               <h3 className="mb-3 font-medium">Плочи</h3>
               <div className="space-y-4">
+                <div>
+                  <Label htmlFor="chipboard-price">Цена на ПДЧ (€/плоча)</Label>
+                  <Input
+                    id="chipboard-price"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={chipboardPrice}
+                    onChange={(e) => setChipboardPrice(e.target.value)}
+                  />
+                  <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
+                    Стандартен размер ПДЧ: 2780 × 2040 мм
+                  </p>
+                </div>
                 <div>
                   <Label htmlFor="hardboard-price">Цена на фазер (€/плоча)</Label>
                   <Input

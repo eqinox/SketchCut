@@ -386,7 +386,12 @@ function App() {
 
       <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-4 p-4">
         <div className="grid min-h-[400px] grid-cols-1 gap-4 lg:grid-cols-2">
-          <SheetsPanel sheets={sheets} onChange={setSheets} />
+          <SheetsPanel 
+            sheets={sheets} 
+            onChange={setSheets}
+            chipboardPriceEur={settings.chipboardPriceEur}
+            hardboardPriceEur={settings.hardboardPriceEur}
+          />
           <PartsPanel parts={parts} onChange={setParts} />
         </div>
 

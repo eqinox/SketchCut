@@ -26,6 +26,9 @@ export interface HardwareSettings {
    */
   billWholeSheets: boolean
 
+  /** Chipboard (ПДЧ) price per sheet, EUR. */
+  chipboardPriceEur: number
+
   /** Hardboard (фазер) price per sheet, EUR. */
   hardboardPriceEur: number
 
@@ -82,6 +85,7 @@ export const DEFAULT_HARDWARE_SETTINGS: HardwareSettings = {
   edgeMm2Eur: 0.7,
   edgeMm05Eur: 0.35,
   billWholeSheets: true,
+  chipboardPriceEur: 86,
   hardboardPriceEur: 20,
   billWholeHardboardSheets: true,
   slideRollerEur: { ...DEFAULT_SLIDE_ROLLER_EUR },
@@ -126,6 +130,7 @@ export function parseHardwareSettings(raw: unknown): HardwareSettings {
     edgeMm2Eur: num(src, 'edgeMm2Eur', d.edgeMm2Eur),
     edgeMm05Eur: num(src, 'edgeMm05Eur', d.edgeMm05Eur),
     billWholeSheets: typeof src.billWholeSheets === 'boolean' ? src.billWholeSheets : d.billWholeSheets,
+    chipboardPriceEur: num(src, 'chipboardPriceEur', d.chipboardPriceEur),
     hardboardPriceEur: num(src, 'hardboardPriceEur', d.hardboardPriceEur),
     billWholeHardboardSheets: typeof src.billWholeHardboardSheets === 'boolean' ? src.billWholeHardboardSheets : d.billWholeHardboardSheets,
     slideRollerEur: mergePriceMap(d.slideRollerEur, src.slideRollerEur),

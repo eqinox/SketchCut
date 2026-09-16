@@ -21,14 +21,19 @@ import { cn } from '@/lib/utils'
 interface SheetsPanelProps {
   sheets: Sheet[]
   onChange: (sheets: Sheet[]) => void
+  chipboardPriceEur?: number
+  hardboardPriceEur?: number
 }
 
-export function SheetsPanel({ sheets, onChange }: SheetsPanelProps) {
+export function SheetsPanel({ sheets, onChange, chipboardPriceEur, hardboardPriceEur }: SheetsPanelProps) {
+  const chipPrice = chipboardPriceEur ?? DEFAULT_CHIPBOARD_PRICE_EUR
+  const hardPrice = hardboardPriceEur ?? DEFAULT_HARDBOARD_PRICE_EUR
+  
   const [kind, setKind] = useState<BoardKind>('chipboard')
   const [width, setWidth] = useState(String(DEFAULT_CHIPBOARD_WIDTH))
   const [height, setHeight] = useState(String(DEFAULT_CHIPBOARD_HEIGHT))
   const [quantity, setQuantity] = useState('')
-  const [price, setPrice] = useState(String(DEFAULT_CHIPBOARD_PRICE_EUR))
+  const [price, setPrice] = useState(String(chipPrice))
   const [dragIndex, setDragIndex] = useState<number | null>(null)
   const [dropIndex, setDropIndex] = useState<number | null>(null)
 
@@ -37,11 +42,11 @@ export function SheetsPanel({ sheets, onChange }: SheetsPanelProps) {
     if (next === 'hardboard') {
       setWidth(String(DEFAULT_HARDBOARD_WIDTH))
       setHeight(String(DEFAULT_HARDBOARD_HEIGHT))
-      setPrice(String(DEFAULT_HARDBOARD_PRICE_EUR || ''))
+      setPrice(String(hardPrice))
     } else {
       setWidth(String(DEFAULT_CHIPBOARD_WIDTH))
       setHeight(String(DEFAULT_CHIPBOARD_HEIGHT))
-      setPrice(String(DEFAULT_CHIPBOARD_PRICE_EUR))
+      setPrice(String(chipPrice))
     }
   }
 
