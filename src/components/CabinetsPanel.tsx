@@ -17,6 +17,7 @@ import {
   getCabinetType,
   hourlyRateEur,
   parseKitchenBaseParams,
+  parseKitchenWallParams,
   fittingsCountsFromParams,
   scaleCabinetResult,
   type CabinetInstance,
@@ -40,6 +41,7 @@ interface CabinetsPanelProps {
     input: { typeId: string; params: Record<string, unknown>; quantity: number },
   ) => void
   applyRemove: (cabinetId: string) => void
+  onClear?: () => void
 }
 
 export function CabinetsPanel({
@@ -52,6 +54,7 @@ export function CabinetsPanel({
   applyAdd,
   applyUpdate,
   applyRemove,
+  onClear,
 }: CabinetsPanelProps) {
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<CabinetInstance | null>(null)
@@ -211,10 +214,22 @@ export function CabinetsPanel({
         </div>
       </div>
 
-      <Button onClick={openAdd} variant="secondary" className="w-full sm:w-auto">
-        <Plus className="h-4 w-4" />
-        Добави шкаф
-      </Button>
+      <div className="flex flex-wrap gap-2">
+        <Button onClick={openAdd} variant="secondary" className="w-full sm:w-auto">
+          <Plus className="h-4 w-4" />
+          Добави шкаф
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          className="w-full sm:w-auto"
+          disabled={cabinets.length === 0}
+          onClick={() => onClear?.()}
+        >
+          <Trash2 className="h-4 w-4" />
+          Изчисти шкафовете
+        </Button>
+      </div>
 
       {cabinets.length === 0 ? (
         <p className="text-sm text-[var(--color-muted-foreground)]">
@@ -225,9 +240,10 @@ export function CabinetsPanel({
           <ul className="space-y-2">
             {cabinets.map((c, i) => {
               const type = getCabinetType(c.typeId)
-              const p = parseKitchenBaseParams(c.params)
+              const p = c.typeId === 'kitchen-wall' ? parseKitchenWallParams(c.params) : parseKitchenBaseParams(c.params)
               const fit = fittingsCountsFromParams(p)
               const row = priced.find((r) => r.cabinet.id === c.id)
+              const wall = c.typeId === 'kitchen-wall' ? parseKitchenWallParams(c.params) : null
               return (
                 <li
                   key={c.id}
@@ -259,7 +275,13 @@ export function CabinetsPanel({
                       </p>
                     )}
                     <p className="truncate text-xs text-[var(--color-muted-foreground)]">
-                      {p.width} × {p.height} × {p.depth} мм · крачета {p.legHeight} мм
+                      {p.width} × {p.height} × {p.depth} мм
+                      {c.typeId === 'kitchen-base' && 'legHeight' in p ? ` · крачета ${p.legHeight} мм` : ''}
+                      {wall?.hasHood
+                        ? wall.hoodShape === 'rect'
+                          ? ` · абсорбатор ${wall.hoodRectW}×${wall.hoodRectD}`
+                          : ` · абсорбатор Ø${wall.hoodDiameter}`
+                        : ''}
                       {fit.fixedShelves > 0
                         ? ` · ${fit.fixedShelves} ${fit.fixedShelves === 1 ? 'фиксиран рафт' : 'фиксирани рафта'}`
                         : ''}

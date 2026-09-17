@@ -147,7 +147,11 @@ export function SettingsDialog({
   const [edgeAdditional, setEdgeAdditional] = useState('')
   const [installLegs, setInstallLegs] = useState('')
   const [assembleRails, setAssembleRails] = useState('')
+  const [frontFascia, setFrontFascia] = useState('')
+  const [prepareWallSides, setPrepareWallSides] = useState('')
+  const [assembleWallCarcass, setAssembleWallCarcass] = useState('')
   const [shelfPinPair, setShelfPinPair] = useState('')
+  const [shelfPinExtra, setShelfPinExtra] = useState('')
   const [shelfPinPairDeep, setShelfPinPairDeep] = useState('')
   const [shelfPinDeepMinDepth, setShelfPinDeepMinDepth] = useState('')
   const [backSmall, setBackSmall] = useState('')
@@ -161,17 +165,28 @@ export function SettingsDialog({
   const [topSmall, setTopSmall] = useState('')
   const [topMedium, setTopMedium] = useState('')
   const [topLarge, setTopLarge] = useState('')
+  const [topCornersSmall, setTopCornersSmall] = useState('')
+  const [topCornersMedium, setTopCornersMedium] = useState('')
+  const [topCornersLarge, setTopCornersLarge] = useState('')
   const [clothesConsole, setClothesConsole] = useState('')
   const [clothesCut, setClothesCut] = useState('')
   const [clothesInstall, setClothesInstall] = useState('')
   const [drawerGuides, setDrawerGuides] = useState('')
   const [drawerGuidesDeep, setDrawerGuidesDeep] = useState('')
+  const [drawerGuidesSoft, setDrawerGuidesSoft] = useState('')
   const [drawerGuideDeepMinHeight, setDrawerGuideDeepMinHeight] = useState('')
+  const [softGrooveFirst, setSoftGrooveFirst] = useState('')
+  const [softGrooveExtra, setSoftGrooveExtra] = useState('')
   const [drawerBox, setDrawerBox] = useState('')
   const [drawerBack, setDrawerBack] = useState('')
   const [drawerRunners, setDrawerRunners] = useState('')
   const [drawerFront, setDrawerFront] = useState('')
-  const [installDoor, setInstallDoor] = useState('')
+  const [frontEdgeSmall, setFrontEdgeSmall] = useState('')
+  const [frontEdgeTall, setFrontEdgeTall] = useState('')
+  const [installDoorSmall, setInstallDoorSmall] = useState('')
+  const [installDoorTall, setInstallDoorTall] = useState('')
+  const [tallDoorRouter, setTallDoorRouter] = useState('')
+  const [tallDoorMinHeight, setTallDoorMinHeight] = useState('')
   const [sizeWidthSmall, setSizeWidthSmall] = useState('')
   const [sizeWidthMedium, setSizeWidthMedium] = useState('')
   const [sizeHeightSmall, setSizeHeightSmall] = useState('')
@@ -208,7 +223,11 @@ export function SettingsDialog({
     setEdgeAdditional(String(s.edgeBanding.thinEdgeAdditionalPer50cm))
     setInstallLegs(String(s.installLegsMinutes))
     setAssembleRails(String(s.assembleTopRailsMinutes))
+    setFrontFascia(String(s.installFrontFasciaMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.installFrontFasciaMinutes))
+    setPrepareWallSides(String(s.prepareWallSidesMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.prepareWallSidesMinutes))
+    setAssembleWallCarcass(String(s.assembleWallCarcassMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.assembleWallCarcassMinutes))
     setShelfPinPair(String(s.shelfPinPairMinutes))
+    setShelfPinExtra(String(s.shelfPinExtraMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.shelfPinExtraMinutes))
     setShelfPinPairDeep(String(s.shelfPinPairDeepMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.shelfPinPairDeepMinutes))
     setShelfPinDeepMinDepth(String(s.shelfPinDeepMinDepthMm ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.shelfPinDeepMinDepthMm))
     setBackSmall(String(s.backSmallMinutes))
@@ -222,17 +241,28 @@ export function SettingsDialog({
     setTopSmall(String(s.topSmallMinutes))
     setTopMedium(String(s.topMediumMinutes))
     setTopLarge(String(s.topLargeMinutes))
+    setTopCornersSmall(String(s.topCornersSmallMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.topCornersSmallMinutes))
+    setTopCornersMedium(String(s.topCornersMediumMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.topCornersMediumMinutes))
+    setTopCornersLarge(String(s.topCornersLargeMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.topCornersLargeMinutes))
     setClothesConsole(String(s.clothesRailConsoleMinutes))
     setClothesCut(String(s.clothesRailCutMinutes))
     setClothesInstall(String(s.clothesRailInstallMinutes))
     setDrawerGuides(String(s.installDrawerGuidesMinutes))
     setDrawerGuidesDeep(String(s.installDrawerGuidesDeepMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.installDrawerGuidesDeepMinutes))
+    setDrawerGuidesSoft(String(s.installDrawerGuidesSoftMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.installDrawerGuidesSoftMinutes))
     setDrawerGuideDeepMinHeight(String(s.drawerGuideDeepMinHeightMm ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.drawerGuideDeepMinHeightMm))
+    setSoftGrooveFirst(String(s.softCloseGrooveFirstPairMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.softCloseGrooveFirstPairMinutes))
+    setSoftGrooveExtra(String(s.softCloseGrooveExtraPairMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.softCloseGrooveExtraPairMinutes))
     setDrawerBox(String(s.assembleDrawerBoxMinutes))
     setDrawerBack(String(s.attachDrawerBackMinutes))
     setDrawerRunners(String(s.attachDrawerRunnersMinutes))
     setDrawerFront(String(s.installDrawerFrontMinutes))
-    setInstallDoor(String(s.installDoorMinutes))
+    setFrontEdgeSmall(String(s.frontEdgeTakeSmallMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.frontEdgeTakeSmallMinutes))
+    setFrontEdgeTall(String(s.frontEdgeTakeTallMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.frontEdgeTakeTallMinutes))
+    setInstallDoorSmall(String(s.installDoorSmallMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.installDoorSmallMinutes))
+    setInstallDoorTall(String(s.installDoorTallMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.installDoorTallMinutes))
+    setTallDoorRouter(String(s.tallDoorRouterMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.tallDoorRouterMinutes))
+    setTallDoorMinHeight(String(s.tallDoorMinHeightMm ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.tallDoorMinHeightMm))
     setSizeWidthSmall(String(s.widthSmallMaxMm ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.widthSmallMaxMm))
     setSizeWidthMedium(String(s.widthMediumMaxMm ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.widthMediumMaxMm))
     setSizeHeightSmall(String(s.heightSmallMaxMm ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.heightSmallMaxMm))
@@ -301,7 +331,11 @@ export function SettingsDialog({
       },
       installLegsMinutes: parseFloat(installLegs) || DEFAULT_ASSEMBLY_TIME_SETTINGS.installLegsMinutes,
       assembleTopRailsMinutes: parseFloat(assembleRails) || DEFAULT_ASSEMBLY_TIME_SETTINGS.assembleTopRailsMinutes,
+      installFrontFasciaMinutes: parseFloat(frontFascia) || DEFAULT_ASSEMBLY_TIME_SETTINGS.installFrontFasciaMinutes,
+      prepareWallSidesMinutes: parseFloat(prepareWallSides) || DEFAULT_ASSEMBLY_TIME_SETTINGS.prepareWallSidesMinutes,
+      assembleWallCarcassMinutes: parseFloat(assembleWallCarcass) || DEFAULT_ASSEMBLY_TIME_SETTINGS.assembleWallCarcassMinutes,
       shelfPinPairMinutes: parseFloat(shelfPinPair) || DEFAULT_ASSEMBLY_TIME_SETTINGS.shelfPinPairMinutes,
+      shelfPinExtraMinutes: parseFloat(shelfPinExtra) || DEFAULT_ASSEMBLY_TIME_SETTINGS.shelfPinExtraMinutes,
       shelfPinPairDeepMinutes: parseFloat(shelfPinPairDeep) || DEFAULT_ASSEMBLY_TIME_SETTINGS.shelfPinPairDeepMinutes,
       backSmallMinutes: parseFloat(backSmall) || DEFAULT_ASSEMBLY_TIME_SETTINGS.backSmallMinutes,
       backLargeMinutes: parseFloat(backLarge) || DEFAULT_ASSEMBLY_TIME_SETTINGS.backLargeMinutes,
@@ -314,17 +348,28 @@ export function SettingsDialog({
       topSmallMinutes: parseFloat(topSmall) || DEFAULT_ASSEMBLY_TIME_SETTINGS.topSmallMinutes,
       topMediumMinutes: parseFloat(topMedium) || DEFAULT_ASSEMBLY_TIME_SETTINGS.topMediumMinutes,
       topLargeMinutes: parseFloat(topLarge) || DEFAULT_ASSEMBLY_TIME_SETTINGS.topLargeMinutes,
+      topCornersSmallMinutes: parseFloat(topCornersSmall) || DEFAULT_ASSEMBLY_TIME_SETTINGS.topCornersSmallMinutes,
+      topCornersMediumMinutes: parseFloat(topCornersMedium) || DEFAULT_ASSEMBLY_TIME_SETTINGS.topCornersMediumMinutes,
+      topCornersLargeMinutes: parseFloat(topCornersLarge) || DEFAULT_ASSEMBLY_TIME_SETTINGS.topCornersLargeMinutes,
       clothesRailConsoleMinutes: parseFloat(clothesConsole) || DEFAULT_ASSEMBLY_TIME_SETTINGS.clothesRailConsoleMinutes,
       clothesRailCutMinutes: parseFloat(clothesCut) || DEFAULT_ASSEMBLY_TIME_SETTINGS.clothesRailCutMinutes,
       clothesRailInstallMinutes: parseFloat(clothesInstall) || DEFAULT_ASSEMBLY_TIME_SETTINGS.clothesRailInstallMinutes,
       installDrawerGuidesMinutes: parseFloat(drawerGuides) || DEFAULT_ASSEMBLY_TIME_SETTINGS.installDrawerGuidesMinutes,
       installDrawerGuidesDeepMinutes: parseFloat(drawerGuidesDeep) || DEFAULT_ASSEMBLY_TIME_SETTINGS.installDrawerGuidesDeepMinutes,
+      installDrawerGuidesSoftMinutes: parseFloat(drawerGuidesSoft) || DEFAULT_ASSEMBLY_TIME_SETTINGS.installDrawerGuidesSoftMinutes,
       drawerGuideDeepMinHeightMm: parsePositiveMm(drawerGuideDeepMinHeight, DEFAULT_ASSEMBLY_TIME_SETTINGS.drawerGuideDeepMinHeightMm),
+      softCloseGrooveFirstPairMinutes: parseFloat(softGrooveFirst) || DEFAULT_ASSEMBLY_TIME_SETTINGS.softCloseGrooveFirstPairMinutes,
+      softCloseGrooveExtraPairMinutes: parseFloat(softGrooveExtra) || DEFAULT_ASSEMBLY_TIME_SETTINGS.softCloseGrooveExtraPairMinutes,
       assembleDrawerBoxMinutes: parseFloat(drawerBox) || DEFAULT_ASSEMBLY_TIME_SETTINGS.assembleDrawerBoxMinutes,
       attachDrawerBackMinutes: parseFloat(drawerBack) || DEFAULT_ASSEMBLY_TIME_SETTINGS.attachDrawerBackMinutes,
       attachDrawerRunnersMinutes: parseFloat(drawerRunners) || DEFAULT_ASSEMBLY_TIME_SETTINGS.attachDrawerRunnersMinutes,
       installDrawerFrontMinutes: parseFloat(drawerFront) || DEFAULT_ASSEMBLY_TIME_SETTINGS.installDrawerFrontMinutes,
-      installDoorMinutes: parseFloat(installDoor) || DEFAULT_ASSEMBLY_TIME_SETTINGS.installDoorMinutes,
+      frontEdgeTakeSmallMinutes: parseFloat(frontEdgeSmall) || DEFAULT_ASSEMBLY_TIME_SETTINGS.frontEdgeTakeSmallMinutes,
+      frontEdgeTakeTallMinutes: parseFloat(frontEdgeTall) || DEFAULT_ASSEMBLY_TIME_SETTINGS.frontEdgeTakeTallMinutes,
+      installDoorSmallMinutes: parseFloat(installDoorSmall) || DEFAULT_ASSEMBLY_TIME_SETTINGS.installDoorSmallMinutes,
+      installDoorTallMinutes: parseFloat(installDoorTall) || DEFAULT_ASSEMBLY_TIME_SETTINGS.installDoorTallMinutes,
+      tallDoorRouterMinutes: parseFloat(tallDoorRouter) || DEFAULT_ASSEMBLY_TIME_SETTINGS.tallDoorRouterMinutes,
+      tallDoorMinHeightMm: parsePositiveMm(tallDoorMinHeight, DEFAULT_ASSEMBLY_TIME_SETTINGS.tallDoorMinHeightMm),
       widthSmallMaxMm: width.smallMaxMm,
       widthMediumMaxMm: width.mediumMaxMm,
       heightSmallMaxMm: height.smallMaxMm,
@@ -792,6 +837,48 @@ export function SettingsDialog({
                       onChange={(e) => setAssembleRails(e.target.value)}
                     />
                   </div>
+                  <div>
+                    <Label htmlFor="front-fascia">Бленда надолу за мивка (минути)</Label>
+                    <Input
+                      id="front-fascia"
+                      type="number"
+                      step="0.5"
+                      min="0"
+                      value={frontFascia}
+                      onChange={(e) => setFrontFascia(e.target.value)}
+                    />
+                    <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
+                      Една бленда на долен шкаф за мивка. При повече колони — по толкова на бленда.
+                    </p>
+                  </div>
+                  <div>
+                    <Label htmlFor="prepare-wall-sides">Приготвяне на страниците — горен шкаф (минути)</Label>
+                    <Input
+                      id="prepare-wall-sides"
+                      type="number"
+                      step="0.5"
+                      min="0"
+                      value={prepareWallSides}
+                      onChange={(e) => setPrepareWallSides(e.target.value)}
+                    />
+                    <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
+                      Подготовка на двете страници преди сглобяване на корпуса.
+                    </p>
+                  </div>
+                  <div>
+                    <Label htmlFor="assemble-wall-carcass">Страници с плота и дъното — горен шкаф (минути)</Label>
+                    <Input
+                      id="assemble-wall-carcass"
+                      type="number"
+                      step="0.5"
+                      min="0"
+                      value={assembleWallCarcass}
+                      onChange={(e) => setAssembleWallCarcass(e.target.value)}
+                    />
+                    <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
+                      Сглобяване на страниците с плота и дъното на горен шкаф.
+                    </p>
+                  </div>
                 </div>
                 <div className="mt-4 grid gap-3 sm:grid-cols-3">
                   <div>
@@ -830,7 +917,22 @@ export function SettingsDialog({
                     <Label htmlFor="top-large">Плот — голям</Label>
                     <Input id="top-large" type="number" step="0.5" min="0" value={topLarge} onChange={(e) => setTopLarge(e.target.value)} />
                   </div>
+                  <div>
+                    <Label htmlFor="top-corners-small">Плот с ъгълчета — малък</Label>
+                    <Input id="top-corners-small" type="number" step="0.5" min="0" value={topCornersSmall} onChange={(e) => setTopCornersSmall(e.target.value)} />
+                  </div>
+                  <div>
+                    <Label htmlFor="top-corners-medium">Плот с ъгълчета — среден</Label>
+                    <Input id="top-corners-medium" type="number" step="0.5" min="0" value={topCornersMedium} onChange={(e) => setTopCornersMedium(e.target.value)} />
+                  </div>
+                  <div>
+                    <Label htmlFor="top-corners-large">Плот с ъгълчета — голям</Label>
+                    <Input id="top-corners-large" type="number" step="0.5" min="0" value={topCornersLarge} onChange={(e) => setTopCornersLarge(e.target.value)} />
+                  </div>
                 </div>
+                <p className="mt-3 text-xs text-[var(--color-muted-foreground)]">
+                  Вътрешен плот (секция) ползва „Плот“. Външен плот върху страниците с ъгълчета отвътре — по 1 мин повече.
+                </p>
               </div>
 
               <div className="rounded-md border border-[var(--color-border)] p-4">
@@ -870,17 +972,24 @@ export function SettingsDialog({
                     </p>
                   </div>
                   <div>
-                    <Label htmlFor="shelf-pin-pair">Рафтоносачи за 1 рафт (минути)</Label>
+                    <Label htmlFor="shelf-pin-pair">Рафтоносачи — първи рафт (минути)</Label>
                     <Input id="shelf-pin-pair" type="number" step="0.5" min="0" value={shelfPinPair} onChange={(e) => setShelfPinPair(e.target.value)} />
                     <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
-                      4 рафтоносача на рафт, при дълбочина до {previewShelfPinDepth} мм.
+                      На 1 шкаф, при дълбочина до {previewShelfPinDepth} мм. 4 рафтоносача на рафт.
                     </p>
                   </div>
                   <div>
-                    <Label htmlFor="shelf-pin-pair-deep">Рафтоносачи — дълбок шкаф (минути)</Label>
+                    <Label htmlFor="shelf-pin-extra">Рафтоносачи — всеки следващ (минути)</Label>
+                    <Input id="shelf-pin-extra" type="number" step="0.5" min="0" value={shelfPinExtra} onChange={(e) => setShelfPinExtra(e.target.value)} />
+                    <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
+                      Същият шкаф, всеки следващ рафт. И при дълбок шкаф.
+                    </p>
+                  </div>
+                  <div>
+                    <Label htmlFor="shelf-pin-pair-deep">Рафтоносачи — дълбок, първи рафт (минути)</Label>
                     <Input id="shelf-pin-pair-deep" type="number" step="0.5" min="0" value={shelfPinPairDeep} onChange={(e) => setShelfPinPairDeep(e.target.value)} />
                     <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
-                      При дълбочина над {previewShelfPinDepth} мм.
+                      При дълбочина над {previewShelfPinDepth} мм. Следващите пак по горното време.
                     </p>
                   </div>
                   <div>
@@ -944,6 +1053,48 @@ export function SettingsDialog({
                     </p>
                   </div>
                   <div>
+                    <Label htmlFor="drawer-guides-soft">Водачи — плавно прибиране (минути)</Label>
+                    <Input
+                      id="drawer-guides-soft"
+                      type="number"
+                      step="0.5"
+                      min="0"
+                      value={drawerGuidesSoft}
+                      onChange={(e) => setDrawerGuidesSoft(e.target.value)}
+                    />
+                    <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
+                      За 1 чекмедже с плавно прибиране, вместо малко/дълбоко.
+                    </p>
+                  </div>
+                  <div>
+                    <Label htmlFor="soft-groove-first">Канал на високите царги — първи чифт (минути)</Label>
+                    <Input
+                      id="soft-groove-first"
+                      type="number"
+                      step="0.5"
+                      min="0"
+                      value={softGrooveFirst}
+                      onChange={(e) => setSoftGrooveFirst(e.target.value)}
+                    />
+                    <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
+                      За целия проект. Първите 2 по-високи царги (1 чекмедже).
+                    </p>
+                  </div>
+                  <div>
+                    <Label htmlFor="soft-groove-extra">Канал — всеки следващ чифт (минути)</Label>
+                    <Input
+                      id="soft-groove-extra"
+                      type="number"
+                      step="0.5"
+                      min="0"
+                      value={softGrooveExtra}
+                      onChange={(e) => setSoftGrooveExtra(e.target.value)}
+                    />
+                    <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
+                      Същият проект, не на шкаф. 4 чекмеджета = {parseFloat(softGrooveFirst) || 10} + 3×{parseFloat(softGrooveExtra) || 1} мин.
+                    </p>
+                  </div>
+                  <div>
                     <Label htmlFor="drawer-guide-deep-min-height">Водачи — мин. височина (мм)</Label>
                     <Input
                       id="drawer-guide-deep-min-height"
@@ -1001,7 +1152,7 @@ export function SettingsDialog({
                       onChange={(e) => setDrawerFront(e.target.value)}
                     />
                     <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
-                      Включва пробиване на дупки, слагане на челото и регулация на фугите
+                      Включва пробиване на дупки, слагане на челото и регулация на фугите. Взимането на 4 ръбчета е отделно, при вратите.
                     </p>
                   </div>
                 </div>
@@ -1011,26 +1162,98 @@ export function SettingsDialog({
                     (parseFloat(drawerBox) || 0) +
                     (parseFloat(drawerBack) || 0) +
                     (parseFloat(drawerRunners) || 0) +
-                    (parseFloat(drawerFront) || 0)
+                    (parseFloat(drawerFront) || 0) +
+                    (parseFloat(frontEdgeSmall) || 0)
                   ).toFixed(1)} минути
+                  <span className="block mt-1">Включва 4 ръбчета на челото ({parseFloat(frontEdgeSmall) || 0} мин).</span>
                 </p>
               </div>
 
               <div className="rounded-md border border-[var(--color-border)] p-4">
-                <h3 className="mb-3 font-medium">Слагане на врата</h3>
+                <h3 className="mb-3 font-medium">Врати и чела</h3>
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div>
-                    <Label htmlFor="install-door">Слагане на 1 врата (минути)</Label>
+                    <Label htmlFor="front-edge-small">4 ръбчета — малка врата/чело (минути)</Label>
                     <Input
-                      id="install-door"
+                      id="front-edge-small"
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      value={frontEdgeSmall}
+                      onChange={(e) => setFrontEdgeSmall(e.target.value)}
+                    />
+                    <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
+                      Взимане на 4 ръбчета. Чело и врата до {parsePositiveMm(tallDoorMinHeight, DEFAULT_ASSEMBLY_TIME_SETTINGS.tallDoorMinHeightMm)} мм.
+                    </p>
+                  </div>
+                  <div>
+                    <Label htmlFor="front-edge-tall">4 ръбчета — висока врата (минути)</Label>
+                    <Input
+                      id="front-edge-tall"
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      value={frontEdgeTall}
+                      onChange={(e) => setFrontEdgeTall(e.target.value)}
+                    />
+                    <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
+                      Над {parsePositiveMm(tallDoorMinHeight, DEFAULT_ASSEMBLY_TIME_SETTINGS.tallDoorMinHeightMm)} мм. Стандартно 1 мин 30 сек.
+                    </p>
+                  </div>
+                  <div>
+                    <Label htmlFor="install-door-small">Панти и слагане — малка врата (минути)</Label>
+                    <Input
+                      id="install-door-small"
                       type="number"
                       step="0.5"
                       min="0"
-                      value={installDoor}
-                      onChange={(e) => setInstallDoor(e.target.value)}
+                      value={installDoorSmall}
+                      onChange={(e) => setInstallDoorSmall(e.target.value)}
                     />
                     <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
-                      Включва изчистване, взимане на ръбове, пробиване за панти и слагане
+                      Пробиване за панти и слагане на вратата.
+                    </p>
+                  </div>
+                  <div>
+                    <Label htmlFor="install-door-tall">Панти и слагане — висока врата (минути)</Label>
+                    <Input
+                      id="install-door-tall"
+                      type="number"
+                      step="0.5"
+                      min="0"
+                      value={installDoorTall}
+                      onChange={(e) => setInstallDoorTall(e.target.value)}
+                    />
+                    <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
+                      Същото за врата над {parsePositiveMm(tallDoorMinHeight, DEFAULT_ASSEMBLY_TIME_SETTINGS.tallDoorMinHeightMm)} мм.
+                    </p>
+                  </div>
+                  <div>
+                    <Label htmlFor="tall-door-router">Висока врата — фреза на канта (минути)</Label>
+                    <Input
+                      id="tall-door-router"
+                      type="number"
+                      step="0.5"
+                      min="0"
+                      value={tallDoorRouter}
+                      onChange={(e) => setTallDoorRouter(e.target.value)}
+                    />
+                    <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
+                      Допълнително на врата, когато готовата е над {parsePositiveMm(tallDoorMinHeight, DEFAULT_ASSEMBLY_TIME_SETTINGS.tallDoorMinHeightMm)} мм.
+                    </p>
+                  </div>
+                  <div>
+                    <Label htmlFor="tall-door-min-height">Висока врата — над (мм)</Label>
+                    <Input
+                      id="tall-door-min-height"
+                      type="number"
+                      step="1"
+                      min="1"
+                      value={tallDoorMinHeight}
+                      onChange={(e) => setTallDoorMinHeight(e.target.value)}
+                    />
+                    <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
+                      Готовата врата с кант. Оправяне на канта с фреза и по-дългите стъпки.
                     </p>
                   </div>
                 </div>

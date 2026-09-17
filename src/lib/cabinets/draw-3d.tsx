@@ -7,13 +7,15 @@ export const DRAW_DEPTH_SCALE = 0.5
 export const DRAW_DEPTH_ANGLE = 30
 export const DRAW_DIM = '#60a5fa'
 
-/** Parts that sit between the sides (бленди, вътрешни царги): face + top, no end kant. */
+/** Parts between the sides, seen from the right: front + top. No end grain. */
 export const BETWEEN_FACES = { front: true, top: true } as const
-/** Left side body before the top is drawn — front + inner wall. */
+/** Left/inner vertical board from the right: front + inner (right) wall. */
 export const SIDE_LEFT_BODY = { front: true, right: true } as const
 export const SIDE_LEFT_TOP = { top: true } as const
 /** Right side — front, outer wall, top. */
 export const SIDE_RIGHT = { front: true, top: true, right: true } as const
+/** Inner divider — looks like a side: both walls, top and front. */
+export const PARTITION_FACES = { front: true, top: true, right: true, left: true } as const
 /** Bottom / full box — front, top, right. */
 export const BOX_FACES = { front: true, top: true, right: true } as const
 

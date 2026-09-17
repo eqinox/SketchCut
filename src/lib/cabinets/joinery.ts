@@ -71,3 +71,10 @@ export const KITCHEN_BASE_JOINERY: JoineryConfig = {
   topSides: 'rails-between-sides',
   depth: 'flush',
 }
+
+/** Wall cabinet: sides cover both the inner bottom and the inner top. */
+export const KITCHEN_WALL_JOINERY: JoineryConfig = {
+  bottomSides: 'sides-cover-bottom',
+  topSides: 'rails-between-sides',
+  depth: 'flush',
+}

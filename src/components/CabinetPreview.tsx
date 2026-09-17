@@ -1,12 +1,17 @@
 import React, { type ReactNode } from 'react'
-import { evenShelfBottoms, KITCHEN_BASE_JOINERY, measureCarcass } from '@/lib/cabinets/joinery'
+import { evenShelfBottoms, KITCHEN_BASE_JOINERY, KITCHEN_WALL_JOINERY, measureCarcass } from '@/lib/cabinets/joinery'
 import {
   parseKitchenBaseParams,
+  parseKitchenWallParams,
   parseNightstandParams,
   parseSectionParams,
   measureNightstand,
   DEFAULT_SHELF_FRONT_INSET,
   DEFAULT_HARDBOARD_COLOR,
+  FASCIA_SETBACK_MM,
+  kitchenClearInnerH,
+  wallBottomHole,
+  wallShelfHole,
   drawerBoxRails,
   isSoftCloseSlide,
   DOOR_GAP_X,
@@ -15,10 +20,13 @@ import {
   allDrawerFrontHeights,
   zoneFrontBox,
   stackFronts,
+  shelvesForColumn,
   type KitchenBaseParams,
+  type KitchenWallParams,
   type NightstandParams,
   type DrawerBoxRails,
   type InteriorLayout,
+  type PanelHole,
 } from '@/lib/cabinets'
 import {
   BETWEEN_FACES,
@@ -114,6 +122,16 @@ export function CabinetPreview({
   showDimLines = false,
   showFronts = false,
 }: CabinetPreviewProps) {
+  if (typeId === 'kitchen-wall') {
+    return (
+      <KitchenWallPreview
+        params={params}
+        className={className}
+        showDimLines={showDimLines}
+        showFronts={showFronts}
+      />
+    )
+  }
   if (typeId === 'nightstand' || typeId === 'section') {
     return (
       <PlinthBoxPreview
@@ -133,9 +151,11 @@ export function CabinetPreview({
   )
   const { colors } = p
   const layout = layoutInterior({
-    innerH: m.innerH,
+    innerH: kitchenClearInnerH(p.height, p.thickness, p.topStyle),
+    innerW: m.innerW,
     thickness: p.thickness,
     fixedShelves: p.fixedShelves,
+    partitions: p.partitions,
     doorSpan: p.doorSpan,
     doorCount: p.doorCount,
     shelfCount: p.shelfCount,
@@ -143,6 +163,7 @@ export function CabinetPreview({
     cutFromOneBoard: p.cutFromOneBoard,
     hasClothesRail: p.hasClothesRail,
     zones: p.zones,
+    overlayCovers: p.topStyle === 'rails' ? undefined : { top: false, bottom: true },
   })
   const drawerViews = uniqueDrawerViews({ ...p, drawerFrontHeights: allDrawerFrontHeights(layout) })
 
@@ -174,7 +195,11 @@ export function CabinetPreview({
       <p className="text-center text-[11px] text-[var(--color-muted-foreground)]">
         <span className="mr-3" style={{ color: colors.bottom }}>■ Дъно</span>
         <span className="mr-3" style={{ color: colors.side }}>■ Страници</span>
-        <span className="mr-3" style={{ color: colors.rail }}>■ Бленди</span>
+        {p.topStyle !== 'none' && (
+          <span className="mr-3" style={{ color: colors.rail }}>
+            {p.topStyle === 'fascia' ? '■ Бленда надолу' : '■ Бленди'}
+          </span>
+        )}
         {(layoutCounts(layout).shelfCount > 0 || layout.shelves.length > 0) && (
           <span className="mr-3" style={{ color: colors.shelf }}>■ Рафтове</span>
         )}
@@ -238,22 +263,29 @@ function uniqueDrawerViews(p: {
 /** Always-on height for a fixed shelf: from the chosen carcass face to the chosen shelf face. */
 function FixedShelfDimLines({
   shelves,
+  columns,
   innerFloorY,
   dimX,
   fontSize,
 }: {
   shelves: InteriorLayout['shelves']
+  columns: InteriorLayout['columns']
   innerFloorY: number
   dimX: number
   fontSize: number
 }) {
   const tick = Math.max(12, fontSize * 0.22)
+  const stack = new Map<string, number>()
   return (
     <>
       {shelves.map((s, i) => {
+        const key = s.columnIndex == null ? 'full' : String(s.columnIndex)
+        const n = stack.get(key) ?? 0
+        stack.set(key, n + 1)
+        const colX = s.columnIndex != null ? (columns[s.columnIndex]?.x0 ?? 0) : 0
         const y1 = innerFloorY - s.startY
         const y2 = innerFloorY - s.endY
-        const x = dimX + i * Math.max(36, fontSize * 0.5)
+        const x = dimX + colX + n * Math.max(36, fontSize * 0.5)
         const midY = (y1 + y2) / 2
         return (
           <g key={`fixed-dim-${i}`} stroke={DRAW_DIM} fill={DRAW_DIM}>
@@ -264,6 +296,245 @@ function FixedShelfDimLines({
           </g>
         )
       })}
+    </>
+  )
+}
+
+/** Clear openings that the user did not already measure (the leftover on the other side). */
+function leftoverPartitionSpans(
+  partitions: InteriorLayout['partitions'],
+  columns: InteriorLayout['columns'],
+): { startX: number; endX: number; offsetMm: number }[] {
+  if (partitions.length === 0) return []
+  const measured = partitions.map((p) => {
+    const a = Math.min(p.startX, p.endX)
+    const b = Math.max(p.startX, p.endX)
+    return { a, b }
+  })
+  const alreadyMeasured = (x0: number, x1: number) => {
+    const opening = x1 - x0
+    if (opening <= 0) return true
+    return measured.some((m) => {
+      const overlap = Math.min(m.b, x1) - Math.max(m.a, x0)
+      return overlap >= opening * 0.8
+    })
+  }
+  return columns
+    .filter((col) => col.innerW > 0.5 && !alreadyMeasured(col.x0, col.x1))
+    .map((col) => ({ startX: col.x0, endX: col.x1, offsetMm: Math.round(col.innerW) }))
+}
+
+function PartitionDimLines({
+  partitions,
+  leftovers = [],
+  cam,
+  innerLeft,
+  y,
+  anchorY,
+  z = 0,
+  fontSize,
+}: {
+  partitions: InteriorLayout['partitions']
+  leftovers?: { startX: number; endX: number; offsetMm: number }[]
+  cam: ReturnType<typeof createDrawCam>
+  innerLeft: number
+  y: number
+  /** Top of the bottom — extension lines drop to the measured faces here. */
+  anchorY: number
+  z?: number
+  fontSize: number
+}) {
+  const tick = Math.max(14, fontSize * 0.24)
+  const stagger = Math.max(36, fontSize * 0.55)
+  const spans = [
+    ...partitions.map((p) => ({ startX: p.startX, endX: p.endX, offsetMm: p.offsetMm })),
+    ...leftovers,
+  ]
+  return (
+    <>
+      {spans.map((p, i) => {
+        const yy = y - i * stagger
+        const a = cam.proj(innerLeft + p.startX, yy, z)
+        const b = cam.proj(innerLeft + p.endX, yy, z)
+        const footA = cam.proj(innerLeft + p.startX, anchorY, z)
+        const footB = cam.proj(innerLeft + p.endX, anchorY, z)
+        const midX = (a.x + b.x) / 2
+        const midY = (a.y + b.y) / 2
+        const dx = b.x - a.x
+        const dy = b.y - a.y
+        const len = Math.hypot(dx, dy) || 1
+        const nx = (-dy / len) * tick
+        const ny = (dx / len) * tick
+        return (
+          <g key={`part-dim-${i}`} stroke={DRAW_DIM} fill={DRAW_DIM}>
+            <line x1={a.x} y1={a.y} x2={footA.x} y2={footA.y} strokeWidth={1.8} />
+            <line x1={b.x} y1={b.y} x2={footB.x} y2={footB.y} strokeWidth={1.8} />
+            <line x1={a.x - nx} y1={a.y - ny} x2={a.x + nx} y2={a.y + ny} strokeWidth={2} />
+            <line x1={b.x - nx} y1={b.y - ny} x2={b.x + nx} y2={b.y + ny} strokeWidth={2} />
+            <DimLine x1={a.x} y1={a.y} x2={b.x} y2={b.y} />
+            <DimText x={midX} y={midY} label={mm(p.offsetMm)} fontSize={fontSize} fill={DRAW_DIM} />
+          </g>
+        )
+      })}
+    </>
+  )
+}
+
+function PanelHoleMark({
+  x,
+  y,
+  z,
+  w,
+  d,
+  hole,
+  cam,
+}: {
+  x: number
+  y: number
+  z: number
+  w: number
+  d: number
+  hole: PanelHole
+  cam: ReturnType<typeof createDrawCam>
+}) {
+  const cx = x + w / 2
+  const cz = z + d / 2
+  if (hole.kind === 'round') {
+    const r = hole.diameter / 2
+    const pts = Array.from({ length: 28 }, (_, i) => {
+      const a = (i / 28) * Math.PI * 2
+      return cam.proj(cx + Math.cos(a) * r, y, cz + Math.sin(a) * r)
+    })
+    return (
+      <polygon
+        points={pts.map((p) => `${p.x},${p.y}`).join(' ')}
+        fill="none"
+        stroke={DRAW_STROKE}
+        strokeWidth={1.6}
+      />
+    )
+  }
+  const hw = hole.width / 2
+  const hd = hole.height / 2
+  const corners = [
+    cam.proj(cx - hw, y, cz - hd),
+    cam.proj(cx + hw, y, cz - hd),
+    cam.proj(cx + hw, y, cz + hd),
+    cam.proj(cx - hw, y, cz + hd),
+  ]
+  return (
+    <polygon
+      points={corners.map((p) => `${p.x},${p.y}`).join(' ')}
+      fill="none"
+      stroke={DRAW_STROKE}
+      strokeWidth={1.6}
+    />
+  )
+}
+
+function ColumnFill({
+  layout,
+  colIndex,
+  T,
+  innerFloorY,
+  cam,
+  shelfColor,
+  fixedZ = 0,
+  fixedD,
+  adjZ,
+  adjD,
+  clothesZ,
+  shelfHole,
+}: {
+  layout: InteriorLayout
+  colIndex: number
+  T: number
+  innerFloorY: number
+  cam: ReturnType<typeof createDrawCam>
+  shelfColor: string
+  fixedZ?: number
+  fixedD: number
+  adjZ: number
+  adjD: number
+  clothesZ: number
+  shelfHole?: PanelHole
+}) {
+  const col = layout.columns[colIndex]
+  if (!col || !(col.innerW > 0)) return null
+  return (
+    <>
+      {shelvesForColumn(layout.shelves, colIndex).map((s, i) => (
+        <g key={`fixed-${i}-c${colIndex}`}>
+          <Board
+            x={T + col.x0}
+            y={innerFloorY - s.yTop}
+            z={fixedZ}
+            w={col.innerW}
+            h={T}
+            d={fixedD}
+            color={shelfColor}
+            cam={cam}
+            faces={BETWEEN_FACES}
+          />
+          {shelfHole && (
+            <PanelHoleMark
+              x={T + col.x0}
+              y={innerFloorY - s.yTop}
+              z={fixedZ}
+              w={col.innerW}
+              d={fixedD}
+              hole={shelfHole}
+              cam={cam}
+            />
+          )}
+        </g>
+      ))}
+      {layout.zones
+        .filter((z) => z.colIndex === colIndex)
+        .flatMap((z) =>
+          evenShelfBottoms(z.innerH, z.shelfCount, T).map((off, i) => (
+            <g key={`shelf-${z.id}-${i}`}>
+              <Board
+                x={T + z.x0}
+                y={innerFloorY - (z.y0 + off) - T}
+                z={adjZ}
+                w={z.innerW}
+                h={T}
+                d={adjD}
+                color={shelfColor}
+                cam={cam}
+                faces={BETWEEN_FACES}
+              />
+              {shelfHole && (
+                <PanelHoleMark
+                  x={T + z.x0}
+                  y={innerFloorY - (z.y0 + off) - T}
+                  z={adjZ}
+                  w={z.innerW}
+                  d={adjD}
+                  hole={shelfHole}
+                  cam={cam}
+                />
+              )}
+            </g>
+          )),
+        )}
+      {layout.zones
+        .filter((z) => z.colIndex === colIndex && z.hasClothesRail)
+        .map((z) => (
+          <Board
+            key={`rail-${z.id}`}
+            x={T + z.x0}
+            y={innerFloorY - z.y1 + 48}
+            z={clothesZ}
+            w={z.innerW}
+            h={22}
+            d={22}
+            color={CLOTHES_RAIL_COLOR}
+            cam={cam}
+            faces={BETWEEN_FACES}
+          />
+        ))}
     </>
   )
 }
@@ -300,16 +571,16 @@ function FrontsOnCabinet({
     items.push(<DimText key={id} x={pt.x} y={pt.y} label={mm(h)} fontSize={fontSize} rotate={-90} />)
   }
 
-  const pushDoors = (y: number, h: number, count: 1 | 2, key: string, label: boolean) => {
+  const pushDoors = (x: number, y: number, w: number, h: number, count: 1 | 2, key: string, label: boolean) => {
     if (!(h > 4)) return
     if (count === 1) {
       items.push(
         <Board
           key={key}
-          x={0}
+          x={x}
           y={y}
           z={z}
-          w={W}
+          w={w}
           h={h}
           d={d}
           color={FRONT_FILL}
@@ -318,14 +589,14 @@ function FrontsOnCabinet({
           opacity={0.92}
         />,
       )
-      if (label) pushHeightLabel(`${key}-h`, 0, y, W, h)
+      if (label) pushHeightLabel(`${key}-h`, x, y, w, h)
       return
     }
-    const dw = (W - gap) / 2
+    const dw = (w - gap) / 2
     items.push(
       <Board
         key={`${key}-l`}
-        x={0}
+        x={x}
         y={y}
         z={z}
         w={dw}
@@ -338,7 +609,7 @@ function FrontsOnCabinet({
       />,
       <Board
         key={`${key}-r`}
-        x={dw + gap}
+        x={x + dw + gap}
         y={y}
         z={z}
         w={dw}
@@ -351,13 +622,13 @@ function FrontsOnCabinet({
       />,
     )
     if (label) {
-      pushHeightLabel(`${key}-lh`, 0, y, dw, h)
-      pushHeightLabel(`${key}-rh`, dw + gap, y, dw, h)
+      pushHeightLabel(`${key}-lh`, x, y, dw, h)
+      pushHeightLabel(`${key}-rh`, x + dw + gap, y, dw, h)
     }
   }
 
   const pushStacked = (
-    box: { y: number; h: number },
+    box: { x: number; y: number; w: number; h: number },
     doorCount: 0 | 1 | 2,
     drawerFrontHeights: number[],
     key: string,
@@ -374,10 +645,10 @@ function FrontsOnCabinet({
         items.push(
           <Board
             key={`df-${key}-${s.index}`}
-            x={0}
+            x={box.x}
             y={y}
             z={z}
-            w={W}
+            w={box.w}
             h={s.height}
             d={d}
             color={FRONT_FILL}
@@ -386,16 +657,16 @@ function FrontsOnCabinet({
             opacity={0.92}
           />,
         )
-        if (label) pushHeightLabel(`df-${key}-${s.index}-h`, 0, y, W, s.height)
+        if (label) pushHeightLabel(`df-${key}-${s.index}-h`, box.x, y, box.w, s.height)
       } else if (s.doorCount === 1 || s.doorCount === 2) {
-        pushDoors(y, s.height, s.doorCount, `door-${key}`, label)
+        pushDoors(box.x, y, box.w, s.height, s.doorCount, `door-${key}`, label)
       }
     }
   }
 
   if (layout.fullDoorCount > 0 || layout.fullDrawerFrontHeights.length > 0) {
     pushStacked(
-      { y: carcassTopY, h: carcassBotY - carcassTopY },
+      { x: 0, y: carcassTopY, w: W, h: carcassBotY - carcassTopY },
       layout.fullDoorCount,
       layout.fullDrawerFrontHeights,
       'full',
@@ -405,7 +676,9 @@ function FrontsOnCabinet({
   for (const zone of layout.zones) {
     if (zone.doorCount === 0 && zone.drawerFrontHeights.length === 0) continue
     const box = zoneFrontBox(zone, { innerFloorY, carcassTopY, carcassBotY, thickness: T })
-    pushStacked(box, zone.doorCount, zone.drawerFrontHeights, zone.id)
+    const x = zone.frontWidth > 0 ? T + zone.frontX0 : 0
+    const w = zone.frontWidth > 0 ? zone.frontWidth : W
+    pushStacked({ x, y: box.y, w, h: box.h }, zone.doorCount, zone.drawerFrontHeights, zone.id)
   }
 
   return <>{items}</>
@@ -639,7 +912,6 @@ function Front3DView({
 
   const cam = createDrawCam({ ox: 0, oy: 0 })
   const { x: dx, y: dy } = cam.depthDelta(D)
-  const { x: dxR, y: dyR } = cam.depthDelta(R)
 
   const font = Math.max(72, Math.min(W, H) * 0.13)
   const railFont = Math.max(48, Math.min(R * 0.5, m.railLength * 0.1))
@@ -673,14 +945,12 @@ function Front3DView({
   const depthRot = (Math.atan2(dy, dx) * 180) / Math.PI
   const backMx = ox + W / 2 + dx
   const backMy = topY + dy - font * 0.45
-  const railX = ox + T + m.railLength / 2 + dxR / 2
-  const railY = topY + dyR / 2 + T * 0.15
+  const bottomRise = Math.abs(view.depthDelta(D).y)
   const legLabelX = ox + legInset + legW / 2
   const legLabelY = floor - L / 2
   const sideLabelX = ox + W + dx / 2
   const sideLabelY = (topY + floor - L - T) / 2 + dy / 2
 
-  const xInnerL = T
   const zRailFront = D - R
   const zBack = D
   const zShelfFront = DEFAULT_SHELF_FRONT_INSET
@@ -750,67 +1020,59 @@ function Front3DView({
 
       <Board x={0} y={sideY} w={T} h={sideH} d={D} color={wood.side} cam={view} faces={SIDE_LEFT_BODY} />
 
-      {layout.shelves.map((s, i) => (
-        <Board
-          key={`fixed-${i}`}
-          x={xInnerL}
-          y={innerFloorY - s.yTop}
-          z={0}
-          w={m.innerW}
-          h={T}
-          d={D}
-          color={wood.shelf}
-          cam={view}
-          faces={BETWEEN_FACES}
-        />
-      ))}
-
-      {layout.zones.flatMap((z) =>
-        evenShelfBottoms(z.innerH, z.shelfCount, T).map((off, i) => (
-          <Board
-            key={`shelf-${z.id}-${i}`}
-            x={xInnerL}
-            y={innerFloorY - (z.y0 + off) - T}
-            z={zShelfFront}
-            w={m.innerW}
-            h={T}
-            d={shelfDepth}
-            color={wood.shelf}
+      {layout.columns.map((col, i) => (
+        <g key={`bay-${i}`}>
+          <ColumnFill
+            layout={layout}
+            colIndex={i}
+            T={T}
+            innerFloorY={innerFloorY}
             cam={view}
-            faces={BETWEEN_FACES}
+            shelfColor={wood.shelf}
+            fixedD={D}
+            adjZ={zShelfFront}
+            adjD={shelfDepth}
+            clothesZ={Math.max(40, D * 0.35)}
           />
-        )),
-      )}
-
-      {layout.zones.map(
-        (z) =>
-          z.hasClothesRail && (
+          {p.topStyle === 'rails' && (
+            <>
+              <Board
+                x={T + col.x0}
+                y={topY}
+                w={col.innerW}
+                h={T}
+                d={R}
+                color={wood.rail}
+                cam={view}
+                faces={BETWEEN_FACES}
+              />
+              <Board
+                x={T + col.x0}
+                y={topY}
+                z={zRailFront}
+                w={col.innerW}
+                h={T}
+                d={R}
+                color={wood.rail}
+                cam={view}
+                faces={BETWEEN_FACES}
+              />
+            </>
+          )}
+          {layout.partitions[i] && (
             <Board
-              key={`rail-${z.id}`}
-              x={xInnerL}
-              y={innerFloorY - z.y1 + 48}
-              z={Math.max(40, D * 0.35)}
-              w={m.innerW}
-              h={22}
-              d={22}
-              color={CLOTHES_RAIL_COLOR}
+              x={T + layout.partitions[i].xLeft}
+              y={innerFloorY - sideH}
+              w={T}
+              h={sideH}
+              d={D}
+              color={wood.side}
               cam={view}
-              faces={BETWEEN_FACES}
+              faces={SIDE_LEFT_BODY}
             />
-          ),
-      )}
-
-      <Board
-        x={xInnerL}
-        y={topY}
-        z={zRailFront}
-        w={m.railLength}
-        h={T}
-        d={R}
-        color={wood.rail}
-        cam={view}
-        faces={BETWEEN_FACES}
-      />
+          )}
+        </g>
+      ))}
 
       <Board x={0} y={sideY} w={T} h={sideH} d={D} color={wood.side} cam={view} faces={SIDE_LEFT_TOP} />
 
@@ -855,16 +1117,21 @@ function Front3DView({
 
       <Board x={W - T} y={sideY} w={T} h={sideH} d={D} color={wood.side} cam={view} faces={SIDE_RIGHT} />
 
-      <Board
-        x={T}
-        y={topY}
-        w={m.railLength}
-        h={T}
-        d={R}
-        color={wood.rail}
-        cam={view}
-        faces={BETWEEN_FACES}
-      />
+      {p.topStyle === 'fascia' &&
+        layout.columns.map((col, i) => (
+          <Board
+            key={`fascia-${i}`}
+            x={T + col.x0}
+            y={topY}
+            z={FASCIA_SETBACK_MM}
+            w={col.innerW}
+            h={R}
+            d={T}
+            color={wood.rail}
+            cam={view}
+            faces={BETWEEN_FACES}
+          />
+        ))}
 
       {showFronts && (
         <FrontsOnCabinet
@@ -883,8 +1150,20 @@ function Front3DView({
       {layout.shelves.length > 0 && (
         <FixedShelfDimLines
           shelves={layout.shelves}
+          columns={layout.columns}
           innerFloorY={innerFloorY}
           dimX={ox + T + Math.max(28, font * 0.32)}
+          fontSize={railFont}
+        />
+      )}
+      {layout.partitions.length > 0 && (
+        <PartitionDimLines
+          partitions={layout.partitions}
+          leftovers={leftoverPartitionSpans(layout.partitions, layout.columns)}
+          cam={view}
+          innerLeft={T}
+          y={innerFloorY - bottomRise - Math.max(40, railFont * 0.65)}
+          anchorY={innerFloorY}
           fontSize={railFont}
         />
       )}
@@ -892,7 +1171,16 @@ function Front3DView({
       <DimText x={heightX} y={heightY} label={mm(H)} fontSize={font} rotate={-90} />
       <DimText x={depthMx} y={depthMy} label={mm(D)} fontSize={font} rotate={depthRot} />
       <DimText x={backMx} y={backMy} label={mm(W)} fontSize={font} />
-      <DimText x={railX} y={railY} label={mm(m.railLength)} fontSize={railFont} />
+      {p.topStyle === 'rails' &&
+        layout.columns.map((col, i) => {
+        const pt = view.proj(T + col.x0 + col.innerW / 2, topY + T / 2, zRailFront + R / 2)
+        return <DimText key={`rail-dim-${i}`} x={pt.x} y={pt.y} label={mm(col.innerW)} fontSize={railFont} />
+      })}
+      {p.topStyle === 'fascia' &&
+        layout.columns.map((col, i) => {
+          const pt = view.proj(T + col.x0 + col.innerW / 2, topY + R / 2, FASCIA_SETBACK_MM + T / 2)
+          return <DimText key={`fascia-dim-${i}`} x={pt.x} y={pt.y} label={mm(R)} fontSize={railFont} />
+        })}
       <DimText x={legLabelX} y={legLabelY} label={mm(L)} fontSize={legFont} rotate={-90} />
       <DimText x={sideLabelX} y={sideLabelY} label={mm(m.sideH)} fontSize={font} rotate={-90} />
       {shelfLabelPt && (
@@ -908,6 +1196,288 @@ function Front3DView({
       {showDimLines && (
         <g>
           <DimLine x1={heightX + font * 0.22} y1={topY} x2={heightX + font * 0.22} y2={botY} />
+          <DimLine x1={ox} y1={topY - 8} x2={ox + dx} y2={topY + dy - 8} />
+          <DimLine x1={ox + dx} y1={topY + dy - font * 0.2} x2={ox + W + dx} y2={topY + dy - font * 0.2} />
+        </g>
+      )}
+    </SketchSvg>
+  )
+}
+
+function KitchenWallPreview({
+  params,
+  className,
+  showDimLines,
+  showFronts,
+}: {
+  params: Record<string, unknown>
+  className?: string
+  showDimLines: boolean
+  showFronts: boolean
+}) {
+  const p = parseKitchenWallParams(params)
+  const m = measureCarcass(
+    { width: p.width, height: p.height, depth: p.depth, thickness: p.thickness },
+    KITCHEN_WALL_JOINERY,
+  )
+  const { colors } = p
+  const layout = layoutInterior({
+    innerH: m.innerH,
+    innerW: m.innerW,
+    thickness: p.thickness,
+    fixedShelves: p.fixedShelves,
+    partitions: p.partitions,
+    doorSpan: p.doorSpan,
+    doorCount: p.doorCount,
+    shelfCount: p.shelfCount,
+    drawerFrontHeights: p.drawerFrontHeights,
+    cutFromOneBoard: p.cutFromOneBoard,
+    hasClothesRail: p.hasClothesRail,
+    zones: p.zones,
+    overlayCovers: { top: true, bottom: true },
+  })
+  const drawerViews = uniqueDrawerViews({ ...p, drawerFrontHeights: allDrawerFrontHeights(layout) })
+  const counts = layoutCounts(layout)
+  const bottomHole = wallBottomHole(p, m.bottomW, m.bottomD)
+  const shelfHole = wallShelfHole(p, m.innerW, Math.max(p.thickness, m.sideD - DEFAULT_SHELF_FRONT_INSET))
+
+  return (
+    <div className={cn('flex flex-col gap-3', className)}>
+      <ViewCard title="3D Изглед отпред">
+        <ZoomableView>
+          <WallFront3DView
+            p={p}
+            m={m}
+            layout={layout}
+            showDimLines={showDimLines}
+            showFronts={showFronts}
+            bottomHole={bottomHole}
+            shelfHole={shelfHole}
+          />
+        </ZoomableView>
+      </ViewCard>
+      {drawerViews.map((view) => (
+        <ViewCard
+          key={view.frontHeight}
+          title={
+            drawerViews.length === 1
+              ? view.count > 1
+                ? `Чекмедже ×${view.count}`
+                : 'Чекмедже'
+              : view.count > 1
+                ? `Чекмедже ${view.frontHeight} мм ×${view.count}`
+                : `Чекмедже ${view.frontHeight} мм`
+          }
+        >
+          <ZoomableView>
+            <Drawer3DView p={p} box={view.box} />
+          </ZoomableView>
+        </ViewCard>
+      ))}
+      <p className="text-center text-[11px] text-[var(--color-muted-foreground)]">
+        <span className="mr-3" style={{ color: colors.bottom }}>■ Дъно</span>
+        <span className="mr-3" style={{ color: colors.side }}>■ Страници</span>
+        <span className="mr-3" style={{ color: colors.rail }}>■ Плот</span>
+        {(counts.shelfCount > 0 || layout.shelves.length > 0) && (
+          <span className="mr-3" style={{ color: colors.shelf }}>■ Рафтове</span>
+        )}
+        {p.hasBack && (
+          <span className="mr-3" style={{ color: DEFAULT_HARDBOARD_COLOR }}>■ Фазер</span>
+        )}
+        {p.hasHood && <span className="mr-3">○ Абсорбатор</span>}
+        {' · '}
+        страниците захлупват плота и дъното
+      </p>
+    </div>
+  )
+}
+
+function WallFront3DView({
+  p,
+  m,
+  layout,
+  showDimLines,
+  showFronts,
+  bottomHole,
+  shelfHole,
+}: {
+  p: KitchenWallParams
+  m: ReturnType<typeof measureCarcass>
+  layout: InteriorLayout
+  showDimLines: boolean
+  showFronts: boolean
+  bottomHole?: PanelHole
+  shelfHole?: PanelHole
+}) {
+  const T = m.thickness
+  const W = m.outerW
+  const H = m.outerH
+  const D = m.outerD
+
+  const cam = createDrawCam({ ox: 0, oy: 0 })
+  const { x: dx, y: dy } = cam.depthDelta(D)
+  const font = Math.max(72, Math.min(W, H) * 0.13)
+  const small = Math.max(48, font * 0.55)
+  const padL = font + 48
+  const padT = font + Math.abs(dy) + 28
+  const padR = 48
+  const padB = 36
+  const vbW = padL + W + dx + padR
+  const vbH = padT + H + padB
+  const ox = padL
+  const floor = padT + H
+  const topY = floor - H
+  const view = createDrawCam({ ox, oy: 0 })
+  const depthLen = Math.hypot(dx, dy) || 1
+  const nx = dy / depthLen
+  const ny = -dx / depthLen
+  const gap = font * 0.55
+  const heightX = ox - gap
+  const heightY = (topY + floor) / 2
+  const depthMx = ox + dx / 2 + nx * gap
+  const depthMy = topY + dy / 2 + ny * gap
+  const depthRot = (Math.atan2(dy, dx) * 180) / Math.PI
+  const backMx = ox + W / 2 + dx
+  const backMy = topY + dy - font * 0.45
+  const bottomRise = Math.abs(view.depthDelta(D).y)
+  const zShelfFront = DEFAULT_SHELF_FRONT_INSET
+  const shelfDepth = D - zShelfFront
+  const innerFloorY = floor - T
+  const innerTopY = topY + T
+  const wood = p.colors
+  const sideH = H
+  const partitionH = m.innerH
+  const leftInnerY = topY
+  const leftInnerH = H - T
+
+  return (
+    <SketchSvg vbW={vbW} vbH={vbH} height={460} label="3D изглед отпред">
+      {p.hasBack && (
+        <Board
+          x={0}
+          y={topY}
+          z={D}
+          w={W}
+          h={H}
+          d={1}
+          color={DEFAULT_HARDBOARD_COLOR}
+          cam={view}
+          faces={{ front: true }}
+          strokeWidth={0.8}
+        />
+      )}
+
+      <Board
+        x={0}
+        y={leftInnerY}
+        w={T}
+        h={leftInnerH}
+        d={D}
+        color={wood.side}
+        cam={view}
+        faces={{ right: true }}
+      />
+      <Board x={0} y={topY} w={T} h={sideH} d={D} color={wood.side} cam={view} faces={{ front: true }} />
+      <Board x={0} y={topY} w={T} h={T} d={D} color={wood.side} cam={view} faces={SIDE_LEFT_TOP} />
+
+      <Board x={T} y={innerFloorY} w={m.bottomW} h={T} d={D} color={wood.bottom} cam={view} faces={BETWEEN_FACES} />
+      {bottomHole && (
+        <PanelHoleMark x={T} y={innerFloorY} z={0} w={m.bottomW} d={D} hole={bottomHole} cam={view} />
+      )}
+
+      {layout.columns.map((_, i) => (
+        <g key={`bay-${i}`}>
+          <ColumnFill
+            layout={layout}
+            colIndex={i}
+            T={T}
+            innerFloorY={innerFloorY}
+            cam={view}
+            shelfColor={wood.shelf}
+            fixedD={D}
+            adjZ={zShelfFront}
+            adjD={shelfDepth}
+            clothesZ={Math.max(40, D * 0.35)}
+            shelfHole={shelfHole}
+          />
+          {layout.partitions[i] && (
+            <Board
+              x={T + layout.partitions[i].xLeft}
+              y={innerTopY}
+              w={T}
+              h={partitionH}
+              d={D}
+              color={wood.side}
+              cam={view}
+              faces={SIDE_LEFT_BODY}
+            />
+          )}
+        </g>
+      ))}
+
+      <Board x={W - T} y={topY} w={T} h={sideH} d={D} color={wood.side} cam={view} faces={SIDE_RIGHT} />
+
+      <Board
+        x={T}
+        y={topY}
+        w={m.railLength}
+        h={T}
+        d={D}
+        color={wood.rail}
+        cam={view}
+        faces={BETWEEN_FACES}
+      />
+
+      {showFronts && (
+        <FrontsOnCabinet
+          layout={layout}
+          W={W}
+          T={T}
+          innerFloorY={innerFloorY}
+          carcassTopY={topY}
+          carcassBotY={floor}
+          z={0}
+          d={T}
+          cam={view}
+        />
+      )}
+
+      {layout.shelves.length > 0 && (
+        <FixedShelfDimLines
+          shelves={layout.shelves}
+          columns={layout.columns}
+          innerFloorY={innerFloorY}
+          dimX={ox + T + Math.max(28, font * 0.32)}
+          fontSize={small}
+        />
+      )}
+      {layout.partitions.length > 0 && (
+        <PartitionDimLines
+          partitions={layout.partitions}
+          leftovers={leftoverPartitionSpans(layout.partitions, layout.columns)}
+          cam={view}
+          innerLeft={T}
+          y={innerFloorY - bottomRise - Math.max(40, small * 0.65)}
+          anchorY={innerFloorY}
+          fontSize={small}
+        />
+      )}
+
+      <DimText x={heightX} y={heightY} label={mm(H)} fontSize={font} rotate={-90} />
+      <DimText x={depthMx} y={depthMy} label={mm(D)} fontSize={font} rotate={depthRot} />
+      <DimText x={backMx} y={backMy} label={mm(W)} fontSize={font} />
+      {bottomHole && (
+        <DimText
+          x={view.proj(T + m.bottomW / 2, innerFloorY, D / 2).x}
+          y={view.proj(T + m.bottomW / 2, innerFloorY, D / 2).y}
+          label={bottomHole.kind === 'round' ? `Ø${mm(bottomHole.diameter)}` : `${mm(bottomHole.width)}×${mm(bottomHole.height)}`}
+          fontSize={small}
+        />
+      )}
+
+      {showDimLines && (
+        <g>
+          <DimLine x1={heightX + font * 0.22} y1={topY} x2={heightX + font * 0.22} y2={floor} />
           <DimLine x1={ox} y1={topY - 8} x2={ox + dx} y2={topY + dy - 8} />
           <DimLine x1={ox + dx} y1={topY + dy - font * 0.2} x2={ox + W + dx} y2={topY + dy - font * 0.2} />
         </g>
@@ -996,8 +1566,10 @@ function PlinthBoxPreview({
   const { colors } = p
   const layout = layoutInterior({
     innerH: m.innerH,
+    innerW: m.innerW,
     thickness: p.thickness,
     fixedShelves: p.fixedShelves,
+    partitions: p.partitions,
     doorSpan: p.doorSpan,
     doorCount: p.doorCount,
     shelfCount: p.shelfCount,
@@ -1037,7 +1609,12 @@ function PlinthBoxPreview({
       <p className="text-center text-[11px] text-[var(--color-muted-foreground)]">
         <span className="mr-3" style={{ color: colors.bottom }}>■ Дъно</span>
         <span className="mr-3" style={{ color: colors.side }}>■ Страници</span>
-        <span className="mr-3" style={{ color: colors.rail }}>■ Плот</span>
+        {p.topStyle === 'panel' && (
+          <span className="mr-3" style={{ color: colors.rail }}>■ Плот</span>
+        )}
+        {p.topStyle === 'fascia' && (
+          <span className="mr-3" style={{ color: colors.rail }}>■ Бленда надолу</span>
+        )}
         {counts.shelfCount > 0 || layout.shelves.length > 0 ? (
           <span className="mr-3" style={{ color: colors.shelf }}>■ Рафтове</span>
         ) : null}
@@ -1072,8 +1649,16 @@ function PlinthBoxPreview({
         )}
         {' · '}
         {topInner
-          ? 'страниците външни на дъното и плота, плотът между тях'
-          : 'страниците външни на дъното, плотът външен върху страниците, ъгълчета отвътре'}
+          ? p.topStyle === 'panel'
+            ? 'страниците външни на дъното и плота, плотът между тях'
+            : p.topStyle === 'fascia'
+              ? 'страниците външни на дъното, бленда надолу 3 мм навътре'
+              : 'страниците външни на дъното, отворен корпус отгоре'
+          : p.topStyle === 'panel'
+            ? 'страниците външни на дъното, плотът външен върху страниците, ъгълчета отвътре'
+            : p.topStyle === 'fascia'
+              ? 'страниците външни на дъното, бленда надолу 3 мм навътре'
+              : 'страниците външни на дъното, отворен корпус отгоре'}
       </p>
     </div>
   )
@@ -1114,7 +1699,9 @@ function PlinthBoxFront3DView({
   const ox = padL
   const floor = padT + H
   const topY = floor - H
-  const sideY = topInner ? topY : topY + T
+  const coveringTop = m.coveringTop
+  const innerTopPanel = m.innerTopPanel
+  const sideY = coveringTop ? topY + T : topY
   const supportH = m.supportH
   const bottomY = floor - supportH - T
 
@@ -1157,11 +1744,11 @@ function PlinthBoxFront3DView({
   const shelfDepth = m.sideD - DEFAULT_SHELF_FRONT_INSET
   const innerFloorY = bottomY
   const carcassBotY = floor - supportH
-  const frontTopY = m.frontCoversTop ? topY : topY + T
+  const frontTopY = coveringTop ? topY + T : topY
   const frontBotY = m.frontCoversBottom ? carcassBotY : bottomY
 
-  const leftInnerH = Math.max(T, bottomY - (topInner ? topY + T : sideY))
-  const leftInnerY = topInner ? topY + T : sideY
+  const leftInnerY = innerTopPanel ? topY + T : sideY
+  const leftInnerH = Math.max(T, bottomY - leftInnerY)
 
   return (
     <SketchSvg vbW={vbW} vbH={vbH} height={460} label={topInner ? 'Секция 3D' : 'Нощно шкафче 3D'}>
@@ -1273,19 +1860,6 @@ function PlinthBoxFront3DView({
           )}
         </>
       )}
-      {topInner && (
-        <Board
-          x={T}
-          y={topY}
-          z={zSide}
-          w={m.topW}
-          h={T}
-          d={m.topD}
-          color={wood.rail}
-          cam={view}
-          faces={BETWEEN_FACES}
-        />
-      )}
       <Board
         x={0}
         y={sideY}
@@ -1339,55 +1913,36 @@ function PlinthBoxFront3DView({
         </>
       )}
 
-      {layout.shelves.map((s, i) => (
-        <Board
-          key={`fixed-${i}`}
-          x={T}
-          y={innerFloorY - s.yTop}
-          z={zSide}
-          w={m.innerW}
-          h={T}
-          d={m.sideD}
-          color={wood.shelf}
-          cam={view}
-          faces={BETWEEN_FACES}
-        />
-      ))}
-
-      {layout.zones.flatMap((z) =>
-        evenShelfBottoms(z.innerH, z.shelfCount, T).map((off, i) => (
-          <Board
-            key={`shelf-${z.id}-${i}`}
-            x={T}
-            y={innerFloorY - (z.y0 + off) - T}
-            z={zShelfFront}
-            w={m.innerW}
-            h={T}
-            d={shelfDepth}
-            color={wood.shelf}
+      {layout.columns.map((_, i) => (
+        <g key={`ns-bay-${i}`}>
+          <ColumnFill
+            layout={layout}
+            colIndex={i}
+            T={T}
+            innerFloorY={innerFloorY}
             cam={view}
-            faces={BETWEEN_FACES}
+            shelfColor={wood.shelf}
+            fixedZ={zSide}
+            fixedD={m.sideD}
+            adjZ={zShelfFront}
+            adjD={shelfDepth}
+            clothesZ={zSide + Math.min(80, m.sideD * 0.4)}
           />
-        )),
-      )}
-
-      {layout.zones.map(
-        (z) =>
-          z.hasClothesRail && (
+          {layout.partitions[i] && (
             <Board
-              key={`rail-${z.id}`}
-              x={T}
-              y={innerFloorY - z.y1 + 50}
-              z={zSide + Math.min(80, m.sideD * 0.4)}
-              w={m.innerW}
-              h={22}
-              d={22}
-              color={CLOTHES_RAIL_COLOR}
+              x={T + layout.partitions[i].xLeft}
+              y={leftInnerY}
+              z={zSide}
+              w={T}
+              h={leftInnerH}
+              d={m.sideD}
+              color={wood.side}
               cam={view}
-              faces={BETWEEN_FACES}
+              faces={SIDE_LEFT_BODY}
             />
-          ),
-      )}
+          )}
+        </g>
+      ))}
 
       {drawerSlideStacks(layout, {
         innerFloorY,
@@ -1437,10 +1992,38 @@ function PlinthBoxFront3DView({
         d={m.sideD}
         color={wood.side}
         cam={view}
-        faces={SIDE_RIGHT}
+        faces={topInner ? SIDE_RIGHT : SIDE_LEFT_BODY}
       />
 
-      {!topInner && (
+      {p.topStyle === 'fascia' &&
+        layout.columns.map((col, i) => (
+          <Board
+            key={`fascia-${i}`}
+            x={T + col.x0}
+            y={topY}
+            z={zSide + FASCIA_SETBACK_MM}
+            w={col.innerW}
+            h={p.railWidth}
+            d={T}
+            color={wood.rail}
+            cam={view}
+            faces={BETWEEN_FACES}
+          />
+        ))}
+
+      {innerTopPanel ? (
+        <Board
+          x={T}
+          y={topY}
+          z={zSide}
+          w={m.topW}
+          h={T}
+          d={m.topD}
+          color={wood.rail}
+          cam={view}
+          faces={BETWEEN_FACES}
+        />
+      ) : coveringTop ? (
         <Board
           x={0}
           y={topY}
@@ -1452,7 +2035,7 @@ function PlinthBoxFront3DView({
           cam={view}
           faces={BOX_FACES}
         />
-      )}
+      ) : null}
 
       {showFronts && (
         <FrontsOnCabinet
@@ -1471,8 +2054,21 @@ function PlinthBoxFront3DView({
       {layout.shelves.length > 0 && (
         <FixedShelfDimLines
           shelves={layout.shelves}
+          columns={layout.columns}
           innerFloorY={innerFloorY}
           dimX={ox + T + Math.max(28, font * 0.32)}
+          fontSize={small}
+        />
+      )}
+      {layout.partitions.length > 0 && (
+        <PartitionDimLines
+          partitions={layout.partitions}
+          leftovers={leftoverPartitionSpans(layout.partitions, layout.columns)}
+          cam={view}
+          innerLeft={T}
+          y={innerFloorY - Math.abs(view.depthDelta(m.sideD).y) - Math.max(36, small * 0.55)}
+          anchorY={innerFloorY}
+          z={zSide}
           fontSize={small}
         />
       )}

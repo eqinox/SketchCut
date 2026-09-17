@@ -14,6 +14,11 @@ export interface EdgeBandingTimeSettings {
   thinEdgeAdditionalPer50cm: number
 }
 
+/** Extra router time on a door when its finished height is over this (mm). */
+export const TALL_DOOR_MIN_HEIGHT_MM = 1000
+/** Cut size + this = finished door height (2 мм кант горе и долу). */
+const DOOR_FINISHED_BANDING_MM = 4
+
 /** Back is „голям“ when height and width both exceed these. */
 export const BACK_LARGE_MIN_HEIGHT_MM = 1000
 export const BACK_LARGE_MIN_WIDTH_MM = 500
@@ -240,9 +245,20 @@ export interface AssemblyTimeSettings {
   /** Time to assemble top 2 plinths/rails (minutes) — kitchen бленди */
   assembleTopRailsMinutes: number
 
-  /** Minutes to install the 4 shelf pins of one shelf when depth is not over the deep threshold. */
+  /** Installing one hanging fascia on a sink / base cabinet (minutes). */
+  installFrontFasciaMinutes: number
+
+  /** Preparing both sides of a wall cabinet before carcass assembly (minutes). */
+  prepareWallSidesMinutes: number
+
+  /** Assembling wall-cabinet sides with the inner top and bottom (minutes). */
+  assembleWallCarcassMinutes: number
+
+  /** Minutes for the first shelf’s pins on one cabinet when depth is not over the deep threshold. */
   shelfPinPairMinutes: number
-  /** Minutes to install the 4 shelf pins of one shelf when cabinet depth is over the deep threshold. */
+  /** Minutes for each extra shelf’s pins on the same cabinet (shallow and deep). */
+  shelfPinExtraMinutes: number
+  /** Minutes for the first shelf’s pins when cabinet depth is over the deep threshold. */
   shelfPinPairDeepMinutes: number
   /** Deep shelf-pin time applies when cabinet depth is over this (mm). */
   shelfPinDeepMinDepthMm: number
@@ -262,6 +278,11 @@ export interface AssemblyTimeSettings {
   topMediumMinutes: number
   topLargeMinutes: number
 
+  /** Covering top on the sides, plastic corners from inside — 1 min more than inner top. */
+  topCornersSmallMinutes: number
+  topCornersMediumMinutes: number
+  topCornersLargeMinutes: number
+
   clothesRailConsoleMinutes: number
   clothesRailCutMinutes: number
   clothesRailInstallMinutes: number
@@ -270,8 +291,14 @@ export interface AssemblyTimeSettings {
   installDrawerGuidesMinutes: number
   /** Same, when cabinet is both deeper than the depth threshold and at least drawerGuideDeepMinHeightMm tall. */
   installDrawerGuidesDeepMinutes: number
+  /** Soft-close slides on the sides, per drawer. */
+  installDrawerGuidesSoftMinutes: number
   /** Below this height, drawer slides on the sides stay at the small time even if the cabinet is deep. */
   drawerGuideDeepMinHeightMm: number
+  /** Groove on the two taller rails of the first soft-close drawer in the project. */
+  softCloseGrooveFirstPairMinutes: number
+  /** Groove on each extra pair of taller rails in the same project. */
+  softCloseGrooveExtraPairMinutes: number
   
   /** Time to assemble the drawer box itself (minutes) */
   assembleDrawerBoxMinutes: number
@@ -284,9 +311,19 @@ export interface AssemblyTimeSettings {
   
   /** Time to install drawer front - drilling, attaching, adjusting gaps (minutes) */
   installDrawerFrontMinutes: number
-  
-  /** Time to install one door - cleaning, measuring, drilling for hinges, installing (minutes) */
-  installDoorMinutes: number
+
+  /** Taking 4 edge remnants on a small door or drawer front (minutes). */
+  frontEdgeTakeSmallMinutes: number
+  /** Taking 4 edge remnants on a door over tallDoorMinHeightMm (minutes). */
+  frontEdgeTakeTallMinutes: number
+  /** Drill hinges and hang a small door (minutes). */
+  installDoorSmallMinutes: number
+  /** Drill hinges and hang a door over tallDoorMinHeightMm (minutes). */
+  installDoorTallMinutes: number
+  /** Extra minutes per door over tallDoorMinHeightMm, for milling the edge banding. */
+  tallDoorRouterMinutes: number
+  /** Extra router time applies when finished door height is over this (mm). */
+  tallDoorMinHeightMm: number
 
   widthSmallMaxMm: number
   widthMediumMaxMm: number
@@ -309,7 +346,11 @@ export const DEFAULT_ASSEMBLY_TIME_SETTINGS: AssemblyTimeSettings = {
   },
   installLegsMinutes: 6,
   assembleTopRailsMinutes: 10,
-  shelfPinPairMinutes: 3,
+  installFrontFasciaMinutes: 6,
+  prepareWallSidesMinutes: 6,
+  assembleWallCarcassMinutes: 10,
+  shelfPinPairMinutes: 4,
+  shelfPinExtraMinutes: 2,
   shelfPinPairDeepMinutes: 5,
   shelfPinDeepMinDepthMm: SHELF_PIN_DEEP_MIN_DEPTH_MM,
   backSmallMinutes: 6,
@@ -323,17 +364,28 @@ export const DEFAULT_ASSEMBLY_TIME_SETTINGS: AssemblyTimeSettings = {
   topSmallMinutes: 4,
   topMediumMinutes: 7,
   topLargeMinutes: 9,
+  topCornersSmallMinutes: 5,
+  topCornersMediumMinutes: 8,
+  topCornersLargeMinutes: 10,
   clothesRailConsoleMinutes: 5,
   clothesRailCutMinutes: 10,
   clothesRailInstallMinutes: 2,
   installDrawerGuidesMinutes: 5,
   installDrawerGuidesDeepMinutes: 6,
+  installDrawerGuidesSoftMinutes: 6,
   drawerGuideDeepMinHeightMm: DRAWER_GUIDE_DEEP_MIN_HEIGHT_MM,
+  softCloseGrooveFirstPairMinutes: 10,
+  softCloseGrooveExtraPairMinutes: 1,
   assembleDrawerBoxMinutes: 7,
   attachDrawerBackMinutes: 4,
   attachDrawerRunnersMinutes: 4,
   installDrawerFrontMinutes: 15,
-  installDoorMinutes: 15,
+  frontEdgeTakeSmallMinutes: 1,
+  frontEdgeTakeTallMinutes: 1.5,
+  installDoorSmallMinutes: 6,
+  installDoorTallMinutes: 9,
+  tallDoorRouterMinutes: 10,
+  tallDoorMinHeightMm: TALL_DOOR_MIN_HEIGHT_MM,
   ...DEFAULT_CABINET_SIZE_LIMITS,
 }
 
@@ -347,6 +399,36 @@ function numPositive(src: Record<string, unknown>, key: string, fallback: number
 function numMm(src: Record<string, unknown>, key: string, fallback: number): number {
   const v = src[key]
   return typeof v === 'number' && Number.isFinite(v) && v > 0 ? Math.round(v) : fallback
+}
+
+/** Old model billed every shelf at shelfPinPairMinutes (default 3). Extra missing + 3 → new first=4. */
+function parseShelfPinMinutes(
+  src: Record<string, unknown>,
+  d: AssemblyTimeSettings,
+): Pick<AssemblyTimeSettings, 'shelfPinPairMinutes' | 'shelfPinExtraMinutes' | 'shelfPinPairDeepMinutes'> {
+  const hasExtra = typeof src.shelfPinExtraMinutes === 'number' && Number.isFinite(src.shelfPinExtraMinutes)
+  let first = numPositive(src, 'shelfPinPairMinutes', d.shelfPinPairMinutes)
+  if (!hasExtra && first === 3) first = d.shelfPinPairMinutes
+  return {
+    shelfPinPairMinutes: first,
+    shelfPinExtraMinutes: numPositive(src, 'shelfPinExtraMinutes', d.shelfPinExtraMinutes),
+    shelfPinPairDeepMinutes: numPositive(src, 'shelfPinPairDeepMinutes', d.shelfPinPairDeepMinutes),
+  }
+}
+
+/**
+ * First item at `firstMinutes`, each extra item at `extraMinutes`.
+ */
+export function firstPlusExtraMinutes(count: number, firstMinutes: number, extraMinutes: number): number {
+  if (count <= 0) return 0
+  return firstMinutes + extraMinutes * (count - 1)
+}
+
+/**
+ * Per cabinet: first shelf at `firstMinutes`, each extra shelf on that cabinet at `extraMinutes`.
+ */
+export function shelfPinInstallMinutes(shelfCount: number, firstMinutes: number, extraMinutes: number): number {
+  return firstPlusExtraMinutes(shelfCount, firstMinutes, extraMinutes)
 }
 
 /** Old inverted pair was small=6 / deep=5; a missing deep field with small=6 is the pre-split default. */
@@ -421,8 +503,10 @@ export function parseAssemblyTimeSettings(raw: unknown): AssemblyTimeSettings {
     edgeBanding: parseEdgeBandingSettings(src.edgeBanding),
     installLegsMinutes: numPositive(src, 'installLegsMinutes', d.installLegsMinutes),
     assembleTopRailsMinutes: numPositive(src, 'assembleTopRailsMinutes', d.assembleTopRailsMinutes),
-    shelfPinPairMinutes: numPositive(src, 'shelfPinPairMinutes', d.shelfPinPairMinutes),
-    shelfPinPairDeepMinutes: numPositive(src, 'shelfPinPairDeepMinutes', d.shelfPinPairDeepMinutes),
+    installFrontFasciaMinutes: numPositive(src, 'installFrontFasciaMinutes', d.installFrontFasciaMinutes),
+    prepareWallSidesMinutes: numPositive(src, 'prepareWallSidesMinutes', d.prepareWallSidesMinutes),
+    assembleWallCarcassMinutes: numPositive(src, 'assembleWallCarcassMinutes', d.assembleWallCarcassMinutes),
+    ...parseShelfPinMinutes(src, d),
     shelfPinDeepMinDepthMm: numMm(src, 'shelfPinDeepMinDepthMm', d.shelfPinDeepMinDepthMm),
     backSmallMinutes: numPositive(src, 'backSmallMinutes', d.backSmallMinutes),
     backLargeMinutes: numPositive(src, 'backLargeMinutes', d.backLargeMinutes),
@@ -435,16 +519,27 @@ export function parseAssemblyTimeSettings(raw: unknown): AssemblyTimeSettings {
     topSmallMinutes: numPositive(src, 'topSmallMinutes', d.topSmallMinutes),
     topMediumMinutes: numPositive(src, 'topMediumMinutes', d.topMediumMinutes),
     topLargeMinutes: numPositive(src, 'topLargeMinutes', d.topLargeMinutes),
+    topCornersSmallMinutes: numPositive(src, 'topCornersSmallMinutes', d.topCornersSmallMinutes),
+    topCornersMediumMinutes: numPositive(src, 'topCornersMediumMinutes', d.topCornersMediumMinutes),
+    topCornersLargeMinutes: numPositive(src, 'topCornersLargeMinutes', d.topCornersLargeMinutes),
     clothesRailConsoleMinutes: numPositive(src, 'clothesRailConsoleMinutes', d.clothesRailConsoleMinutes),
     clothesRailCutMinutes: numPositive(src, 'clothesRailCutMinutes', d.clothesRailCutMinutes),
     clothesRailInstallMinutes: numPositive(src, 'clothesRailInstallMinutes', d.clothesRailInstallMinutes),
     ...parseDrawerGuideMinutes(src, d),
+    installDrawerGuidesSoftMinutes: numPositive(src, 'installDrawerGuidesSoftMinutes', d.installDrawerGuidesSoftMinutes),
     drawerGuideDeepMinHeightMm: numMm(src, 'drawerGuideDeepMinHeightMm', d.drawerGuideDeepMinHeightMm),
+    softCloseGrooveFirstPairMinutes: numPositive(src, 'softCloseGrooveFirstPairMinutes', d.softCloseGrooveFirstPairMinutes),
+    softCloseGrooveExtraPairMinutes: numPositive(src, 'softCloseGrooveExtraPairMinutes', d.softCloseGrooveExtraPairMinutes),
     assembleDrawerBoxMinutes: numPositive(src, 'assembleDrawerBoxMinutes', d.assembleDrawerBoxMinutes),
     attachDrawerBackMinutes: numPositive(src, 'attachDrawerBackMinutes', d.attachDrawerBackMinutes),
     attachDrawerRunnersMinutes: numPositive(src, 'attachDrawerRunnersMinutes', d.attachDrawerRunnersMinutes),
     installDrawerFrontMinutes: numPositive(src, 'installDrawerFrontMinutes', d.installDrawerFrontMinutes),
-    installDoorMinutes: numPositive(src, 'installDoorMinutes', d.installDoorMinutes),
+    frontEdgeTakeSmallMinutes: numPositive(src, 'frontEdgeTakeSmallMinutes', d.frontEdgeTakeSmallMinutes),
+    frontEdgeTakeTallMinutes: numPositive(src, 'frontEdgeTakeTallMinutes', d.frontEdgeTakeTallMinutes),
+    installDoorSmallMinutes: numPositive(src, 'installDoorSmallMinutes', d.installDoorSmallMinutes),
+    installDoorTallMinutes: numPositive(src, 'installDoorTallMinutes', d.installDoorTallMinutes),
+    tallDoorRouterMinutes: numPositive(src, 'tallDoorRouterMinutes', d.tallDoorRouterMinutes),
+    tallDoorMinHeightMm: numMm(src, 'tallDoorMinHeightMm', d.tallDoorMinHeightMm),
     widthSmallMaxMm: width.smallMaxMm,
     widthMediumMaxMm: width.mediumMaxMm,
     heightSmallMaxMm: height.smallMaxMm,
@@ -557,6 +652,35 @@ export interface AssemblyStep {
   unitOne?: string
   /** Plural unit name, e.g. чифта. */
   unitMany?: string
+  /** If set, shown instead of quantity × (minutes / quantity). */
+  calc?: string
+  /** Recalculate from total quantity when merging cabinets (project-wide first + extra). */
+  projectFirstExtra?: { firstMinutes: number; extraMinutes: number }
+}
+
+export function assemblyMinutesFromSteps(steps: AssemblyStep[]): number {
+  return Math.round(steps.reduce((sum, step) => sum + step.minutes, 0) * 10) / 10
+}
+
+/** Rebuild minutes/calc for a project-scoped first+extra step at a new quantity. */
+export function rescaleProjectScopedStep(step: AssemblyStep, quantity: number): AssemblyStep {
+  const pe = step.projectFirstExtra
+  if (!pe) return step
+  const n = Math.max(0, quantity)
+  const extraN = Math.max(0, n - 1)
+  const minutes = firstPlusExtraMinutes(n, pe.firstMinutes, pe.extraMinutes)
+  const calc =
+    extraN > 0
+      ? `1 × ${minText(pe.firstMinutes)} + ${extraN} × ${minText(pe.extraMinutes)} = ${minText(minutes)}`
+      : n > 0
+        ? `1 ${step.unitOne ?? 'чифт'} × ${minText(pe.firstMinutes)} = ${minText(minutes)}`
+        : minText(0)
+  return {
+    ...step,
+    quantity: n,
+    minutes: Math.round(minutes * 10) / 10,
+    calc,
+  }
 }
 
 function formatQty(n: number): string {
@@ -578,6 +702,9 @@ function qtyPhrase(n: number, one?: string, many?: string): string {
  * How the step minutes are obtained, e.g. "7 рафта × 3 мин = 21 мин".
  */
 export function describeAssemblyCalc(step: AssemblyStep): string {
+  if (step.calc) {
+    return step.hint ? `${step.hint} · ${step.calc}` : step.calc
+  }
   const qty = step.quantity
   if (qty != null && qty > 0) {
     const per = step.minutes / qty
@@ -603,6 +730,48 @@ function pushStep(steps: AssemblyStep[], step: AssemblyStep): void {
   steps.push({ ...step, minutes: Math.round(step.minutes * 10) / 10 })
 }
 
+export type OverlayFrontLeafCounts = {
+  tallDoors: number
+  smallDoors: number
+  drawerFronts: number
+}
+
+function isCombinedFirstCutName(name: string): boolean {
+  return name.includes('комбинирано')
+}
+
+function finishedFrontHeightMm(cutHeightMm: number): number {
+  return cutHeightMm + DOOR_FINISHED_BANDING_MM
+}
+
+/** Installed door leaves and drawer fronts. Skip combined first-cut boards. */
+export function overlayFrontLeafCounts(
+  panels: AssemblyPanelInput[],
+  minFinishedHeightMm: number,
+): OverlayFrontLeafCounts {
+  const min = minFinishedHeightMm > 0 ? minFinishedHeightMm : TALL_DOOR_MIN_HEIGHT_MM
+  const counts: OverlayFrontLeafCounts = { tallDoors: 0, smallDoors: 0, drawerFronts: 0 }
+  for (const p of panels) {
+    if (isCombinedFirstCutName(p.name)) continue
+    const qty = Math.max(0, p.quantity)
+    if (p.role === 'door') {
+      if (finishedFrontHeightMm(p.height) > min) counts.tallDoors += qty
+      else counts.smallDoors += qty
+    } else if (p.role === 'drawer-front') {
+      counts.drawerFronts += qty
+    }
+  }
+  return counts
+}
+
+/** Finished door height (cut + banding). Skip combined first-cut boards. */
+export function tallDoorLeafCount(
+  panels: AssemblyPanelInput[],
+  minFinishedHeightMm: number,
+): number {
+  return overlayFrontLeafCounts(panels, minFinishedHeightMm).tallDoors
+}
+
 /**
  * Build the assembly time list from the workshop settings.
  * Add new operations here when new assembly steps are defined.
@@ -615,7 +784,16 @@ export function collectCabinetAssembly(input: {
   depth: number
   hasLegs: boolean
   hasTopRails: boolean
+  /** How many front+back rail pairs (1 per column). */
+  topRailPairCount?: number
+  /** One hanging fascia per bay (sink cabinet), instead of a top or rail pair. */
+  hasFrontFascia?: boolean
+  frontFasciaCount?: number
   hasTop: boolean
+  /** Covering top on the sides, held with plastic corners from inside. */
+  topWithCorners?: boolean
+  /** Wall cabinet: sides cover inner top and bottom — own prepare + carcass times. */
+  isWallCabinet?: boolean
   plinthCount: number
   hasBack: boolean
   shelfCount: number
@@ -625,6 +803,9 @@ export function collectCabinetAssembly(input: {
   clothesRailCount?: number
   clothesRailLengthMm?: number
   fixedShelfCount?: number
+  partitionCount?: number
+  /** Soft-close slides: 6 min per drawer on the sides, plus a project-wide groove on the taller rails. */
+  softCloseDrawers?: boolean
 }): { steps: AssemblyStep[]; minutes: number } {
   const s = input.settings
   const steps: AssemblyStep[] = []
@@ -658,33 +839,77 @@ export function collectCabinetAssembly(input: {
     })
   }
 
-  pushStep(steps, {
-    id: 'sides-bottom',
-    label: 'Сглобяване на страниците към дъното',
-    minutes: pickTier(
-      tier,
-      s.sidesToBottomSmallMinutes,
-      s.sidesToBottomMediumMinutes,
-      s.sidesToBottomLargeMinutes,
-    ),
-    hint: size,
-  })
-
-  if (input.hasTopRails) {
+  if (input.isWallCabinet) {
     pushStep(steps, {
-      id: 'top-rails',
-      label: 'Сглобяване на 2 бленди горе',
-      minutes: s.assembleTopRailsMinutes,
-      hint: 'предна и задна бленда между страниците',
+      id: 'prepare-wall-sides',
+      label: 'Приготвяне на страниците за сглобяване',
+      minutes: s.prepareWallSidesMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.prepareWallSidesMinutes,
+      hint: 'горен шкаф — двете страници',
+    })
+    pushStep(steps, {
+      id: 'wall-carcass',
+      label: 'Сглобяване на страниците с плота и дъното',
+      minutes: s.assembleWallCarcassMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.assembleWallCarcassMinutes,
+      hint: 'горен шкаф — плотът и дъното между страниците',
+    })
+  } else {
+    pushStep(steps, {
+      id: 'sides-bottom',
+      label: 'Сглобяване на страниците към дъното',
+      minutes: pickTier(
+        tier,
+        s.sidesToBottomSmallMinutes,
+        s.sidesToBottomMediumMinutes,
+        s.sidesToBottomLargeMinutes,
+      ),
+      hint: size,
     })
   }
 
-  if (input.hasTop) {
+  if (input.hasTopRails) {
+    const pairs = Math.max(1, input.topRailPairCount ?? 1)
     pushStep(steps, {
-      id: 'top',
-      label: 'Слагане на плот',
-      minutes: pickTier(tier, s.topSmallMinutes, s.topMediumMinutes, s.topLargeMinutes),
-      hint: size,
+      id: 'top-rails',
+      label: pairs === 1 ? 'Сглобяване на 2 бленди горе' : `Сглобяване на бленди горе (${pairs} колони)`,
+      minutes: s.assembleTopRailsMinutes * pairs,
+      quantity: pairs * 2,
+      unitOne: 'бленда',
+      unitMany: 'бленди',
+      hint: pairs === 1 ? 'предна и задна бленда между страниците' : 'предна и задна бленда във всяка колона',
+    })
+  }
+
+  if (input.hasFrontFascia) {
+    const n = Math.max(1, input.frontFasciaCount ?? 1)
+    pushStep(steps, {
+      id: 'front-fascia',
+      label: n === 1 ? 'Сглобяване на бленда надолу' : `Сглобяване на бленди надолу (${n} колони)`,
+      minutes: (s.installFrontFasciaMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.installFrontFasciaMinutes) * n,
+      quantity: n,
+      unitOne: 'бленда',
+      unitMany: 'бленди',
+      hint: 'бленда за мивка, 3 мм навътре от предния край',
+    })
+  }
+
+  if (input.hasTop && !input.isWallCabinet) {
+    const corners = Boolean(input.topWithCorners)
+    pushStep(steps, {
+      id: corners ? 'top-corners' : 'top',
+      label: corners ? 'Слагане на плот с ъгълчета' : 'Слагане на плот',
+      minutes: pickTier(
+        tier,
+        corners
+          ? (s.topCornersSmallMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.topCornersSmallMinutes)
+          : s.topSmallMinutes,
+        corners
+          ? (s.topCornersMediumMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.topCornersMediumMinutes)
+          : s.topMediumMinutes,
+        corners
+          ? (s.topCornersLargeMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.topCornersLargeMinutes)
+          : s.topLargeMinutes,
+      ),
+      hint: corners ? `${size} · ъгълчета отвътре` : size,
     })
   }
 
@@ -710,18 +935,27 @@ export function collectCabinetAssembly(input: {
 
   if (input.shelfCount > 0) {
     const deep = isDeepCabinet(input.depth, s)
-    const per = deep ? s.shelfPinPairDeepMinutes : s.shelfPinPairMinutes
+    const first = deep ? s.shelfPinPairDeepMinutes : s.shelfPinPairMinutes
+    const extra = s.shelfPinExtraMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.shelfPinExtraMinutes
+    const n = input.shelfCount
+    const extraN = Math.max(0, n - 1)
+    const minutes = shelfPinInstallMinutes(n, first, extra)
     const threshold = s.shelfPinDeepMinDepthMm ?? DEEP_CABINET_MIN_DEPTH_MM
+    const calc =
+      extraN > 0
+        ? `1 × ${minText(first)} + ${extraN} × ${minText(extra)} = ${minText(minutes)}`
+        : `1 рафт × ${minText(first)} = ${minText(minutes)}`
     pushStep(steps, {
       id: 'shelf-pins',
       label: 'Слагане на рафтоносачи',
-      minutes: per * input.shelfCount,
-      quantity: input.shelfCount,
+      minutes,
+      quantity: n,
       unitOne: 'рафт',
       unitMany: 'рафта',
+      calc,
       hint: deep
-        ? `4 рафтоносача на рафт · дълбочина над ${threshold} мм`
-        : `4 рафтоносача на рафт · дълбочина до ${threshold} мм`,
+        ? `на 1 шкаф · първи ${first} мин, всеки следващ ${extra} мин · дълбочина над ${threshold} мм`
+        : `на 1 шкаф · първи ${first} мин, всеки следващ ${extra} мин · дълбочина до ${threshold} мм`,
     })
   }
 
@@ -736,6 +970,25 @@ export function collectCabinetAssembly(input: {
       unitOne: 'рафт',
       unitMany: 'рафта',
       hint: 'винтове 5×60 през страниците',
+    })
+  }
+
+  if ((input.partitionCount ?? 0) > 0) {
+    const n = input.partitionCount ?? 0
+    const per = pickTier(
+      tier,
+      s.sidesToBottomSmallMinutes,
+      s.sidesToBottomMediumMinutes,
+      s.sidesToBottomLargeMinutes,
+    )
+    pushStep(steps, {
+      id: 'partition',
+      label: n === 1 ? 'Сглобяване на разделителна страница' : 'Сглобяване на разделителни страници',
+      minutes: per * n,
+      quantity: n,
+      unitOne: 'страница',
+      unitMany: 'страници',
+      hint: 'като вътрешна страница към дъното',
     })
   }
 
@@ -786,8 +1039,13 @@ export function collectCabinetAssembly(input: {
 
   if (input.drawerCount > 0) {
     const n = input.drawerCount
+    const soft = !!input.softCloseDrawers
     const deep = isDeepDrawerGuides(input.depth, input.height, s)
-    const guidePer = deep ? s.installDrawerGuidesDeepMinutes : s.installDrawerGuidesMinutes
+    const guidePer = soft
+      ? (s.installDrawerGuidesSoftMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.installDrawerGuidesSoftMinutes)
+      : deep
+        ? s.installDrawerGuidesDeepMinutes
+        : s.installDrawerGuidesMinutes
     const minDepth = s.shelfPinDeepMinDepthMm ?? DEEP_CABINET_MIN_DEPTH_MM
     const minHeight = s.drawerGuideDeepMinHeightMm ?? DRAWER_GUIDE_DEEP_MIN_HEIGHT_MM
     pushStep(steps, {
@@ -797,12 +1055,34 @@ export function collectCabinetAssembly(input: {
       quantity: n,
       unitOne: 'чекмедже',
       unitMany: 'чекмеджета',
-      hint: deep
-        ? `водачи на страниците · дълбочина над ${minDepth} мм и височина от ${minHeight} мм`
-        : input.depth > minDepth
-          ? `водачи на страниците · висок под ${minHeight} мм — брои се за малък`
-          : `водачи на страниците · дълбочина до ${minDepth} мм`,
+      hint: soft
+        ? `водачи с плавно прибиране · ${guidePer} мин на чекмедже`
+        : deep
+          ? `водачи на страниците · дълбочина над ${minDepth} мм и височина от ${minHeight} мм`
+          : input.depth > minDepth
+            ? `водачи на страниците · висок под ${minHeight} мм — брои се за малък`
+            : `водачи на страниците · дълбочина до ${minDepth} мм`,
     })
+    if (soft) {
+      const first = s.softCloseGrooveFirstPairMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.softCloseGrooveFirstPairMinutes
+      const extra = s.softCloseGrooveExtraPairMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.softCloseGrooveExtraPairMinutes
+      pushStep(
+        steps,
+        rescaleProjectScopedStep(
+          {
+            id: 'soft-close-groove',
+            label: 'Канал на високите царги за плавно прибиране',
+            minutes: 0,
+            quantity: n,
+            unitOne: 'чифт',
+            unitMany: 'чифта',
+            hint: 'за целия проект · канал на по-високата царга, така работят водачите с плавно прибиране',
+            projectFirstExtra: { firstMinutes: first, extraMinutes: extra },
+          },
+          n,
+        ),
+      )
+    }
     pushStep(steps, {
       id: 'drawer-box',
       label: 'Сглобяване на кутията на чекмеджето',
@@ -838,20 +1118,82 @@ export function collectCabinetAssembly(input: {
     })
   }
 
-  if (input.doorCount > 0) {
-    const n = input.doorCount
+  const threshold = s.tallDoorMinHeightMm ?? TALL_DOOR_MIN_HEIGHT_MM
+  const leaves = overlayFrontLeafCounts(input.panels, threshold)
+  if (input.doorCount > 0 && leaves.tallDoors + leaves.smallDoors === 0) {
+    leaves.smallDoors = input.doorCount
+  }
+  if (input.drawerCount > 0 && leaves.drawerFronts === 0) {
+    leaves.drawerFronts = input.drawerCount
+  }
+  const smallEdgeN = leaves.smallDoors + leaves.drawerFronts
+  const smallEdgePer =
+    s.frontEdgeTakeSmallMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.frontEdgeTakeSmallMinutes
+  const tallEdgePer =
+    s.frontEdgeTakeTallMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.frontEdgeTakeTallMinutes
+  const smallHangPer =
+    s.installDoorSmallMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.installDoorSmallMinutes
+  const tallHangPer =
+    s.installDoorTallMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.installDoorTallMinutes
+  const routerPer = s.tallDoorRouterMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.tallDoorRouterMinutes
+
+  if (smallEdgeN > 0 && smallEdgePer > 0) {
     pushStep(steps, {
-      id: 'door',
-      label: 'Слагане на врата',
-      minutes: s.installDoorMinutes * n,
-      quantity: n,
+      id: 'front-edge-take-small',
+      label: 'Взимане на 4 ръбчета — малка врата/чело',
+      minutes: smallEdgePer * smallEdgeN,
+      quantity: smallEdgeN,
+      unitOne: 'бр.',
+      unitMany: 'бр.',
+      hint: `малка врата или чело · до ${threshold} мм`,
+    })
+  }
+  if (leaves.tallDoors > 0 && tallEdgePer > 0) {
+    pushStep(steps, {
+      id: 'front-edge-take-tall',
+      label: 'Взимане на 4 ръбчета — висока врата',
+      minutes: tallEdgePer * leaves.tallDoors,
+      quantity: leaves.tallDoors,
       unitOne: 'врата',
       unitMany: 'врати',
-      hint: 'изчистване, ръбове, пробиване за панти и слагане',
+      hint: `готова врата над ${threshold} мм`,
+    })
+  }
+  if (leaves.smallDoors > 0 && smallHangPer > 0) {
+    pushStep(steps, {
+      id: 'door-hinge-small',
+      label: 'Пробиване на панти и слагане — малка врата',
+      minutes: smallHangPer * leaves.smallDoors,
+      quantity: leaves.smallDoors,
+      unitOne: 'врата',
+      unitMany: 'врати',
+      hint: `готова врата до ${threshold} мм`,
+    })
+  }
+  if (leaves.tallDoors > 0 && tallHangPer > 0) {
+    pushStep(steps, {
+      id: 'door-hinge-tall',
+      label: 'Пробиване на панти и слагане — висока врата',
+      minutes: tallHangPer * leaves.tallDoors,
+      quantity: leaves.tallDoors,
+      unitOne: 'врата',
+      unitMany: 'врати',
+      hint: `готова врата над ${threshold} мм`,
+    })
+  }
+  if (leaves.tallDoors > 0 && routerPer > 0) {
+    pushStep(steps, {
+      id: 'tall-door-router',
+      label: 'Оправяне на кант с фреза — висока врата',
+      minutes: routerPer * leaves.tallDoors,
+      quantity: leaves.tallDoors,
+      unitOne: 'врата',
+      unitMany: 'врати',
+      hint: `готова врата над ${threshold} мм`,
     })
   }
 
-  const minutes = Math.round(steps.reduce((sum, step) => sum + step.minutes, 0) * 10) / 10
+  const minutes = assemblyMinutesFromSteps(steps)
   return { steps, minutes }
 }
 
@@ -873,11 +1215,12 @@ export function calculateDrawerAssemblyTime(
 ): number {
   if (drawerCount === 0) return 0
   
-  const timePerDrawer = 
+  const timePerDrawer =
     settings.assembleDrawerBoxMinutes +
     settings.attachDrawerBackMinutes +
     settings.attachDrawerRunnersMinutes +
-    settings.installDrawerFrontMinutes
+    settings.installDrawerFrontMinutes +
+    (settings.frontEdgeTakeSmallMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.frontEdgeTakeSmallMinutes)
   
   return timePerDrawer * drawerCount
 }

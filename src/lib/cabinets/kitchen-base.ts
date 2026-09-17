@@ -1,19 +1,25 @@
 import { parsePartColors, DEFAULT_PART_COLORS } from './colors'
 import {
   fastenerLine,
+  isSoftCloseSlide,
   KITCHEN_BASE_SCREWS_BOTTOM,
   KITCHEN_BASE_SCREWS_RAILS,
-  KITCHEN_BASE_SCREWS_TOTAL,
   SCREW_5X60,
 } from './hardware'
 import { KITCHEN_BASE_JOINERY, measureCarcass } from './joinery'
-import { appendHardboard, appendZonedInterior, parseInteriorFittings } from './fronts'
+import { appendHardboard, appendHangingFascias, appendZonedInterior, parseInteriorFittings } from './fronts'
+import {
+  cabinetColumns,
+  resolvePartitions,
+} from './zones'
 import {
   DEFAULT_LEG_HEIGHT,
   DEFAULT_PANEL_THICKNESS,
   DEFAULT_RAIL_WIDTH,
   emptyLabor,
   edges,
+  kitchenClearInnerH,
+  parseKitchenTopStyle,
   type CabinetGeneratorResult,
   type CabinetTypeDefinition,
   type GeneratedPanel,
@@ -36,6 +42,7 @@ export const DEFAULT_KITCHEN_BASE_PARAMS: KitchenBaseParams = {
   thickness: DEFAULT_PANEL_THICKNESS,
   legHeight: DEFAULT_LEG_HEIGHT,
   railWidth: DEFAULT_RAIL_WIDTH,
+  topStyle: 'rails',
   shelfCount: 0,
   hasBack: true,
   doorCount: 0,
@@ -46,6 +53,7 @@ export const DEFAULT_KITCHEN_BASE_PARAMS: KitchenBaseParams = {
   slideKind: 'roller',
   slideLength: 500,
   fixedShelves: [],
+  partitions: [],
   doorSpan: 'full',
   zones: {},
   colors: { ...DEFAULT_PART_COLORS },
@@ -67,6 +75,7 @@ export function parseKitchenBaseParams(raw: Record<string, unknown>): KitchenBas
     thickness: num('thickness', d.thickness),
     legHeight: leg === 150 ? 150 : 100,
     railWidth: num('railWidth', d.railWidth),
+    topStyle: parseKitchenTopStyle(raw.topStyle),
     ...fittings,
     hasBack: typeof raw.hasBack === 'boolean' ? raw.hasBack : false,
     colors: parsePartColors(raw.colors),
@@ -85,15 +94,37 @@ export function generateKitchenBase(
     KITCHEN_BASE_JOINERY,
   )
 
+  const { partitions } = resolvePartitions(p.partitions ?? [], m.innerW, p.thickness)
+  const columns = cabinetColumns(partitions, m.innerW, p.thickness)
+  const bayCount = Math.max(1, columns.length)
+  const innerH = kitchenClearInnerH(p.height, p.thickness, p.topStyle)
+  const railScrews = p.topStyle === 'rails' ? KITCHEN_BASE_SCREWS_RAILS * bayCount : 0
+  const bottomScrews = KITCHEN_BASE_SCREWS_BOTTOM
+
   const notes: string[] = [
     `Корпус ${p.width} × ${p.height} × ${p.depth} мм, плоскост ${p.thickness} мм.`,
     `Крачета ${p.legHeight} мм — обща височина от пода ${p.height + p.legHeight} мм.`,
     'Дъното покрива страниците: страниците сядат върху дъното, винтовете се виждат отдолу.',
-    'Блендите влизат между страниците горе — по една отпред и отзад.',
-    `Сглобяване с винтове ${SCREW_5X60.name}: ${KITCHEN_BASE_SCREWS_BOTTOM} на дъното и ${KITCHEN_BASE_SCREWS_RAILS} за блендите (${KITCHEN_BASE_SCREWS_TOTAL} бр.).`,
   ]
+  if (p.topStyle === 'rails') {
+    notes.push(
+      bayCount > 1
+        ? `Блендите влизат между страниците във всяка колона — по една отпред и отзад × ${bayCount} части.`
+        : 'Блендите влизат между страниците горе — по една отпред и отзад.',
+      `Сглобяване с винтове ${SCREW_5X60.name}: ${bottomScrews} на дъното (към външните страници) и ${railScrews} за блендите.`,
+    )
+  } else if (p.topStyle === 'none') {
+    notes.push(
+      'Без плот и без бленди горе — отворен корпус отгоре (плотът/мивката е отделно).',
+      `Сглобяване с винтове ${SCREW_5X60.name}: ${bottomScrews} на дъното (към външните страници).`,
+    )
+  } else {
+    notes.push(
+      `Сглобяване с винтове ${SCREW_5X60.name}: ${bottomScrews} на дъното (към външните страници).`,
+    )
+  }
 
-  if (p.depth < p.railWidth * 2) {
+  if (p.topStyle === 'rails' && p.depth < p.railWidth * 2) {
     notes.push('Внимание: дълбочината е по-малка от двете бленди една до друга.')
   }
 
@@ -101,14 +132,18 @@ export function generateKitchenBase(
     { name: `Краче ${p.legHeight} мм`, quantity: 4 },
     fastenerLine(
       { ...SCREW_5X60, packPriceEur: hardwareSettings.screw5x60_500PackEur },
-      KITCHEN_BASE_SCREWS_BOTTOM,
+      bottomScrews,
       'Дъно — винтове отдолу',
     ),
-    fastenerLine(
-      { ...SCREW_5X60, packPriceEur: hardwareSettings.screw5x60_500PackEur },
-      KITCHEN_BASE_SCREWS_RAILS,
-      'Бленди горе',
-    ),
+    ...(railScrews > 0
+      ? [
+          fastenerLine(
+            { ...SCREW_5X60, packPriceEur: hardwareSettings.screw5x60_500PackEur },
+            railScrews,
+            bayCount > 1 ? `Бленди горе · ${bayCount} колони` : 'Бленди горе',
+          ),
+        ]
+      : []),
   ]
   const panels: GeneratedPanel[] = [
     {
@@ -131,27 +166,55 @@ export function generateKitchenBase(
       edges: edges({ top: true, left: true }),
       note: 'Кант: предна и горна. Долната сяда в дъното, задната не се вижда.',
     },
-    {
-      role: 'rail' as const,
-      name: 'Бленда',
-      width: m.railLength,
-      height: p.railWidth,
-      quantity: 2,
-      canRotate: false,
-      edges: edges({ top: true }),
-      note: 'Кант: едната дълга страна. Предна и задна бленда са еднакви.',
-    },
   ]
+
+  const railsByWidth = new Map<number, number>()
+  if (p.topStyle === 'rails') {
+    for (const col of columns) {
+      const w = Math.round(col.innerW > 0 ? col.innerW : m.railLength)
+      railsByWidth.set(w, (railsByWidth.get(w) ?? 0) + 2)
+    }
+    for (const [w, qty] of railsByWidth) {
+      panels.push({
+        role: 'rail' as const,
+        name: bayCount > 1 ? 'Бленда (част)' : 'Бленда',
+        width: w,
+        height: p.railWidth,
+        quantity: qty,
+        canRotate: false,
+        edges: edges({ top: true }),
+        note:
+          bayCount > 1
+            ? 'Кант: едната дълга страна. Предна и задна бленда във всяка колона.'
+            : 'Кант: едната дълга страна. Предна и задна бленда са еднакви.',
+      })
+    }
+  } else if (p.topStyle === 'fascia') {
+    appendHangingFascias(
+      {
+        columns,
+        railWidth: p.railWidth,
+        fallbackInnerW: m.railLength,
+        hardwareSettings,
+      },
+      panels,
+      hardware,
+      notes,
+    )
+  }
 
   const interior = appendZonedInterior(
     {
       fittings: p,
       innerW: m.innerW,
-      innerH: m.innerH,
+      innerH,
       sideD: m.sideD,
+      sideH: m.sideH,
       thickness: p.thickness,
       width: p.width,
       frontHeight: p.height,
+      coveringBottom: true,
+      overlayCovers: p.topStyle === 'rails' ? undefined : { top: false, bottom: true },
     },
     panels,
     hardware,
@@ -170,7 +233,10 @@ export function generateKitchenBase(
     height: p.height,
     depth: p.depth,
     hasLegs: p.legHeight > 0,
-    hasTopRails: true,
+    hasTopRails: p.topStyle === 'rails',
+    topRailPairCount: bayCount,
+    hasFrontFascia: p.topStyle === 'fascia',
+    frontFasciaCount: bayCount,
     hasTop: false,
     plinthCount: 0,
     hasBack: p.hasBack,
@@ -181,6 +247,8 @@ export function generateKitchenBase(
     clothesRailCount: interior.clothesRailCount,
     clothesRailLengthMm: p.width - 2 * p.thickness,
     fixedShelfCount: interior.fixedShelfCount,
+    partitionCount: interior.partitionCount,
+    softCloseDrawers: isSoftCloseSlide(p.slideKind),
   })
 
   return {
@@ -201,7 +269,7 @@ export const kitchenBaseType: CabinetTypeDefinition = {
   name: 'Долен кухненски шкаф',
   category: 'kitchen-base',
   description:
-    'Корпус на крачета. По избор фазер, врати и чекмеджета с различни височини.',
+    'Корпус на крачета. По избор фазер, врати и чекмеджета. Горе: две бленди, без плот или бленда надолу (мивка).',
   defaultParams: { ...DEFAULT_KITCHEN_BASE_PARAMS },
   generate: generateKitchenBase,
 }

@@ -11,9 +11,10 @@ import { reorderItems } from '@/lib/reorder'
 interface PartsPanelProps {
   parts: Part[]
   onChange: (parts: Part[]) => void
+  onClear?: () => void
 }
 
-export function PartsPanel({ parts, onChange }: PartsPanelProps) {
+export function PartsPanel({ parts, onChange, onClear }: PartsPanelProps) {
   const [width, setWidth] = useState('')
   const [height, setHeight] = useState('')
   const [quantity, setQuantity] = useState('')
@@ -120,9 +121,25 @@ export function PartsPanel({ parts, onChange }: PartsPanelProps) {
 
   return (
     <div className="flex h-full flex-col gap-4 rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] p-4">
-      <div>
-        <h2 className="text-lg font-semibold">Детайли</h2>
-        <p className="text-xs text-[var(--color-muted-foreground)]">Tab за смяна · Enter за добавяне · влачи за пренареждане</p>
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <h2 className="text-lg font-semibold">Детайли</h2>
+          <p className="text-xs text-[var(--color-muted-foreground)]">Tab за смяна · Enter за добавяне · влачи за пренареждане</p>
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="shrink-0"
+          disabled={parts.length === 0}
+          onClick={() => {
+            if (onClear) onClear()
+            else onChange([])
+          }}
+        >
+          <Trash2 className="h-4 w-4" />
+          Изчисти детайлите
+        </Button>
       </div>
 
       <div className="grid grid-cols-3 gap-2">

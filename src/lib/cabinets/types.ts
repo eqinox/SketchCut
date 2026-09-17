@@ -1,7 +1,7 @@
 import type { BoardKind, EdgeBandingSides } from '@/types'
 import type { CabinetPartColors } from './colors'
 import type { AssemblyStep } from '@/lib/assembly-time'
-import type { CabinetZoneId, DoorSpan, FixedShelfSpec, ZoneFittings } from './zones'
+import type { CabinetZoneId, DoorSpan, FixedShelfSpec, PartitionSpec, ZoneFittings } from './zones'
 
 /** Actual working hours counted per day (breaks are not billed). */
 export const WORK_HOURS_PER_DAY = 5
@@ -23,6 +23,29 @@ export function frontDoorOverhang(thickness: number): number {
 export const DEFAULT_SHELF_FRONT_INSET = 50
 
 export type CabinetCategory = 'kitchen-base' | 'kitchen-wall' | 'wardrobe' | 'other'
+
+/**
+ * Горен край на корпуса.
+ * Кухня: `rails` (две хоризонтални бленди назад), `none`, `fascia` (една бленда надолу).
+ * Нощно/секция: `panel` (плот), `none`, `fascia`.
+ */
+export type CabinetTopStyle = 'rails' | 'panel' | 'none' | 'fascia'
+
+/** Бленда надолу се слага 2–3 мм навътре от предния край, не наравно с него. */
+export const FASCIA_SETBACK_MM = 3
+
+export function parseKitchenTopStyle(raw: unknown): CabinetTopStyle {
+  return raw === 'none' || raw === 'fascia' ? raw : 'rails'
+}
+
+export function parseBoxTopStyle(raw: unknown): CabinetTopStyle {
+  return raw === 'none' || raw === 'fascia' ? raw : 'panel'
+}
+
+/** Светъл отвор над дъното: при две бленди горе те заемат още една дебелина. */
+export function kitchenClearInnerH(outerH: number, thickness: number, topStyle: CabinetTopStyle): number {
+  return topStyle === 'rails' ? outerH - 2 * thickness : outerH - thickness
+}
 
 export type PanelRole =
   | 'bottom'
@@ -101,6 +124,30 @@ export interface GeneratedPanel {
   excludeFromCutting?: boolean
   /** Visual highlight color for grouping (e.g., 'red', 'blue') */
   highlightColor?: string
+  /** Cut-out for a cooker hood / duct, drawn on the panel and noted on the list. */
+  hole?: PanelHole
+}
+
+export type PanelHole =
+  | { kind: 'round'; diameter: number }
+  | { kind: 'rect'; width: number; height: number }
+
+export function panelHoleNote(hole: PanelHole): string {
+  return hole.kind === 'round'
+    ? `Отвор Ø${Math.round(hole.diameter)} мм в средата (въздуховод).`
+    : `Отвор ${Math.round(hole.width)} × ${Math.round(hole.height)} мм в средата (абсорбатор).`
+}
+
+export function panelHoleFits(
+  panelW: number,
+  panelD: number,
+  hole: PanelHole,
+  margin = 16,
+): boolean {
+  if (hole.kind === 'round') {
+    return hole.diameter + margin * 2 <= Math.min(panelW, panelD)
+  }
+  return hole.width + margin * 2 <= panelW && hole.height + margin * 2 <= panelD
 }
 
 export interface HardwareItem {
@@ -149,8 +196,10 @@ export interface KitchenBaseParams {
   thickness: number
   /** 100 or 150 typically */
   legHeight: number
-  /** Front/back top rail depth, mm (the 10 cm бленди) */
+  /** Front/back top rail depth, mm (the 10 cm бленди). Also the hanging fascia height. */
   railWidth: number
+  /** Default `rails`. `none` = open top. `fascia` = one rail hanging down (sink cabinet). */
+  topStyle: CabinetTopStyle
   /** Evenly spaced shelves */
   shelfCount: number
   /** 3 mm hardboard back. */
@@ -171,6 +220,7 @@ export interface KitchenBaseParams {
   slideLength: number
   /** Up to 2 shelves screwed through the sides. */
   fixedShelves: FixedShelfSpec[]
+  partitions: PartitionSpec[]
   /** Full-height doors vs doors only on some compartments. */
   doorSpan: DoorSpan
   zones: Partial<Record<CabinetZoneId, ZoneFittings>>

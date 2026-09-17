@@ -1,5 +1,6 @@
 import { parsePartColors, DEFAULT_PART_COLORS } from './colors'
 import {
+  isSoftCloseSlide,
   confirmatCount,
   fastenerLine,
   pricedLine,
@@ -9,10 +10,13 @@ import {
 import {
   DEFAULT_LEG_HEIGHT,
   DEFAULT_PANEL_THICKNESS,
+  DEFAULT_RAIL_WIDTH,
   emptyLabor,
   edges,
   frontDoorOverhang,
+  parseBoxTopStyle,
   type CabinetGeneratorResult,
+  type CabinetTopStyle,
   type CabinetTypeDefinition,
   type GeneratedPanel,
   type JoineryConfig,
@@ -27,10 +31,12 @@ import { DEFAULT_ASSEMBLY_TIME_SETTINGS } from '@/lib/assembly-time'
 import type { CabinetPartColors } from './colors'
 import {
   appendHardboard,
+  appendHangingFascias,
   appendZonedInterior,
   parseInteriorFittings,
   type InteriorFittings,
 } from './fronts'
+import { cabinetColumns, resolvePartitions } from './zones'
 
 export const NIGHTSTAND_TYPE_ID = 'nightstand'
 
@@ -79,6 +85,10 @@ export interface NightstandParams extends InteriorFittings {
   plinthHeight: number
   /** Leg height in mm. Used only when useLegs. */
   legHeight: number
+  /** Default `panel`. `none` = open top. `fascia` = hanging rail (sink-style). */
+  topStyle: CabinetTopStyle
+  /** Height of the hanging fascia when topStyle is fascia. */
+  railWidth: number
   colors: CabinetPartColors
 }
 
@@ -91,6 +101,8 @@ export const DEFAULT_NIGHTSTAND_PARAMS: NightstandParams = {
   plinthCount: 1,
   plinthHeight: 100,
   legHeight: DEFAULT_LEG_HEIGHT,
+  topStyle: 'panel',
+  railWidth: DEFAULT_RAIL_WIDTH,
   shelfCount: 0,
   hasBack: false,
   doorCount: 0,
@@ -101,6 +113,7 @@ export const DEFAULT_NIGHTSTAND_PARAMS: NightstandParams = {
   slideKind: 'roller',
   slideLength: 300,
   fixedShelves: [],
+  partitions: [],
   doorSpan: 'full',
   zones: {},
   colors: { ...DEFAULT_PART_COLORS },
@@ -125,6 +138,8 @@ export function parseNightstandParams(raw: Record<string, unknown>): NightstandP
     plinthCount: raw.plinthCount === 2 ? 2 : 1,
     plinthHeight: num('plinthHeight', d.plinthHeight),
     legHeight: leg === 150 ? 150 : 100,
+    topStyle: parseBoxTopStyle(raw.topStyle),
+    railWidth: num('railWidth', d.railWidth),
     ...parseInteriorFittings(raw, sideD),
     colors: parsePartColors(raw.colors),
   }
@@ -132,23 +147,28 @@ export function parseNightstandParams(raw: Record<string, unknown>): NightstandP
 
 export function measureNightstand(p: NightstandParams, topInner = false) {
   const T = p.thickness
+  const hasTopPanel = p.topStyle === 'panel'
+  const coveringTop = hasTopPanel && !topInner
+  const innerTopPanel = hasTopPanel && topInner
   const frontOverhang = frontDoorOverhang(T)
   const sideD = Math.max(T, p.depth - frontOverhang)
-  const topW = topInner ? p.width - 2 * T : p.width
-  const topD = topInner ? sideD : p.depth
+  const topW = innerTopPanel ? p.width - 2 * T : p.width
+  const topD = innerTopPanel ? sideD : p.depth
   const bottomW = p.useLegs ? p.width : p.width - 2 * T
   const bottomD = p.useLegs ? p.depth : sideD
   const supportH = p.useLegs ? p.legHeight : p.plinthHeight
-  const sideH = topInner
+  const sideH = innerTopPanel
     ? p.height
-    : Math.max(T, p.height - T - (p.useLegs ? p.legHeight + T : 0))
+    : coveringTop
+      ? Math.max(T, p.height - T - (p.useLegs ? p.legHeight + T : 0))
+      : Math.max(T, p.height - (p.useLegs ? p.legHeight + T : 0))
   const innerW = p.width - 2 * T
-  const innerH = Math.max(T, p.height - 2 * T - supportH)
+  const innerH = Math.max(T, p.height - (hasTopPanel ? 2 * T : T) - supportH)
   const plinthLength = p.width - 2 * T
   const plinthZ = frontOverhang + PLINTH_INSET
   const backPlinthZ = frontOverhang + sideD - PLINTH_INSET - T
-  /** Door stops at the underside when the top overhangs the sides (edge banding stays visible). */
-  const frontCoversTop = topD <= sideD
+  /** Door stops at the underside when a covering top overhangs the sides (edge banding stays visible). */
+  const frontCoversTop = innerTopPanel
   /** Same at the bottom when the bottom also overhangs (legs + outer bottom). */
   const frontCoversBottom = bottomD <= sideD
   const frontHeight = innerH + (frontCoversTop ? T : 0) + (frontCoversBottom ? T : 0)
@@ -171,6 +191,9 @@ export function measureNightstand(p: NightstandParams, topInner = false) {
     backPlinthZ,
     plinthInset: PLINTH_INSET,
     topInner,
+    hasTopPanel,
+    coveringTop,
+    innerTopPanel,
     frontCoversTop,
     frontCoversBottom,
     frontHeight,
@@ -201,20 +224,36 @@ export function generatePlinthCabinet(
   const notes: string[] = [
     `${opts.label} ${p.width} × ${p.height} × ${p.depth} мм, плоскост ${p.thickness} мм.`,
   ]
+  const coveringTop = m.coveringTop
+  const innerTop = m.innerTopPanel
+  const hasTopPanel = m.hasTopPanel
 
   if (p.useLegs) {
     notes.push(
-      `Дъното е външно (${m.bottomW} × ${m.bottomD} мм), страниците влизат в него. Плотът е външен върху страниците (${m.topW} × ${m.topD} мм).`,
+      `Дъното е външно (${m.bottomW} × ${m.bottomD} мм), страниците влизат в него.`,
       `Страниците са ${m.sideD} мм дълбоки — общата дълбочина ${p.depth} мм включва врата/чело ${p.thickness} мм + 2 мм кант.`,
-      'Плотът и дъното стърчат отпред — вратата/челото стига до долната страна на плота и до горната на дъното, кантовете остават видими.',
-      'Плотът се хваща отвътре с 4 ъгълчета, без винтове 5×60 през горната страна.',
-      `4 крачета ${p.legHeight} мм под дъното. Винтове 5×60 отдолу през дъното в страниците.`,
     )
+    if (coveringTop) {
+      notes.push(
+        `Плотът е външен върху страниците (${m.topW} × ${m.topD} мм).`,
+        'Плотът и дъното стърчат отпред — вратата/челото стига до долната страна на плота и до горната на дъното, кантовете остават видими.',
+        'Плотът се хваща отвътре с 4 ъгълчета, без винтове 5×60 през горната страна.',
+      )
+    } else {
+      notes.push('Дъното стърчи отпред — вратата/челото стига до горната му страна, кантът остава видим.')
+    }
+    notes.push(`4 крачета ${p.legHeight} мм под дъното. Винтове 5×60 отдолу през дъното в страниците.`)
   } else if (opts.topInner) {
     notes.push(
-      `Страниците са външни на дъното и на плота (${m.bottomW} мм между тях). Плотът влиза между страниците (${m.topW} × ${m.topD} мм).`,
+      hasTopPanel
+        ? `Страниците са външни на дъното и на плота (${m.bottomW} мм между тях). Плотът влиза между страниците (${m.topW} × ${m.topD} мм).`
+        : `Страниците са външни на дъното (${m.bottomW} мм между тях). Без плот — отворен корпус отгоре.`,
       `Страниците са ${m.sideD} мм дълбоки — общата дълбочина ${p.depth} мм включва врата/чело ${p.thickness} мм + 2 мм кант.`,
-      'Плотът се хваща с винтове 5×60 през страниците, без ъгълчета.',
+    )
+    if (innerTop) {
+      notes.push('Плотът се хваща с винтове 5×60 през страниците, без ъгълчета.')
+    }
+    notes.push(
       'Цокъл с канта надолу, дъното върху него, пробив отгоре през дъното. После дъното между страниците.',
       `Дъното е на ${p.plinthHeight} мм от земята. Долу опират само двете страници и цокълът.`,
       p.plinthCount === 1
@@ -223,10 +262,18 @@ export function generatePlinthCabinet(
     )
   } else {
     notes.push(
-      `Страниците са външни на дъното (${m.bottomW} мм между тях). Плотът е външен върху страниците (${m.topW} × ${m.topD} мм).`,
-      `Страниците са ${m.sideD} мм дълбоки — общата дълбочина ${p.depth} мм включва врата/чело ${p.thickness} мм + 2 мм кант на плота.`,
-      'Плотът стърчи отпред — вратата/челото стига до долната му страна, кантът на плота остава видим.',
-      'Плотът се хваща отвътре с 4 ъгълчета, без винтове 5×60 през горната страна.',
+      coveringTop
+        ? `Страниците са външни на дъното (${m.bottomW} мм между тях). Плотът е външен върху страниците (${m.topW} × ${m.topD} мм).`
+        : `Страниците са външни на дъното (${m.bottomW} мм между тях). Без плот — отворен корпус отгоре.`,
+      `Страниците са ${m.sideD} мм дълбоки — общата дълбочина ${p.depth} мм включва врата/чело ${p.thickness} мм + 2 мм кант${coveringTop ? ' на плота' : ''}.`,
+    )
+    if (coveringTop) {
+      notes.push(
+        'Плотът стърчи отпред — вратата/челото стига до долната му страна, кантът на плота остава видим.',
+        'Плотът се хваща отвътре с 4 ъгълчета, без винтове 5×60 през горната страна.',
+      )
+    }
+    notes.push(
       'Цокъл с канта надолу, дъното върху него, пробив отгоре през дъното. После дъното между страниците.',
       `Дъното е на ${p.plinthHeight} мм от земята. Долу опират само двете страници и цокълът.`,
       p.plinthCount === 1
@@ -235,29 +282,35 @@ export function generatePlinthCabinet(
     )
   }
 
+  const nPart = p.partitions?.length ?? 0
+  const { partitions } = resolvePartitions(p.partitions ?? [], m.innerW, p.thickness)
+  const columns = cabinetColumns(partitions, m.innerW, p.thickness)
+  const bayCount = Math.max(1, columns.length)
   const bottomScrewsPerSide = confirmatCount(p.useLegs ? m.bottomD : m.sideD)
   const bottomScrewsTotal = bottomScrewsPerSide * 2
   const plinthScrewsEach = confirmatCount(m.plinthLength)
   const plinthScrewsTotal = p.useLegs ? 0 : plinthScrewsEach * p.plinthCount
   const topScrewsPerSide = confirmatCount(m.topD)
   const topScrewsTotal = topScrewsPerSide * 2
-  const cornerBrackets = opts.topInner ? 0 : 4
+  const cornerBrackets = coveringTop ? 4 + 2 * nPart : 0
   const bracketScrews = cornerBrackets * 4
 
-  if (opts.topInner) {
+  if (innerTop) {
     notes.push(
       `Сглобяване: цокъл към дъно с ${plinthScrewsTotal} винта 5×60 (${plinthScrewsEach} на цокъл),` +
-        ` после дъното към страниците с ${bottomScrewsTotal} винта 5×60 (${bottomScrewsPerSide} на страница),` +
-        ` плот към страниците с ${topScrewsTotal} винта 5×60 (${topScrewsPerSide} на страница).`,
+        ` после дъното към страниците с ${bottomScrewsTotal} винта 5×60 (${bottomScrewsPerSide} на страница)` +
+        (hasTopPanel
+          ? `, плот към страниците с ${topScrewsTotal} винта 5×60 (${topScrewsPerSide} на страница).`
+          : '.'),
     )
   } else {
     notes.push(
       p.useLegs
-        ? `Сглобяване: дъното с ${bottomScrewsTotal} винта 5×60 отдолу (${bottomScrewsPerSide} на страница),` +
-          ` плот с 4 ъгълчета × 4 винтчета 4×16 = ${bracketScrews} винтчета.`
+        ? `Сглобяване: дъното с ${bottomScrewsTotal} винта 5×60 отдолу (${bottomScrewsPerSide} на страница)` +
+          (coveringTop ? `, плот с 4 ъгълчета × 4 винтчета 4×16 = ${bracketScrews} винтчета.` : '.')
         : `Сглобяване: цокъл към дъно с ${plinthScrewsTotal} винта 5×60 (${plinthScrewsEach} на цокъл),` +
-          ` после дъното към страниците с ${bottomScrewsTotal} винта 5×60 (${bottomScrewsPerSide} на страница),` +
-          ` плот с 4 ъгълчета × 4 винтчета 4×16 = ${bracketScrews} винтчета.`,
+          ` после дъното към страниците с ${bottomScrewsTotal} винта 5×60 (${bottomScrewsPerSide} на страница)` +
+          (coveringTop ? `, плот с 4 ъгълчета × 4 винтчета 4×16 = ${bracketScrews} винтчета.` : '.'),
     )
   }
 
@@ -277,7 +330,7 @@ export function generatePlinthCabinet(
             `Цокъл — ${plinthScrewsEach} на цокъл, пробив през дъното`,
           ),
         ]),
-    ...(opts.topInner
+    ...(innerTop
       ? [
           fastenerLine(
             { ...SCREW_5X60, packPriceEur: hardwareSettings.screw5x60_500PackEur },
@@ -285,14 +338,16 @@ export function generatePlinthCabinet(
             `Плот — винтове през страниците (${topScrewsPerSide} на страница)`,
           ),
         ]
-      : [
-          pricedLine(CORNER_BRACKET, cornerBrackets, 'Ъгълчета за плота'),
-          fastenerLine(
-            { ...SCREW_4X16, packPriceEur: hardwareSettings.smallScrew1000PackEur },
-            bracketScrews,
-            'Винтчета за ъгълчетата',
-          ),
-        ]),
+      : coveringTop
+        ? [
+            pricedLine(CORNER_BRACKET, cornerBrackets, 'Ъгълчета за плота'),
+            fastenerLine(
+              { ...SCREW_4X16, packPriceEur: hardwareSettings.smallScrew1000PackEur },
+              bracketScrews,
+              'Винтчета за ъгълчетата',
+            ),
+          ]
+        : []),
   ]
 
   const panels: GeneratedPanel[] = [
@@ -303,12 +358,14 @@ export function generatePlinthCabinet(
       height: m.sideH,
       quantity: 2,
       canRotate: false,
-      edges: edges({ top: opts.topInner, bottom: !p.useLegs, left: true, right: false }, 'mm05'),
+      edges: edges({ top: innerTop || !hasTopPanel, bottom: !p.useLegs, left: true, right: false }, 'mm05'),
       note: p.useLegs
-        ? `Кант 0.5 мм: предна. Долната сяда в дъното. Дълбочина ${m.sideD} мм.`
-        : opts.topInner
+        ? `Кант 0.5 мм: предна${!hasTopPanel ? ' и горна' : ''}. Долната сяда в дъното. Дълбочина ${m.sideD} мм.`
+        : innerTop
           ? `Кант 0.5 мм: предна, горна и долна (страниците захлупват плота и опират в земята). Дълбочина ${m.sideD} мм.`
-          : `Кант 0.5 мм: предна и долна (долу опира в земята). Дълбочина ${m.sideD} мм.`,
+          : hasTopPanel
+            ? `Кант 0.5 мм: предна и долна (долу опира в земята). Дълбочина ${m.sideD} мм.`
+            : `Кант 0.5 мм: предна, горна и долна (отворен корпус отгоре, долу опира в земята). Дълбочина ${m.sideD} мм.`,
     },
     {
       role: 'bottom' as const,
@@ -324,20 +381,24 @@ export function generatePlinthCabinet(
         ? `Кант 2 мм: предна и две странични. Външно ${m.bottomW} × ${m.bottomD} мм, страниците сядат в него, винтове отдолу.`
         : `Кант 0.5 мм: предна. Влиза между страниците (${m.bottomW} мм). Хваща се първо за цокъла, после за страниците.`,
     },
-    {
-      role: 'top' as const,
-      name: 'Плот',
-      width: m.topW,
-      height: m.topD,
-      quantity: 1,
-      canRotate: false,
-      edges: opts.topInner
-        ? edges({ top: true })
-        : edges({ top: true, left: true, right: true, bottom: false }),
-      note: opts.topInner
-        ? `Кант 2 мм: предна. Влиза между страниците (${m.topW} × ${m.topD} мм). Хваща се с 5×60 през страниците.`
-        : 'Кант 2 мм: предна и две странични. Седи отгоре върху страниците. Хваща се с ъгълчета отвътре.',
-    },
+    ...(hasTopPanel
+      ? [
+          {
+            role: 'top' as const,
+            name: 'Плот',
+            width: m.topW,
+            height: m.topD,
+            quantity: 1,
+            canRotate: false,
+            edges: innerTop
+              ? edges({ top: true })
+              : edges({ top: true, left: true, right: true, bottom: false }),
+            note: innerTop
+              ? `Кант 2 мм: предна. Влиза между страниците (${m.topW} × ${m.topD} мм). Хваща се с 5×60 през страниците.`
+              : 'Кант 2 мм: предна и две странични. Седи отгоре върху страниците. Хваща се с ъгълчета отвътре.',
+          } satisfies GeneratedPanel,
+        ]
+      : []),
   ]
 
   if (!p.useLegs) {
@@ -353,16 +414,33 @@ export function generatePlinthCabinet(
     })
   }
 
+  if (p.topStyle === 'fascia') {
+    appendHangingFascias(
+      {
+        columns,
+        railWidth: p.railWidth,
+        fallbackInnerW: m.innerW,
+        hardwareSettings,
+      },
+      panels,
+      hardware,
+      notes,
+    )
+  }
+
   const interior = appendZonedInterior(
     {
       fittings: p,
       innerW: m.innerW,
       innerH: m.innerH,
       sideD: m.sideD,
+      sideH: m.innerH,
       thickness: p.thickness,
       width: p.width,
       frontHeight: m.frontHeight,
       overlayCovers: { top: m.frontCoversTop, bottom: m.frontCoversBottom },
+      coveringBottom: p.useLegs,
+      innerTop,
     },
     panels,
     hardware,
@@ -390,7 +468,10 @@ export function generatePlinthCabinet(
     depth: p.depth,
     hasLegs: p.useLegs,
     hasTopRails: false,
-    hasTop: true,
+    hasFrontFascia: p.topStyle === 'fascia',
+    frontFasciaCount: bayCount,
+    hasTop: hasTopPanel,
+    topWithCorners: coveringTop,
     plinthCount: p.useLegs ? 0 : p.plinthCount,
     hasBack: p.hasBack,
     shelfCount: interior.shelfCount,
@@ -400,6 +481,8 @@ export function generatePlinthCabinet(
     clothesRailCount: interior.clothesRailCount,
     clothesRailLengthMm: m.innerW,
     fixedShelfCount: interior.fixedShelfCount,
+    partitionCount: interior.partitionCount,
+    softCloseDrawers: isSoftCloseSlide(p.slideKind),
   })
 
   return {

@@ -1,34 +1,47 @@
-export { WORK_HOURS_PER_DAY, DEFAULT_PANEL_THICKNESS, DEFAULT_RAIL_WIDTH, DEFAULT_LEG_HEIGHT, DEFAULT_SHELF_FRONT_INSET, TOP_EDGE_BAND_MM, frontDoorOverhang } from './types'
+export { WORK_HOURS_PER_DAY, DEFAULT_PANEL_THICKNESS, DEFAULT_RAIL_WIDTH, DEFAULT_LEG_HEIGHT, DEFAULT_SHELF_FRONT_INSET, TOP_EDGE_BAND_MM, FASCIA_SETBACK_MM, frontDoorOverhang, parseKitchenTopStyle, parseBoxTopStyle, kitchenClearInnerH, panelHoleNote, panelHoleFits } from './types'
 export type {
   CabinetCategory,
   CabinetDimensions,
   CabinetGeneratorResult,
   CabinetTypeDefinition,
+  CabinetTopStyle,
   GeneratedPanel,
   HardwareItem,
   JoineryConfig,
   KitchenBaseParams,
   LaborEstimate,
   PanelEdgePlan,
+  PanelHole,
   PanelRole,
 } from './types'
 export type { CabinetInstance } from '@/types'
 
-export { clothesRailLengthMm, parseInteriorFittings } from './fronts'
+export { clothesRailLengthMm, parseInteriorFittings, appendHangingFascias } from './fronts'
 export type { InteriorFittings } from './fronts'
 export { CABINET_TYPES, getCabinetType, generateCabinet, scaleCabinetResult, cabinetDisplayName } from './catalog'
-export { measureCarcass, evenShelfBottoms, evenShelfGap, KITCHEN_BASE_JOINERY } from './joinery'
+export { measureCarcass, evenShelfBottoms, evenShelfGap, KITCHEN_BASE_JOINERY, KITCHEN_WALL_JOINERY } from './joinery'
 export {
   MAX_FIXED_SHELVES,
+  MAX_FIXED_SHELF_SPECS,
+  MAX_PARTITIONS,
   MIN_ZONE_CLEAR_MM,
   ZONE_LABELS,
   EMPTY_ZONE_FITTINGS,
   parseFixedShelves,
+  parsePartitions,
   parseDoorSpan,
   parseZoneMap,
+  parseColumnIndex,
+  shelvesForColumn,
+  canAddFixedShelfToColumn,
+  canAddFixedShelfFull,
+  canAddMoreFixedShelves,
   defaultFixedOffsetMm,
+  defaultPartitionOffsetMm,
   resolveFixedShelves,
+  resolvePartitions,
   cabinetZones,
+  cabinetColumns,
   layoutInterior,
   layoutCounts,
   fittingsCountsFromParams,
@@ -37,20 +50,30 @@ export {
   validateZoneFronts,
   allDrawerFrontHeights,
   overlayFrontExtent,
+  overlayFrontExtentX,
   zoneHasOverlayFronts,
   consecutiveZoneFrontRuns,
   canCombineAdjacentZoneFronts,
   canCombineZoneFrontRun,
   defaultShelfFaces,
+  defaultPartitionFaces,
   measureFixedShelf,
+  measurePartition,
   fixedShelfMeasureLabel,
+  partitionMeasureLabel,
+  partitionOriginCaption,
+  columnLabel,
 } from './zones'
 export type {
   OverlayFrontCovers,
   FixedShelfSpec,
   FixedShelfFrom,
+  PartitionSpec,
+  PartitionFrom,
   PanelFace,
+  SideFace,
   CabinetZoneId,
+  CabinetRowId,
   DoorSpan,
   ZoneFittings,
   ResolvedZone,
@@ -62,6 +85,19 @@ export {
   parseKitchenBaseParams,
   generateKitchenBase,
 } from './kitchen-base'
+export {
+  KITCHEN_WALL_TYPE_ID,
+  DEFAULT_KITCHEN_WALL_PARAMS,
+  DEFAULT_HOOD_DIAMETER_MM,
+  DEFAULT_HOOD_RECT_W_MM,
+  DEFAULT_HOOD_RECT_D_MM,
+  parseKitchenWallParams,
+  wallBottomHole,
+  wallShelfHole,
+  generateKitchenWall,
+  kitchenWallType,
+} from './kitchen-wall'
+export type { KitchenWallParams, HoodShape } from './kitchen-wall'
 export {
   estimateFromPanels,
   estimateFromParts,

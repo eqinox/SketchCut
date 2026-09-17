@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { User } from 'firebase/auth'
-import { Sparkles, Layers, Settings } from 'lucide-react'
+import { Sparkles, Layers, Settings, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { SheetsPanel } from '@/components/SheetsPanel'
@@ -270,6 +270,40 @@ function App() {
     setHardboardResult(null)
   }
 
+  const clearChipboardSheets = () => {
+    setSheets((prev) => prev.filter((s) => sheetKind(s) !== 'chipboard'))
+    setPackingResult(null)
+  }
+
+  const clearHardboardSheets = () => {
+    setSheets((prev) => prev.filter((s) => sheetKind(s) !== 'hardboard'))
+    setHardboardResult(null)
+  }
+
+  const clearParts = () => {
+    setParts([])
+    setEdgeBanding([])
+    setCabinets((prev) => prev.map((c) => ({ ...c, partIds: [] })))
+    resetPacking()
+  }
+
+  const clearCabinets = () => {
+    const keep = parts.filter((p) => !p.cabinetId)
+    const keepIds = new Set(keep.map((p) => p.id))
+    setCabinets([])
+    setParts(keep)
+    setEdgeBanding((prev) => prev.filter((b) => keepIds.has(b.partId)))
+    resetPacking()
+  }
+
+  const clearAll = () => {
+    setSheets([])
+    setParts([])
+    setEdgeBanding([])
+    setCabinets([])
+    resetPacking()
+  }
+
   const ensureHardboardSheet = (params: Record<string, unknown>) => {
     if (params.hasBack !== true) return
     setSheets((prev) => {
@@ -408,8 +442,10 @@ function App() {
             onChange={setSheets}
             chipboardPriceEur={settings.chipboardPriceEur}
             hardboardPriceEur={settings.hardboardPriceEur}
+            onClearChipboard={clearChipboardSheets}
+            onClearHardboard={clearHardboardSheets}
           />
-          <PartsPanel parts={parts} onChange={setParts} />
+          <PartsPanel parts={parts} onChange={setParts} onClear={clearParts} />
         </div>
 
         <CabinetsPanel
@@ -426,6 +462,7 @@ function App() {
           applyAdd={handleAddCabinet}
           applyUpdate={handleUpdateCabinet}
           applyRemove={handleRemoveCabinet}
+          onClear={clearCabinets}
         />
 
         <div className="flex flex-wrap gap-3">
@@ -443,6 +480,32 @@ function App() {
           <Button size="lg" variant="outline" onClick={() => setSettingsOpen(true)}>
             <Settings className="h-4 w-4" />
             Настройки
+          </Button>
+
+          <Button
+            size="lg"
+            variant="outline"
+            onClick={resetPacking}
+            disabled={!packingResult && !hardboardResult}
+          >
+            <Trash2 className="h-4 w-4" />
+            Изчисти разкроя
+          </Button>
+
+          <Button
+            size="lg"
+            variant="destructive"
+            onClick={clearAll}
+            disabled={
+              sheets.length === 0 &&
+              parts.length === 0 &&
+              cabinets.length === 0 &&
+              !packingResult &&
+              !hardboardResult
+            }
+          >
+            <Trash2 className="h-4 w-4" />
+            Изчисти всичко
           </Button>
 
           {hardboardPartCount > 0 && hardboardSheetCount === 0 && (
@@ -470,6 +533,7 @@ function App() {
             title="Разкрой ПДЧ"
             result={packingResult}
             onResultChange={handleLayoutChange}
+            onClear={() => setPackingResult(null)}
           />
         )}
 
@@ -478,6 +542,7 @@ function App() {
             title="Разкрой фазер"
             result={hardboardResult}
             onResultChange={handleHardboardLayoutChange}
+            onClear={() => setHardboardResult(null)}
           />
         )}
       </main>

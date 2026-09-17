@@ -25,7 +25,7 @@ import {
   SHELF_PIN,
 } from './hardware'
 import type { AssemblyStep } from '@/lib/assembly-time'
-import { describeAssemblyCalc } from '@/lib/assembly-time'
+import { assemblyMinutesFromSteps, describeAssemblyCalc, rescaleProjectScopedStep } from '@/lib/assembly-time'
 import { WORK_HOURS_PER_DAY, type GeneratedPanel, type HardwareItem } from './types'
 import {
   formatArea,
@@ -342,11 +342,23 @@ function mergeAssemblySteps(groups: AssemblyStep[][]): AssemblyStep[] {
       map.set(step.id, { ...step })
       continue
     }
-    map.set(step.id, {
+    const minutes = Math.round((prev.minutes + step.minutes) * 10) / 10
+    const quantity = (prev.quantity ?? 1) + (step.quantity ?? 1)
+    if (prev.projectFirstExtra || step.projectFirstExtra) {
+      const pe = prev.projectFirstExtra ?? step.projectFirstExtra!
+      map.set(step.id, rescaleProjectScopedStep({ ...prev, projectFirstExtra: pe }, quantity))
+      continue
+    }
+    const merged: AssemblyStep = {
       ...prev,
-      minutes: Math.round((prev.minutes + step.minutes) * 10) / 10,
-      quantity: (prev.quantity ?? 1) + (step.quantity ?? 1),
-    })
+      minutes,
+      quantity,
+    }
+    if (prev.id === 'shelf-pins' && (prev.calc != null || step.calc != null)) {
+      merged.calc = `${formatMinutes(minutes)} (сбор по шкафове)`
+      merged.hint = 'първи рафт по-дълго, всеки следващ по-кратко — на всеки шкаф отделно'
+    }
+    map.set(step.id, merged)
   }
   return order.map((id) => map.get(id)!)
 }
@@ -501,11 +513,12 @@ export function explainCabinetsPrice(
       settings: { ...hw, billWholeSheets: false, billWholeHardboardSheets: false },
     }),
   }))
+  const mergedSteps = mergeAssemblySteps(rows.map((r) => r.assemblySteps ?? []))
   const merged = explainCabinetPrice({
     panels: rows.flatMap((r) => r.panels),
     hardware: rows.flatMap((r) => r.hardware),
-    assemblyMinutes: rows.reduce((s, r) => s + (r.assemblyMinutes ?? 0), 0),
-    assemblySteps: mergeAssemblySteps(rows.map((r) => r.assemblySteps ?? [])),
+    assemblyMinutes: assemblyMinutesFromSteps(mergedSteps),
+    assemblySteps: mergedSteps,
     dailyRateEur,
     sheets,
     settings: hw,

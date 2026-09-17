@@ -38,7 +38,7 @@ export const sectionType: CabinetTypeDefinition = {
   name: 'Секция',
   category: 'wardrobe',
   description:
-    'Като нощното шкафче с цокъл, но плотът влиза между страниците. По избор рафтове, врата и чекмеджета.',
+    'Като нощното шкафче с цокъл. По избор плот между страниците, без плот или бленда надолу. Рафтове, врата и чекмеджета.',
   defaultParams: { ...DEFAULT_SECTION_PARAMS },
   generate: generateSection,
 }

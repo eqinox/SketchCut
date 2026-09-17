@@ -23,9 +23,18 @@ interface SheetsPanelProps {
   onChange: (sheets: Sheet[]) => void
   chipboardPriceEur?: number
   hardboardPriceEur?: number
+  onClearChipboard?: () => void
+  onClearHardboard?: () => void
 }
 
-export function SheetsPanel({ sheets, onChange, chipboardPriceEur, hardboardPriceEur }: SheetsPanelProps) {
+export function SheetsPanel({
+  sheets,
+  onChange,
+  chipboardPriceEur,
+  hardboardPriceEur,
+  onClearChipboard,
+  onClearHardboard,
+}: SheetsPanelProps) {
   const chipPrice = chipboardPriceEur ?? DEFAULT_CHIPBOARD_PRICE_EUR
   const hardPrice = hardboardPriceEur ?? DEFAULT_HARDBOARD_PRICE_EUR
   
@@ -108,14 +117,40 @@ export function SheetsPanel({ sheets, onChange, chipboardPriceEur, hardboardPric
   }
 
   const totalAvailable = sheets.reduce((sum, s) => sum + s.quantity, 0)
+  const hasChipboard = sheets.some((s) => sheetKind(s) === 'chipboard')
+  const hasHardboard = sheets.some((s) => sheetKind(s) === 'hardboard')
 
   return (
     <div className="flex h-full flex-col gap-4 rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] p-4">
-      <div>
-        <h2 className="text-lg font-semibold">Плочи</h2>
-        <p className="text-xs text-[var(--color-muted-foreground)]">
-          Размери в мм · ПДЧ и фазер се разкрояват отделно · влачи за пренареждане
-        </p>
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <h2 className="text-lg font-semibold">Плочи</h2>
+          <p className="text-xs text-[var(--color-muted-foreground)]">
+            Размери в мм · ПДЧ и фазер се разкрояват отделно · влачи за пренареждане
+          </p>
+        </div>
+        <div className="flex shrink-0 flex-wrap justify-end gap-1">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={!hasChipboard}
+            onClick={() => onClearChipboard?.()}
+          >
+            <Trash2 className="h-4 w-4" />
+            Изчисти ПДЧ
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={!hasHardboard}
+            onClick={() => onClearHardboard?.()}
+          >
+            <Trash2 className="h-4 w-4" />
+            Изчисти гърбовете
+          </Button>
+        </div>
       </div>
 
       <div className="flex gap-2">

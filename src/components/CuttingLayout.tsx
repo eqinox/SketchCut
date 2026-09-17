@@ -1,4 +1,4 @@
-import { FileDown, Printer } from 'lucide-react'
+import { FileDown, Printer, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { SheetSvg, formatDim, labelableWasteRects } from '@/lib/layout-drawing'
 import { updatePackingResultPart } from '@/lib/layout-edit'
@@ -10,12 +10,14 @@ interface CuttingLayoutProps {
   result: PackingResult
   title?: string
   onResultChange?: (result: PackingResult) => void
+  onClear?: () => void
 }
 
 export function CuttingLayout({
   result,
   title = 'Разкрой',
   onResultChange,
+  onClear,
 }: CuttingLayoutProps) {
   const [exporting, setExporting] = useState(false)
   const { sheets, totalWastePercent } = result
@@ -53,6 +55,12 @@ export function CuttingLayout({
             <FileDown className="h-4 w-4" />
             {exporting ? 'Експорт...' : 'PDF'}
           </Button>
+          {onClear && (
+            <Button variant="outline" size="sm" onClick={onClear}>
+              <Trash2 className="h-4 w-4" />
+              Изчисти
+            </Button>
+          )}
         </div>
       </div>
 
