@@ -109,8 +109,11 @@ export {
   formatArea,
   formatMinutes,
   laborFromPanels,
+  isBuyoutDoorPanel,
+  groupBuyoutDoors,
+  collectBuyoutDoorOrderList,
 } from './estimate'
-export type { CabinetPrice } from './estimate'
+export type { CabinetPrice, BuyoutDoorGroup, BuyoutDoorOrderRow } from './estimate'
 export { explainCabinetPrice, explainCabinetsPrice } from './price-breakdown'
 export type { PriceBreakdown, PriceBreakdownLine, PriceBreakdownSection } from './price-breakdown'
 export {
@@ -215,6 +218,7 @@ export {
   addCabinetAndLabel,
   updateCabinetAndLabel,
   removeCabinetAndLabel,
+  rebuildCabinets,
   type CabinetState,
 } from './apply'
 export { createDrawCam, Board, BETWEEN_FACES, SIDE_LEFT_BODY, SIDE_LEFT_TOP, SIDE_RIGHT, BOX_FACES } from './draw-3d'
@@ -239,6 +243,31 @@ export {
   sectionType,
 } from './section'
 export type { SectionParams } from './section'
+export {
+  WARDROBE_TYPE_ID,
+  DEFAULT_WARDROBE_PARAMS,
+  parseWardrobeParams,
+  generateWardrobe,
+  wardrobeType,
+} from './wardrobe'
+export type { WardrobeParams } from './wardrobe'
+export {
+  SLIDING_PARTITION_SETBACK_MM,
+  SLIDING_SHELF_FROM_PARTITION_MM,
+  SLIDING_DOOR_OVERLAP_MM,
+  SLIDING_BOTTOM_TRACK_MM,
+  SLIDING_DRAWER_FROM_BOTTOM_MM,
+  SLIDING_HANDLE_PROFILE_MM,
+  SLIDING_CAP_PROFILE_MM,
+  parseDoorStyle,
+  parseSlidingEdges,
+  defaultSlidingEdges,
+  centerSlidingPartition,
+  layoutSlidingDoors,
+  slidingEdgeLabel,
+  slidingProfileMm,
+} from './sliding-doors'
+export type { DoorStyle, SlidingEdgeKind, SlidingDoorEdges, SlidingDoorLeaf } from './sliding-doors'
 export type { CabinetPartColors, CabinetPartColorKey } from './colors'
 export {
   DEFAULT_PART_COLORS,

@@ -2,10 +2,11 @@ import type { ReactNode } from 'react'
 import { partFaces } from './colors'
 
 /** Outline of every board — same as the kitchen-base 3D view. */
-export const DRAW_STROKE = '#1e293b'
+export const DRAW_STROKE = '#111111'
 export const DRAW_DEPTH_SCALE = 0.5
 export const DRAW_DEPTH_ANGLE = 30
-export const DRAW_DIM = '#60a5fa'
+export const DRAW_DIM = '#111111'
+export const DRAW_PAPER = '#ffffff'
 
 /** Parts between the sides, seen from the right: front + top. No end grain. */
 export const BETWEEN_FACES = { front: true, top: true } as const
@@ -187,8 +188,8 @@ export function DimText({
       fontSize={fontSize}
       fontWeight="800"
       fill={fill}
-      stroke="#0f172a"
-      strokeWidth={Math.max(4, fontSize * 0.06)}
+      stroke={DRAW_PAPER}
+      strokeWidth={Math.max(3, fontSize * 0.05)}
       paintOrder="stroke"
       strokeLinejoin="round"
       transform={rotate ? `rotate(${rotate} ${x} ${y})` : undefined}
@@ -204,27 +205,30 @@ export function DimLine({
   x2,
   y2,
   color = DRAW_DIM,
+  strokeWidth = 3,
 }: {
   x1: number
   y1: number
   x2: number
   y2: number
   color?: string
+  strokeWidth?: number
 }) {
-  const arrow = Math.min(14, Math.hypot(x2 - x1, y2 - y1) * 0.08)
+  const arrow = Math.min(11, Math.max(7, Math.hypot(x2 - x1, y2 - y1) * 0.022))
   const ang = Math.atan2(y2 - y1, x2 - x1)
   const ax = Math.cos(ang)
   const ay = Math.sin(ang)
   const px = -ay
   const py = ax
+  const head = arrow
   return (
-    <g stroke={color} fill={color}>
-      <line x1={x1} y1={y1} x2={x2} y2={y2} strokeWidth={2.5} />
+    <g stroke={color} fill={color} strokeLinecap="butt">
+      <line x1={x1} y1={y1} x2={x2} y2={y2} strokeWidth={strokeWidth} />
       <polygon
-        points={`${x1},${y1} ${x1 + ax * arrow + px * arrow * 0.4},${y1 + ay * arrow + py * arrow * 0.4} ${x1 + ax * arrow - px * arrow * 0.4},${y1 + ay * arrow - py * arrow * 0.4}`}
+        points={`${x1},${y1} ${x1 + ax * head + px * head * 0.4},${y1 + ay * head + py * head * 0.4} ${x1 + ax * head - px * head * 0.4},${y1 + ay * head - py * head * 0.4}`}
       />
       <polygon
-        points={`${x2},${y2} ${x2 - ax * arrow + px * arrow * 0.4},${y2 - ay * arrow + py * arrow * 0.4} ${x2 - ax * arrow - px * arrow * 0.4},${y2 - ay * arrow - py * arrow * 0.4}`}
+        points={`${x2},${y2} ${x2 - ax * head + px * head * 0.4},${y2 - ay * head + py * head * 0.4} ${x2 - ax * head - px * head * 0.4},${y2 - ay * head - py * head * 0.4}`}
       />
     </g>
   )
@@ -247,10 +251,11 @@ export function SketchSvg({
     <svg
       viewBox={`0 0 ${vbW} ${vbH}`}
       className="w-full select-none"
-      style={{ height: `${height}px` }}
+      style={{ height: `${height}px`, background: DRAW_PAPER }}
       role="img"
       aria-label={label}
     >
+      <rect width={vbW} height={vbH} fill={DRAW_PAPER} />
       {children}
     </svg>
   )

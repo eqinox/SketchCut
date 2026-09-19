@@ -108,6 +108,13 @@ export function PriceBreakdownView({
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-3 gap-y-1">
           {compact.map((section) => {
+            if (section.id === 'buyout-doors') {
+              return (
+                <span key={section.id}>
+                  Външни врати и чела: <strong>поръчай</strong>
+                </span>
+              )
+            }
             if (section.id !== 'labor' && (section.subtotalEur == null || section.subtotalEur <= 0)) return null
             return (
               <span key={section.id}>

@@ -209,38 +209,58 @@ export function hardboardCutSize(
   }
 }
 
-/** Cut size (before 2 mm banding on all four edges). */
+export type DoorCutOpts = {
+  /**
+   * When false, only overlay gaps are subtracted — finished size for a bought door.
+   * Default true: also subtract 2+2 mm for workshop edge banding.
+   */
+  subtractEdge?: boolean
+}
+
+function doorEdgeDeduction(opts?: DoorCutOpts): number {
+  return opts?.subtractEdge === false ? 0 : DOOR_EDGE_BOTH
+}
+
+/** Cut size (before 2 mm banding on all four edges), or finished size when `subtractEdge` is false. */
 export function doorCutSize(
   cabinetWidth: number,
   cabinetHeight: number,
   doorCount: 1 | 2,
+  opts?: DoorCutOpts,
 ): { width: number; height: number } {
+  const edge = doorEdgeDeduction(opts)
   return {
-    width: cabinetWidth / doorCount - DOOR_GAP_X - DOOR_EDGE_BOTH,
-    height: cabinetHeight - DOOR_CLEARANCE_TOP - DOOR_CLEARANCE_BOTTOM - DOOR_EDGE_BOTH,
+    width: cabinetWidth / doorCount - DOOR_GAP_X - edge,
+    height: cabinetHeight - DOOR_CLEARANCE_TOP - DOOR_CLEARANCE_BOTTOM - edge,
   }
 }
 
 /** Short Bulgarian note of the overlay + banding rule, for prices and dialogs. */
-export function doorCutRuleNote(opts?: { withDrawerGaps?: boolean }): string {
+export function doorCutRuleNote(opts?: { withDrawerGaps?: boolean; subtractEdge?: boolean }): string {
   const stacked = opts?.withDrawerGaps
     ? `${DRAWER_DOOR_GAP} мм между челата, `
     : ''
+  const edgeBit =
+    opts?.subtractEdge === false
+      ? 'готов размер (само фуги, без махане на кант)'
+      : `кант ${DOOR_EDGE_MM} мм от 4 страни`
   return (
     `фуга ${DOOR_CLEARANCE_TOP} мм отгоре` +
     (DOOR_CLEARANCE_BOTTOM > 0 ? `, ${DOOR_CLEARANCE_BOTTOM} мм отдолу` : ', долу на 0') +
-    `, ${stacked}странично ${DOOR_GAP_X} мм общо (${DOOR_SIDE_GAP_EACH} мм отляво и отдясно), кант ${DOOR_EDGE_MM} мм от 4 страни`
+    `, ${stacked}странично ${DOOR_GAP_X} мм общо (${DOOR_SIDE_GAP_EACH} мм отляво и отдясно), ${edgeBit}`
   )
 }
 
-/** Calculate drawer front size (before edging) */
+/** Cut size (before 2 mm banding), or finished size when `subtractEdge` is false. */
 export function drawerFrontCutSize(
   cabinetWidth: number,
   frontHeight: number,
+  opts?: DoorCutOpts,
 ): { width: number; height: number } {
+  const edge = doorEdgeDeduction(opts)
   return {
-    width: cabinetWidth - DOOR_GAP_X - DOOR_EDGE_BOTH,
-    height: frontHeight - DOOR_EDGE_BOTH,
+    width: cabinetWidth - DOOR_GAP_X - edge,
+    height: frontHeight - edge,
   }
 }
 
@@ -274,14 +294,19 @@ export function remainingFrontHeight(
   cabinetHeight: number,
   drawerFrontHeights: number[],
   hasDoor: boolean,
+  clearanceBottom = DOOR_CLEARANCE_BOTTOM,
 ): number {
-  return cabinetHeight - DOOR_CLEARANCE_TOP - DOOR_CLEARANCE_BOTTOM - drawerStackUsed(drawerFrontHeights, hasDoor)
+  return cabinetHeight - DOOR_CLEARANCE_TOP - clearanceBottom - drawerStackUsed(drawerFrontHeights, hasDoor)
 }
 
 /** Height left for the drawer fronts themselves after top/bottom фуга and gaps between them. */
-export function drawerFrontFillMm(frontHeight: number, count: number): number {
+export function drawerFrontFillMm(
+  frontHeight: number,
+  count: number,
+  clearanceBottom = DOOR_CLEARANCE_BOTTOM,
+): number {
   if (count < 1) return 0
-  return frontHeight - DOOR_CLEARANCE_TOP - DOOR_CLEARANCE_BOTTOM - (count - 1) * DRAWER_DOOR_GAP
+  return frontHeight - DOOR_CLEARANCE_TOP - clearanceBottom - (count - 1) * DRAWER_DOOR_GAP
 }
 
 /**
@@ -289,20 +314,28 @@ export function drawerFrontFillMm(frontHeight: number, count: number): number {
  * Remainder millimetres go to the topmost fronts. Fills the opening: top фуга +
  * fronts + gaps between them, nothing left over.
  */
-export function equalDrawerFrontHeights(frontHeight: number, count: number): number[] {
+export function equalDrawerFrontHeights(
+  frontHeight: number,
+  count: number,
+  clearanceBottom = DOOR_CLEARANCE_BOTTOM,
+): number[] {
   const n = Math.max(0, Math.floor(count))
   if (n < 1) return []
-  const available = drawerFrontFillMm(frontHeight, n)
+  const available = drawerFrontFillMm(frontHeight, n, clearanceBottom)
   if (available <= 0) return Array.from({ length: n }, () => 0)
   const base = Math.floor(available / n)
   const rem = available - base * n
   return Array.from({ length: n }, (_, i) => base + (i < rem ? 1 : 0))
 }
 
-export function drawerFrontsAreEven(frontHeight: number, heights: number[]): boolean {
+export function drawerFrontsAreEven(
+  frontHeight: number,
+  heights: number[],
+  clearanceBottom = DOOR_CLEARANCE_BOTTOM,
+): boolean {
   const positive = heights.filter((h) => h > 0)
   if (positive.length === 0) return true
-  const even = equalDrawerFrontHeights(frontHeight, positive.length)
+  const even = equalDrawerFrontHeights(frontHeight, positive.length, clearanceBottom)
   return even.length === positive.length && even.every((h, i) => h === positive[i])
 }
 
@@ -327,10 +360,12 @@ export function doorWithDrawersCutSize(
   cabinetHeight: number,
   drawerFrontHeights: number[],
   doorCount: 1 | 2,
+  opts?: DoorCutOpts,
 ): { width: number; height: number } {
+  const edge = doorEdgeDeduction(opts)
   return {
-    width: cabinetWidth / doorCount - DOOR_GAP_X - DOOR_EDGE_BOTH,
-    height: remainingFrontHeight(cabinetHeight, drawerFrontHeights, true) - DOOR_EDGE_BOTH,
+    width: cabinetWidth / doorCount - DOOR_GAP_X - edge,
+    height: remainingFrontHeight(cabinetHeight, drawerFrontHeights, true) - edge,
   }
 }
 

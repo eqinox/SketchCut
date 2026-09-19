@@ -16,6 +16,7 @@ import {
   addCabinetAndLabel,
   removeCabinetAndLabel,
   updateCabinetAndLabel,
+  rebuildCabinets,
   createHardboardSheet,
   firstSheetOfKind,
   partKind,
@@ -355,6 +356,17 @@ function App() {
     [user, showDbError],
   )
 
+  const applyCabinetRebuild = (
+    hardware: HardwareSettings,
+    assemblyTime: AssemblyTimeSettings,
+  ) => {
+    const next = rebuildCabinets(cabinetState, { hardware, assemblyTime })
+    setCabinets(next.cabinets)
+    setParts(next.parts)
+    setEdgeBanding(next.edgeBanding)
+    resetPacking()
+  }
+
   const handleSaveSettings = (newSettings: HardwareSettings) => {
     const oldSettings = settings
     setSettings(newSettings)
@@ -375,15 +387,25 @@ function App() {
         return sheet
       }))
     }
+
+    if (newSettings.externalDoors !== oldSettings.externalDoors && cabinets.length > 0) {
+      applyCabinetRebuild(newSettings, assemblyTimeSettings)
+      return
+    }
     
     resetPacking()
   }
 
   const handleResetSettings = () => {
     const defaults = resetSettings()
+    const doorsChanged = defaults.externalDoors !== settings.externalDoors
     setSettings(defaults)
     persistAccountSettings(defaults, assemblyTimeSettings)
-    resetPacking()
+    if (doorsChanged && cabinets.length > 0) {
+      applyCabinetRebuild(defaults, assemblyTimeSettings)
+    } else {
+      resetPacking()
+    }
     return defaults
   }
 
@@ -455,9 +477,20 @@ function App() {
           settings={{ hardware: settings, assemblyTime: assemblyTimeSettings }}
           onDailyRateChange={setDailyRateEur}
           onHardwareSettingsChange={(hardware) => {
+            const doorsChanged = hardware.externalDoors !== settings.externalDoors
             setSettings(hardware)
             saveSettings(hardware)
             persistAccountSettings(hardware, assemblyTimeSettings)
+            if (doorsChanged && cabinets.length > 0) {
+              const next = rebuildCabinets(cabinetState, {
+                hardware,
+                assemblyTime: assemblyTimeSettings,
+              })
+              setCabinets(next.cabinets)
+              setParts(next.parts)
+              setEdgeBanding(next.edgeBanding)
+            }
+            resetPacking()
           }}
           applyAdd={handleAddCabinet}
           applyUpdate={handleUpdateCabinet}

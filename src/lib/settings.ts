@@ -14,6 +14,10 @@ export interface HardwareSettings {
   shelfPinEur: number
   /** Ordinary cabinet handle, EUR each. */
   handleNormalEur: number
+  /** Sliding-door handle profile (кант дръжка), EUR per metre. */
+  slidingHandleEurPerM: number
+  /** Sliding-door end cap (тапа), EUR per metre. */
+  slidingCapEurPerM: number
   /** Clothes hanging rail, EUR per metre. */
   clothesRailEurPerM: number
 
@@ -37,6 +41,22 @@ export interface HardwareSettings {
    * When false, only the consumed area fraction is billed.
    */
   billWholeHardboardSheets: boolean
+
+  /** Drop cutting and machine-edging labor; assembly stays. */
+  skipCuttingEdgingLabor: boolean
+
+  /**
+   * Drop chipboard, hardboard and edge-banding cost, plus cutting/edging labor.
+   * Assembly and fittings stay.
+   */
+  skipBoardAndEdgeCost: boolean
+
+  /**
+   * Overlay doors and drawer fronts are bought ready-made: gaps only, not nested,
+   * no cut/edge labor, no remnant/router work. Hinge hang and fitting the front stay.
+   * Per-cabinet `externalDoors` still applies when this is off.
+   */
+  externalDoors: boolean
 
   /** Unit prices by runner length in mm, e.g. { "500": 1.82 }. */
   slideRollerEur: PriceByLength
@@ -81,6 +101,8 @@ export const DEFAULT_HARDWARE_SETTINGS: HardwareSettings = {
   screw5x60_500PackEur: 13,
   shelfPinEur: 0.05,
   handleNormalEur: 1,
+  slidingHandleEurPerM: 0,
+  slidingCapEurPerM: 0,
   clothesRailEurPerM: 1,
   edgeMm2Eur: 0.7,
   edgeMm05Eur: 0.35,
@@ -88,6 +110,9 @@ export const DEFAULT_HARDWARE_SETTINGS: HardwareSettings = {
   chipboardPriceEur: 86,
   hardboardPriceEur: 20,
   billWholeHardboardSheets: true,
+  skipCuttingEdgingLabor: false,
+  skipBoardAndEdgeCost: false,
+  externalDoors: false,
   slideRollerEur: { ...DEFAULT_SLIDE_ROLLER_EUR },
   slideSoftFullEur: { ...DEFAULT_SLIDE_SOFT_FULL_EUR },
   slideSoftPartialEur: { ...DEFAULT_SLIDE_SOFT_PARTIAL_EUR },
@@ -98,6 +123,15 @@ const SETTINGS_KEY = 'sketchcut-hardware-settings'
 function num(src: Record<string, unknown>, key: string, fallback: number): number {
   const v = src[key]
   return typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : fallback
+}
+
+function flag(src: Record<string, unknown>, key: string, fallback: boolean): boolean {
+  return typeof src[key] === 'boolean' ? (src[key] as boolean) : fallback
+}
+
+/** Cutting + machine edging minutes are omitted from the bill. */
+export function omitsCuttingEdgingLabor(s: HardwareSettings): boolean {
+  return s.skipCuttingEdgingLabor || s.skipBoardAndEdgeCost
 }
 
 function mergePriceMap(defaults: PriceByLength, raw: unknown): PriceByLength {
@@ -121,18 +155,23 @@ export function parseHardwareSettings(raw: unknown): HardwareSettings {
   return {
     hingeSoftCloseEur: num(src, 'hingeSoftCloseEur', d.hingeSoftCloseEur),
     hingeNormalEur: num(src, 'hingeNormalEur', d.hingeNormalEur),
-    useNormalHinge: typeof src.useNormalHinge === 'boolean' ? src.useNormalHinge : d.useNormalHinge,
+    useNormalHinge: flag(src, 'useNormalHinge', d.useNormalHinge),
     smallScrew1000PackEur: num(src, 'smallScrew1000PackEur', smallScrewFallback),
     screw5x60_500PackEur: num(src, 'screw5x60_500PackEur', d.screw5x60_500PackEur),
     shelfPinEur: num(src, 'shelfPinEur', d.shelfPinEur),
     handleNormalEur: num(src, 'handleNormalEur', d.handleNormalEur),
+    slidingHandleEurPerM: num(src, 'slidingHandleEurPerM', d.slidingHandleEurPerM),
+    slidingCapEurPerM: num(src, 'slidingCapEurPerM', d.slidingCapEurPerM),
     clothesRailEurPerM: num(src, 'clothesRailEurPerM', d.clothesRailEurPerM),
     edgeMm2Eur: num(src, 'edgeMm2Eur', d.edgeMm2Eur),
     edgeMm05Eur: num(src, 'edgeMm05Eur', d.edgeMm05Eur),
-    billWholeSheets: typeof src.billWholeSheets === 'boolean' ? src.billWholeSheets : d.billWholeSheets,
+    billWholeSheets: flag(src, 'billWholeSheets', d.billWholeSheets),
     chipboardPriceEur: num(src, 'chipboardPriceEur', d.chipboardPriceEur),
     hardboardPriceEur: num(src, 'hardboardPriceEur', d.hardboardPriceEur),
-    billWholeHardboardSheets: typeof src.billWholeHardboardSheets === 'boolean' ? src.billWholeHardboardSheets : d.billWholeHardboardSheets,
+    billWholeHardboardSheets: flag(src, 'billWholeHardboardSheets', d.billWholeHardboardSheets),
+    skipCuttingEdgingLabor: flag(src, 'skipCuttingEdgingLabor', d.skipCuttingEdgingLabor),
+    skipBoardAndEdgeCost: flag(src, 'skipBoardAndEdgeCost', d.skipBoardAndEdgeCost),
+    externalDoors: flag(src, 'externalDoors', d.externalDoors),
     slideRollerEur: mergePriceMap(d.slideRollerEur, src.slideRollerEur),
     slideSoftFullEur: mergePriceMap(d.slideSoftFullEur, src.slideSoftFullEur),
     slideSoftPartialEur: mergePriceMap(d.slideSoftPartialEur, src.slideSoftPartialEur),

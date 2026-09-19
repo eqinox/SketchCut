@@ -26,7 +26,7 @@ import {
   type KitchenBaseParams,
 } from './types'
 import type { HardwareSettings } from '@/lib/settings'
-import { DEFAULT_HARDWARE_SETTINGS } from '@/lib/settings'
+import { DEFAULT_HARDWARE_SETTINGS, omitsCuttingEdgingLabor } from '@/lib/settings'
 import {
   collectCabinetAssembly,
   type AssemblyTimeSettings,
@@ -56,6 +56,7 @@ export const DEFAULT_KITCHEN_BASE_PARAMS: KitchenBaseParams = {
   partitions: [],
   doorSpan: 'full',
   zones: {},
+  externalDoors: false,
   colors: { ...DEFAULT_PART_COLORS },
 }
 
@@ -205,7 +206,7 @@ export function generateKitchenBase(
 
   const interior = appendZonedInterior(
     {
-      fittings: p,
+      fittings: parseInteriorFittings(p, p.depth),
       innerW: m.innerW,
       innerH,
       sideD: m.sideD,
@@ -249,6 +250,8 @@ export function generateKitchenBase(
     fixedShelfCount: interior.fixedShelfCount,
     partitionCount: interior.partitionCount,
     softCloseDrawers: isSoftCloseSlide(p.slideKind),
+    externalDoors: p.externalDoors === true || hardwareSettings.externalDoors,
+    skipEdgeFinishing: omitsCuttingEdgingLabor(hardwareSettings),
   })
 
   return {

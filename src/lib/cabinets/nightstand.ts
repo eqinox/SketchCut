@@ -11,6 +11,7 @@ import {
   DEFAULT_LEG_HEIGHT,
   DEFAULT_PANEL_THICKNESS,
   DEFAULT_RAIL_WIDTH,
+  DEFAULT_SHELF_FRONT_INSET,
   emptyLabor,
   edges,
   frontDoorOverhang,
@@ -22,7 +23,7 @@ import {
   type JoineryConfig,
 } from './types'
 import type { HardwareSettings } from '@/lib/settings'
-import { DEFAULT_HARDWARE_SETTINGS } from '@/lib/settings'
+import { DEFAULT_HARDWARE_SETTINGS, omitsCuttingEdgingLabor } from '@/lib/settings'
 import {
   collectCabinetAssembly,
   type AssemblyTimeSettings,
@@ -37,6 +38,10 @@ import {
   type InteriorFittings,
 } from './fronts'
 import { cabinetColumns, resolvePartitions } from './zones'
+import {
+  SLIDING_PARTITION_SETBACK_MM,
+  SLIDING_SHELF_FROM_PARTITION_MM,
+} from './sliding-doors'
 
 export const NIGHTSTAND_TYPE_ID = 'nightstand'
 
@@ -106,6 +111,8 @@ export const DEFAULT_NIGHTSTAND_PARAMS: NightstandParams = {
   shelfCount: 0,
   hasBack: false,
   doorCount: 0,
+  doorStyle: 'hinged',
+  slidingEdges: [],
   drawerFrontHeights: [],
   cutFromOneBoard: false,
   includeHandles: true,
@@ -116,6 +123,7 @@ export const DEFAULT_NIGHTSTAND_PARAMS: NightstandParams = {
   partitions: [],
   doorSpan: 'full',
   zones: {},
+  externalDoors: false,
   colors: { ...DEFAULT_PART_COLORS },
 }
 
@@ -128,7 +136,9 @@ export function parseNightstandParams(raw: Record<string, unknown>): NightstandP
   const leg = num('legHeight', d.legHeight)
   const depth = num('depth', d.depth)
   const thickness = num('thickness', d.thickness)
-  const sideD = Math.max(thickness, depth - frontDoorOverhang(thickness))
+  const sliding = raw.doorStyle === 'sliding'
+  const sideD = sliding ? Math.max(thickness, depth) : Math.max(thickness, depth - frontDoorOverhang(thickness))
+  const slideDepth = sliding ? Math.max(thickness, sideD - SLIDING_PARTITION_SETBACK_MM) : sideD
   return {
     width: num('width', d.width),
     height: num('height', d.height),
@@ -140,7 +150,7 @@ export function parseNightstandParams(raw: Record<string, unknown>): NightstandP
     legHeight: leg === 150 ? 150 : 100,
     topStyle: parseBoxTopStyle(raw.topStyle),
     railWidth: num('railWidth', d.railWidth),
-    ...parseInteriorFittings(raw, sideD),
+    ...parseInteriorFittings(raw, slideDepth),
     colors: parsePartColors(raw.colors),
   }
 }
@@ -150,8 +160,13 @@ export function measureNightstand(p: NightstandParams, topInner = false) {
   const hasTopPanel = p.topStyle === 'panel'
   const coveringTop = hasTopPanel && !topInner
   const innerTopPanel = hasTopPanel && topInner
-  const frontOverhang = frontDoorOverhang(T)
-  const sideD = Math.max(T, p.depth - frontOverhang)
+  const sliding = p.doorStyle === 'sliding'
+  const frontOverhang = sliding ? 0 : frontDoorOverhang(T)
+  const sideD = sliding ? Math.max(T, p.depth) : Math.max(T, p.depth - frontOverhang)
+  const partitionD = sliding ? Math.max(T, sideD - SLIDING_PARTITION_SETBACK_MM) : sideD
+  const shelfD = sliding
+    ? Math.max(T, partitionD - SLIDING_SHELF_FROM_PARTITION_MM)
+    : Math.max(T, sideD - DEFAULT_SHELF_FRONT_INSET)
   const topW = innerTopPanel ? p.width - 2 * T : p.width
   const topD = innerTopPanel ? sideD : p.depth
   const bottomW = p.useLegs ? p.width : p.width - 2 * T
@@ -178,6 +193,8 @@ export function measureNightstand(p: NightstandParams, topInner = false) {
     frontOverhang,
     sideH,
     sideD,
+    partitionD,
+    shelfD,
     bottomW,
     bottomD,
     topW,
@@ -197,6 +214,7 @@ export function measureNightstand(p: NightstandParams, topInner = false) {
     frontCoversTop,
     frontCoversBottom,
     frontHeight,
+    sliding,
   }
 }
 
@@ -204,7 +222,7 @@ export function generateNightstand(
   raw: Record<string, unknown>,
   settings?: unknown,
 ): CabinetGeneratorResult {
-  return generatePlinthCabinet(raw, settings, {
+  return generatePlinthCabinet({ ...raw, doorStyle: 'hinged' }, settings, {
     topInner: false,
     label: 'Нощно шкафче',
   })
@@ -248,7 +266,11 @@ export function generatePlinthCabinet(
       hasTopPanel
         ? `Страниците са външни на дъното и на плота (${m.bottomW} мм между тях). Плотът влиза между страниците (${m.topW} × ${m.topD} мм).`
         : `Страниците са външни на дъното (${m.bottomW} мм между тях). Без плот — отворен корпус отгоре.`,
-      `Страниците са ${m.sideD} мм дълбоки — общата дълбочина ${p.depth} мм включва врата/чело ${p.thickness} мм + 2 мм кант.`,
+      `Страниците са ${m.sideD} мм дълбоки — ${
+        m.sliding
+          ? `плъзгащите врати минават отпред между тях (разделители ${m.partitionD} мм, рафтове ${m.shelfD} мм).`
+          : `общата дълбочина ${p.depth} мм включва врата/чело ${p.thickness} мм + 2 мм кант.`
+      }`,
     )
     if (innerTop) {
       notes.push('Плотът се хваща с винтове 5×60 през страниците, без ъгълчета.')
@@ -265,7 +287,11 @@ export function generatePlinthCabinet(
       coveringTop
         ? `Страниците са външни на дъното (${m.bottomW} мм между тях). Плотът е външен върху страниците (${m.topW} × ${m.topD} мм).`
         : `Страниците са външни на дъното (${m.bottomW} мм между тях). Без плот — отворен корпус отгоре.`,
-      `Страниците са ${m.sideD} мм дълбоки — общата дълбочина ${p.depth} мм включва врата/чело ${p.thickness} мм + 2 мм кант${coveringTop ? ' на плота' : ''}.`,
+      `Страниците са ${m.sideD} мм дълбоки — ${
+        m.sliding
+          ? `плъзгащите врати минават отпред между тях (разделители ${m.partitionD} мм, рафтове ${m.shelfD} мм).`
+          : `общата дълбочина ${p.depth} мм включва врата/чело ${p.thickness} мм + 2 мм кант${coveringTop ? ' на плота' : ''}.`
+      }`,
     )
     if (coveringTop) {
       notes.push(
@@ -437,10 +463,14 @@ export function generatePlinthCabinet(
       sideH: m.innerH,
       thickness: p.thickness,
       width: p.width,
-      frontHeight: m.frontHeight,
-      overlayCovers: { top: m.frontCoversTop, bottom: m.frontCoversBottom },
+      overlayCovers: m.sliding
+        ? { top: false, bottom: false }
+        : { top: m.frontCoversTop, bottom: m.frontCoversBottom },
       coveringBottom: p.useLegs,
       innerTop,
+      partitionD: m.partitionD,
+      shelfD: m.shelfD,
+      frontHeight: m.sliding ? m.innerH : m.frontHeight,
     },
     panels,
     hardware,
@@ -475,7 +505,7 @@ export function generatePlinthCabinet(
     plinthCount: p.useLegs ? 0 : p.plinthCount,
     hasBack: p.hasBack,
     shelfCount: interior.shelfCount,
-    doorCount: interior.doorCount,
+    doorCount: m.sliding ? 0 : interior.doorCount,
     drawerCount: interior.drawerCount,
     hasClothesRail: interior.clothesRailCount > 0,
     clothesRailCount: interior.clothesRailCount,
@@ -483,6 +513,8 @@ export function generatePlinthCabinet(
     fixedShelfCount: interior.fixedShelfCount,
     partitionCount: interior.partitionCount,
     softCloseDrawers: isSoftCloseSlide(p.slideKind),
+    externalDoors: p.externalDoors === true || hardwareSettings.externalDoors,
+    skipEdgeFinishing: omitsCuttingEdgingLabor(hardwareSettings),
   })
 
   return {

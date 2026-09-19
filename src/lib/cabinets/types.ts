@@ -56,6 +56,7 @@ export type PanelRole =
   | 'shelf'
   | 'plinth'
   | 'door'
+  | 'sliding-door'
   | 'drawer-front'
   | 'drawer-side'
   | 'drawer-back'

@@ -129,6 +129,8 @@ export function SettingsDialog({
   const [screw5x60, setScrew5x60] = useState('')
   const [shelfPin, setShelfPin] = useState('')
   const [handleNormal, setHandleNormal] = useState('')
+  const [slidingHandlePrice, setSlidingHandlePrice] = useState('')
+  const [slidingCapPrice, setSlidingCapPrice] = useState('')
   const [clothesRailPrice, setClothesRailPrice] = useState('')
   const [edgeMm2, setEdgeMm2] = useState('')
   const [edgeMm05, setEdgeMm05] = useState('')
@@ -136,6 +138,9 @@ export function SettingsDialog({
   const [chipboardPrice, setChipboardPrice] = useState('')
   const [hardboardPrice, setHardboardPrice] = useState('')
   const [billWholeHardboardSheets, setBillWholeHardboardSheets] = useState(true)
+  const [skipCuttingEdgingLabor, setSkipCuttingEdgingLabor] = useState(false)
+  const [skipBoardAndEdgeCost, setSkipBoardAndEdgeCost] = useState(false)
+  const [externalDoors, setExternalDoors] = useState(false)
   const [slideRoller, setSlideRoller] = useState<PriceByLength>({})
   const [slideSoftFull, setSlideSoftFull] = useState<PriceByLength>({})
   const [slideSoftPartial, setSlideSoftPartial] = useState<PriceByLength>({})
@@ -204,6 +209,8 @@ export function SettingsDialog({
     setScrew5x60(String(s.screw5x60_500PackEur))
     setShelfPin(String(s.shelfPinEur))
     setHandleNormal(String(s.handleNormalEur))
+    setSlidingHandlePrice(String(s.slidingHandleEurPerM))
+    setSlidingCapPrice(String(s.slidingCapEurPerM))
     setClothesRailPrice(String(s.clothesRailEurPerM))
     setEdgeMm2(String(s.edgeMm2Eur))
     setEdgeMm05(String(s.edgeMm05Eur))
@@ -211,6 +218,9 @@ export function SettingsDialog({
     setChipboardPrice(String(s.chipboardPriceEur))
     setHardboardPrice(String(s.hardboardPriceEur))
     setBillWholeHardboardSheets(s.billWholeHardboardSheets)
+    setSkipCuttingEdgingLabor(s.skipCuttingEdgingLabor)
+    setSkipBoardAndEdgeCost(s.skipBoardAndEdgeCost)
+    setExternalDoors(s.externalDoors)
     setSlideRoller({ ...s.slideRollerEur })
     setSlideSoftFull({ ...s.slideSoftFullEur })
     setSlideSoftPartial({ ...s.slideSoftPartialEur })
@@ -290,6 +300,8 @@ export function SettingsDialog({
       screw5x60_500PackEur: parseFloat(screw5x60) || DEFAULT_HARDWARE_SETTINGS.screw5x60_500PackEur,
       shelfPinEur: parseFloat(shelfPin) || DEFAULT_HARDWARE_SETTINGS.shelfPinEur,
       handleNormalEur: parseFloat(handleNormal) || DEFAULT_HARDWARE_SETTINGS.handleNormalEur,
+      slidingHandleEurPerM: parseFloat(slidingHandlePrice) || DEFAULT_HARDWARE_SETTINGS.slidingHandleEurPerM,
+      slidingCapEurPerM: parseFloat(slidingCapPrice) || DEFAULT_HARDWARE_SETTINGS.slidingCapEurPerM,
       clothesRailEurPerM: parseFloat(clothesRailPrice) || DEFAULT_HARDWARE_SETTINGS.clothesRailEurPerM,
       edgeMm2Eur: parseFloat(edgeMm2) || DEFAULT_HARDWARE_SETTINGS.edgeMm2Eur,
       edgeMm05Eur: parseFloat(edgeMm05) || DEFAULT_HARDWARE_SETTINGS.edgeMm05Eur,
@@ -297,6 +309,9 @@ export function SettingsDialog({
       chipboardPriceEur: parseFloat(chipboardPrice) || DEFAULT_HARDWARE_SETTINGS.chipboardPriceEur,
       hardboardPriceEur: parseFloat(hardboardPrice) || DEFAULT_HARDWARE_SETTINGS.hardboardPriceEur,
       billWholeHardboardSheets,
+      skipCuttingEdgingLabor,
+      skipBoardAndEdgeCost,
+      externalDoors,
       slideRollerEur: { ...slideRoller },
       slideSoftFullEur: { ...slideSoftFull },
       slideSoftPartialEur: { ...slideSoftPartial },
@@ -620,6 +635,27 @@ export function SettingsDialog({
               <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
                 По 1 дръжка на врата и на чекмедже.
               </p>
+              <Label htmlFor="sliding-handle" className="mt-3 block">Кант дръжка (€/м)</Label>
+              <Input
+                id="sliding-handle"
+                type="number"
+                step="0.01"
+                min="0"
+                value={slidingHandlePrice}
+                onChange={(e) => setSlidingHandlePrice(e.target.value)}
+              />
+              <Label htmlFor="sliding-cap" className="mt-3 block">Тапа за плъзгаща врата (€/м)</Label>
+              <Input
+                id="sliding-cap"
+                type="number"
+                step="0.01"
+                min="0"
+                value={slidingCapPrice}
+                onChange={(e) => setSlidingCapPrice(e.target.value)}
+              />
+              <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
+                Вертикалните профили на плъзгащите врати. Дължината е височината на рязането.
+              </p>
             </div>
             <div className="rounded-md border border-[var(--color-border)] p-4">
               <h3 className="mb-3 font-medium">Кант (€/м)</h3>
@@ -704,6 +740,48 @@ export function SettingsDialog({
                     <span className="mt-1 block text-xs text-[var(--color-muted-foreground)]">
                       Ако отидат 3,5 плочи, сметката е за 4 — толкова трябва да се купят. Без отметка се
                       брои само изразходваната част.
+                    </span>
+                  </span>
+                </label>
+                <label className="flex cursor-pointer items-start gap-2 text-sm">
+                  <Checkbox
+                    className="mt-0.5"
+                    checked={skipCuttingEdgingLabor || skipBoardAndEdgeCost}
+                    disabled={skipBoardAndEdgeCost}
+                    onCheckedChange={(c) => setSkipCuttingEdgingLabor(c === true)}
+                  />
+                  <span>
+                    Без труд за рязане и кантиране
+                    <span className="mt-1 block text-xs text-[var(--color-muted-foreground)]">
+                      Рязането, машинното кантиране и обработката на кант не влизат в цената. Остава
+                      сглобяването.
+                    </span>
+                  </span>
+                </label>
+                <label className="flex cursor-pointer items-start gap-2 text-sm">
+                  <Checkbox
+                    className="mt-0.5"
+                    checked={skipBoardAndEdgeCost}
+                    onCheckedChange={(c) => setSkipBoardAndEdgeCost(c === true)}
+                  />
+                  <span>
+                    Без цена на плочи и кант
+                    <span className="mt-1 block text-xs text-[var(--color-muted-foreground)]">
+                      ПДЧ, фазер, кант и трудът за рязане и кантиране не влизат в сметката.
+                    </span>
+                  </span>
+                </label>
+                <label className="flex cursor-pointer items-start gap-2 text-sm">
+                  <Checkbox
+                    className="mt-0.5"
+                    checked={externalDoors}
+                    onCheckedChange={(c) => setExternalDoors(c === true)}
+                  />
+                  <span>
+                    Външни врати и чела
+                    <span className="mt-1 block text-xs text-[var(--color-muted-foreground)]">
+                      Поръчват се отделно: само фуги, без кант, без разкрой. Без ръбчета и фреза —
+                      остава пробиване на панти и слагане на чело. Може и по шкаф при създаване.
                     </span>
                   </span>
                 </label>

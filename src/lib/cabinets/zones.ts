@@ -994,13 +994,15 @@ export function stackFronts(input: {
   frontHeight: number
   doorCount: DoorCount
   drawerFrontHeights: number[]
+  clearanceBottom?: number
 }): StackedFront[] {
   const drawers = input.drawerFrontHeights.filter((h) => h > 0)
   const hasDoor = input.doorCount === 1 || input.doorCount === 2
+  const bottom = input.clearanceBottom ?? 0
   const out: StackedFront[] = []
   let y = DOOR_CLEARANCE_TOP
   if (!hasDoor && drawers.length > 0) {
-    const leftover = remainingFrontHeight(input.frontHeight, drawers, false)
+    const leftover = remainingFrontHeight(input.frontHeight, drawers, false, bottom)
     if (leftover > 0) y += leftover
   }
   drawers.forEach((h, i) => {
@@ -1008,7 +1010,7 @@ export function stackFronts(input: {
     y += h + DRAWER_DOOR_GAP
   })
   if (hasDoor) {
-    const leftover = remainingFrontHeight(input.frontHeight, drawers, true)
+    const leftover = remainingFrontHeight(input.frontHeight, drawers, true, bottom)
     if (leftover > 0) {
       out.push({
         kind: 'door',
@@ -1022,10 +1024,15 @@ export function stackFronts(input: {
   return out
 }
 
-export function validateZoneFronts(layout: InteriorLayout, carcassFrontHeight: number): string | null {
+export function validateZoneFronts(
+  layout: InteriorLayout,
+  carcassFrontHeight: number,
+  clearanceBottom = 0,
+): string | null {
   if (layout.error) return layout.error
   for (const z of layout.zones) {
-    const leftover = remainingFrontHeight(z.frontHeight, z.drawerFrontHeights, z.doorCount > 0)
+    const bottom = z.y0 <= 0.5 ? clearanceBottom : 0
+    const leftover = remainingFrontHeight(z.frontHeight, z.drawerFrontHeights, z.doorCount > 0, bottom)
     if (leftover < 0) {
       return `${z.label}: челата не събират във височината.`
     }
@@ -1038,6 +1045,7 @@ export function validateZoneFronts(layout: InteriorLayout, carcassFrontHeight: n
       carcassFrontHeight,
       layout.fullDrawerFrontHeights,
       layout.fullDoorCount > 0,
+      clearanceBottom,
     )
     if (leftover < 0) return 'Челата на целия шкаф не събират във височината.'
     if (layout.fullDoorCount > 0 && leftover < 80) return 'Височината за вратите на целия шкаф е твърде малка.'

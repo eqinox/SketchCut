@@ -5,6 +5,7 @@ import {
   parseKitchenWallParams,
   parseNightstandParams,
   parseSectionParams,
+  parseWardrobeParams,
   measureNightstand,
   DEFAULT_SHELF_FRONT_INSET,
   DEFAULT_HARDBOARD_COLOR,
@@ -21,6 +22,9 @@ import {
   zoneFrontBox,
   stackFronts,
   shelvesForColumn,
+  layoutSlidingDoors,
+  SLIDING_BOTTOM_TRACK_MM,
+  SLIDING_DRAWER_FROM_BOTTOM_MM,
   type KitchenBaseParams,
   type KitchenWallParams,
   type NightstandParams,
@@ -132,7 +136,7 @@ export function CabinetPreview({
       />
     )
   }
-  if (typeId === 'nightstand' || typeId === 'section') {
+  if (typeId === 'nightstand' || typeId === 'section' || typeId === 'wardrobe') {
     return (
       <PlinthBoxPreview
         typeId={typeId}
@@ -332,6 +336,7 @@ function PartitionDimLines({
   y,
   anchorY,
   z = 0,
+  zAtX,
   fontSize,
 }: {
   partitions: InteriorLayout['partitions']
@@ -339,39 +344,45 @@ function PartitionDimLines({
   cam: ReturnType<typeof createDrawCam>
   innerLeft: number
   y: number
-  /** Top of the bottom — extension lines drop to the measured faces here. */
+  /** Inner floor — extension lines drop to the measured faces here. */
   anchorY: number
   z?: number
+  /** Depth of each measured face (set-back partition vs full-depth side). */
+  zAtX?: (x: number) => number
   fontSize: number
 }) {
-  const tick = Math.max(14, fontSize * 0.24)
-  const stagger = Math.max(36, fontSize * 0.55)
+  const tick = Math.max(14, fontSize * 0.18)
+  const stagger = Math.max(48, fontSize * 0.7)
+  const sw = Math.max(5, Math.min(8, fontSize * 0.045))
   const spans = [
-    ...partitions.map((p) => ({ startX: p.startX, endX: p.endX, offsetMm: p.offsetMm })),
-    ...leftovers,
+    ...partitions.map((p, i) => ({ startX: p.startX, endX: p.endX, offsetMm: p.offsetMm, row: i })),
+    ...leftovers.map((p) => ({ ...p, row: 0 })),
   ]
+  const depth = (x: number) => zAtX?.(x) ?? z
   return (
     <>
       {spans.map((p, i) => {
-        const yy = y - i * stagger
-        const a = cam.proj(innerLeft + p.startX, yy, z)
-        const b = cam.proj(innerLeft + p.endX, yy, z)
-        const footA = cam.proj(innerLeft + p.startX, anchorY, z)
-        const footB = cam.proj(innerLeft + p.endX, anchorY, z)
+        const yy = y - p.row * stagger
+        const za = depth(p.startX)
+        const zb = depth(p.endX)
+        const a = cam.proj(innerLeft + p.startX, yy, za)
+        const b = cam.proj(innerLeft + p.endX, yy, zb)
+        const footA = cam.proj(innerLeft + p.startX, anchorY, za)
+        const footB = cam.proj(innerLeft + p.endX, anchorY, zb)
         const midX = (a.x + b.x) / 2
-        const midY = (a.y + b.y) / 2
+        const midY = (a.y + b.y) / 2 - fontSize * 0.62
         const dx = b.x - a.x
         const dy = b.y - a.y
         const len = Math.hypot(dx, dy) || 1
         const nx = (-dy / len) * tick
         const ny = (dx / len) * tick
         return (
-          <g key={`part-dim-${i}`} stroke={DRAW_DIM} fill={DRAW_DIM}>
-            <line x1={a.x} y1={a.y} x2={footA.x} y2={footA.y} strokeWidth={1.8} />
-            <line x1={b.x} y1={b.y} x2={footB.x} y2={footB.y} strokeWidth={1.8} />
-            <line x1={a.x - nx} y1={a.y - ny} x2={a.x + nx} y2={a.y + ny} strokeWidth={2} />
-            <line x1={b.x - nx} y1={b.y - ny} x2={b.x + nx} y2={b.y + ny} strokeWidth={2} />
-            <DimLine x1={a.x} y1={a.y} x2={b.x} y2={b.y} />
+          <g key={`part-dim-${i}`} stroke={DRAW_DIM} fill={DRAW_DIM} strokeLinecap="butt">
+            <line x1={a.x} y1={a.y} x2={footA.x} y2={footA.y} strokeWidth={sw} />
+            <line x1={b.x} y1={b.y} x2={footB.x} y2={footB.y} strokeWidth={sw} />
+            <line x1={a.x - nx} y1={a.y - ny} x2={a.x + nx} y2={a.y + ny} strokeWidth={sw} />
+            <line x1={b.x - nx} y1={b.y - ny} x2={b.x + nx} y2={b.y + ny} strokeWidth={sw} />
+            <DimLine x1={a.x} y1={a.y} x2={b.x} y2={b.y} strokeWidth={sw} />
             <DimText x={midX} y={midY} label={mm(p.offsetMm)} fontSize={fontSize} fill={DRAW_DIM} />
           </g>
         )
@@ -549,6 +560,7 @@ function FrontsOnCabinet({
   z,
   d,
   cam,
+  clearanceBottom = 0,
 }: {
   layout: InteriorLayout
   W: number
@@ -559,6 +571,7 @@ function FrontsOnCabinet({
   z: number
   d: number
   cam: ReturnType<typeof createDrawCam>
+  clearanceBottom?: number
 }) {
   const gap = DOOR_GAP_X
   const items: ReactNode[] = []
@@ -632,11 +645,13 @@ function FrontsOnCabinet({
     doorCount: 0 | 1 | 2,
     drawerFrontHeights: number[],
     key: string,
+    bottomGap: number,
   ) => {
     const stacked = stackFronts({
       frontHeight: box.h,
       doorCount,
       drawerFrontHeights,
+      clearanceBottom: bottomGap,
     })
     const label = stacked.length >= 2
     for (const s of stacked) {
@@ -670,6 +685,7 @@ function FrontsOnCabinet({
       layout.fullDoorCount,
       layout.fullDrawerFrontHeights,
       'full',
+      clearanceBottom,
     )
   }
 
@@ -678,7 +694,13 @@ function FrontsOnCabinet({
     const box = zoneFrontBox(zone, { innerFloorY, carcassTopY, carcassBotY, thickness: T })
     const x = zone.frontWidth > 0 ? T + zone.frontX0 : 0
     const w = zone.frontWidth > 0 ? zone.frontWidth : W
-    pushStacked({ x, y: box.y, w, h: box.h }, zone.doorCount, zone.drawerFrontHeights, zone.id)
+    pushStacked(
+      { x, y: box.y, w, h: box.h },
+      zone.doorCount,
+      zone.drawerFrontHeights,
+      zone.id,
+      zone.y0 <= 0.5 ? clearanceBottom : 0,
+    )
   }
 
   return <>{items}</>
@@ -686,9 +708,9 @@ function FrontsOnCabinet({
 
 function ViewCard({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <div className="flex flex-col rounded-md border border-[var(--color-border)] bg-[var(--color-background)] p-2">
-      <p className="mb-1 text-center text-[11px] font-medium text-[var(--color-muted-foreground)]">{title}</p>
-      <div className="flex flex-1 items-center justify-center overflow-hidden">{children}</div>
+    <div className="flex flex-col rounded-md border border-neutral-300 bg-white p-2">
+      <p className="mb-1 text-center text-[11px] font-medium text-neutral-700">{title}</p>
+      <div className="flex flex-1 items-center justify-center overflow-hidden bg-white">{children}</div>
     </div>
   )
 }
@@ -919,6 +941,7 @@ function Front3DView({
   const padL = font + 48
   const padT = font + Math.abs(dy) + 28
   const padR = 48
+  const leftovers = leftoverPartitionSpans(layout.partitions, layout.columns)
   const padB = 36
 
   const totalH = H + L
@@ -945,7 +968,6 @@ function Front3DView({
   const depthRot = (Math.atan2(dy, dx) * 180) / Math.PI
   const backMx = ox + W / 2 + dx
   const backMy = topY + dy - font * 0.45
-  const bottomRise = Math.abs(view.depthDelta(D).y)
   const legLabelX = ox + legInset + legW / 2
   const legLabelY = floor - L / 2
   const sideLabelX = ox + W + dx / 2
@@ -1159,10 +1181,10 @@ function Front3DView({
       {layout.partitions.length > 0 && (
         <PartitionDimLines
           partitions={layout.partitions}
-          leftovers={leftoverPartitionSpans(layout.partitions, layout.columns)}
+          leftovers={leftovers}
           cam={view}
           innerLeft={T}
-          y={innerFloorY - bottomRise - Math.max(40, railFont * 0.65)}
+          y={innerFloorY - Math.max(44, railFont * 0.4)}
           anchorY={innerFloorY}
           fontSize={railFont}
         />
@@ -1321,6 +1343,7 @@ function WallFront3DView({
   const padL = font + 48
   const padT = font + Math.abs(dy) + 28
   const padR = 48
+  const leftovers = leftoverPartitionSpans(layout.partitions, layout.columns)
   const padB = 36
   const vbW = padL + W + dx + padR
   const vbH = padT + H + padB
@@ -1339,7 +1362,6 @@ function WallFront3DView({
   const depthRot = (Math.atan2(dy, dx) * 180) / Math.PI
   const backMx = ox + W / 2 + dx
   const backMy = topY + dy - font * 0.45
-  const bottomRise = Math.abs(view.depthDelta(D).y)
   const zShelfFront = DEFAULT_SHELF_FRONT_INSET
   const shelfDepth = D - zShelfFront
   const innerFloorY = floor - T
@@ -1454,10 +1476,10 @@ function WallFront3DView({
       {layout.partitions.length > 0 && (
         <PartitionDimLines
           partitions={layout.partitions}
-          leftovers={leftoverPartitionSpans(layout.partitions, layout.columns)}
+          leftovers={leftovers}
           cam={view}
           innerLeft={T}
-          y={innerFloorY - bottomRise - Math.max(40, small * 0.65)}
+          y={innerFloorY - Math.max(44, small * 0.4)}
           anchorY={innerFloorY}
           fontSize={small}
         />
@@ -1554,30 +1576,42 @@ function PlinthBoxPreview({
   showDimLines,
   showFronts,
 }: {
-  typeId: 'nightstand' | 'section'
+  typeId: 'nightstand' | 'section' | 'wardrobe'
   params: Record<string, unknown>
   className?: string
   showDimLines: boolean
   showFronts: boolean
 }) {
-  const topInner = typeId === 'section'
-  const p = topInner ? parseSectionParams(params) : parseNightstandParams(params)
+  const topInner = typeId === 'section' || typeId === 'wardrobe'
+  const p =
+    typeId === 'wardrobe'
+      ? parseWardrobeParams(params)
+      : topInner
+        ? parseSectionParams(params)
+        : parseNightstandParams(params)
   const m = measureNightstand(p, topInner)
   const { colors } = p
+  const sliding = p.doorStyle === 'sliding'
   const layout = layoutInterior({
     innerH: m.innerH,
     innerW: m.innerW,
     thickness: p.thickness,
     fixedShelves: p.fixedShelves,
     partitions: p.partitions,
-    doorSpan: p.doorSpan,
-    doorCount: p.doorCount,
+    doorSpan: sliding ? 'full' : p.doorSpan,
+    doorCount: sliding ? 0 : p.doorCount,
     shelfCount: p.shelfCount,
     drawerFrontHeights: p.drawerFrontHeights,
     cutFromOneBoard: p.cutFromOneBoard,
     hasClothesRail: p.hasClothesRail,
-    zones: p.zones,
-    overlayCovers: { top: m.frontCoversTop, bottom: m.frontCoversBottom },
+    zones: sliding
+      ? Object.fromEntries(
+          Object.entries(p.zones ?? {}).map(([id, z]) => [id, z ? { ...z, doorCount: 0 as const } : z]),
+        )
+      : p.zones,
+    overlayCovers: sliding
+      ? { top: false, bottom: false }
+      : { top: m.frontCoversTop, bottom: m.frontCoversBottom },
   })
   const counts = layoutCounts(layout)
   const drawerViews = uniqueDrawerViews({ ...p, drawerFrontHeights: allDrawerFrontHeights(layout) })
@@ -1632,13 +1666,17 @@ function PlinthBoxPreview({
         ) : (
           <span style={{ color: colors.bottom }}>■ Цокъл</span>
         )}
-        {showFronts && (counts.doorCount > 0 || counts.drawerCount > 0) && (
+        {showFronts && (counts.doorCount > 0 || counts.drawerCount > 0 || (sliding && p.doorCount === 2)) && (
           <span className="mr-3" style={{ color: FRONT_FILL }}> ■ Врати и чела</span>
         )}
-        {!showFronts && counts.doorCount > 0 && (
+        {!showFronts && (counts.doorCount > 0 || (sliding && p.doorCount === 2)) && (
           <>
             {' · '}
-            {counts.doorCount === 1 ? '1 врата' : `${counts.doorCount} врати`} (включи ги с отметката)
+            {sliding && p.doorCount === 2
+              ? '2 плъзгащи врати'
+              : counts.doorCount === 1
+                ? '1 врата'
+                : `${counts.doorCount} врати`} (включи ги с отметката)
           </>
         )}
         {!showFronts && counts.drawerCount > 0 && (
@@ -1692,6 +1730,7 @@ function PlinthBoxFront3DView({
   const padL = font + 48
   const padT = font + Math.abs(dy) + 28
   const padR = 48
+  const leftovers = leftoverPartitionSpans(layout.partitions, layout.columns)
   const padB = 36
 
   const vbW = padL + W + dx + padR
@@ -1740,8 +1779,9 @@ function PlinthBoxFront3DView({
         botL: view.proj(T, floor, m.plinthZ),
       }
 
-  const zShelfFront = zSide + DEFAULT_SHELF_FRONT_INSET
-  const shelfDepth = m.sideD - DEFAULT_SHELF_FRONT_INSET
+  const zShelfFront = zSide + (m.sideD - m.shelfD)
+  const shelfDepth = m.shelfD
+  const zPartition = zSide + (m.sideD - m.partitionD)
   const innerFloorY = bottomY
   const carcassBotY = floor - supportH
   const frontTopY = coveringTop ? topY + T : topY
@@ -1751,7 +1791,7 @@ function PlinthBoxFront3DView({
   const leftInnerH = Math.max(T, bottomY - leftInnerY)
 
   return (
-    <SketchSvg vbW={vbW} vbH={vbH} height={460} label={topInner ? 'Секция 3D' : 'Нощно шкафче 3D'}>
+    <SketchSvg vbW={vbW} vbH={vbH} height={460} label={topInner ? (p.doorStyle === 'sliding' ? 'Гардероб 3D' : 'Секция 3D') : 'Нощно шкафче 3D'}>
       <defs>
         <filter id="ns-shadow">
           <feDropShadow dx="1" dy="1" stdDeviation="1.5" floodOpacity="0.3" />
@@ -1922,8 +1962,8 @@ function PlinthBoxFront3DView({
             innerFloorY={innerFloorY}
             cam={view}
             shelfColor={wood.shelf}
-            fixedZ={zSide}
-            fixedD={m.sideD}
+            fixedZ={m.sliding ? zShelfFront : zSide}
+            fixedD={m.sliding ? m.shelfD : m.sideD}
             adjZ={zShelfFront}
             adjD={shelfDepth}
             clothesZ={zSide + Math.min(80, m.sideD * 0.4)}
@@ -1932,10 +1972,10 @@ function PlinthBoxFront3DView({
             <Board
               x={T + layout.partitions[i].xLeft}
               y={leftInnerY}
-              z={zSide}
+              z={zPartition}
               w={T}
               h={leftInnerH}
-              d={m.sideD}
+              d={m.partitionD}
               color={wood.side}
               cam={view}
               faces={SIDE_LEFT_BODY}
@@ -2037,17 +2077,55 @@ function PlinthBoxFront3DView({
         />
       ) : null}
 
+      {m.sliding && (
+        <Board
+          x={T}
+          y={bottomY - SLIDING_BOTTOM_TRACK_MM}
+          z={0}
+          w={m.innerW}
+          h={SLIDING_BOTTOM_TRACK_MM}
+          d={T}
+          color="#8b7355"
+          cam={view}
+          faces={{ front: true, top: true, right: true }}
+        />
+      )}
+
+      {showFronts && m.sliding && p.doorCount === 2 &&
+        layoutSlidingDoors({
+          innerW: m.innerW,
+          innerH: m.innerH,
+          thickness: T,
+          partitions: layout.partitions,
+          edges: p.slidingEdges,
+        }).map((leaf, i) => (
+          <Board
+            key={`slide-door-${leaf.side}`}
+            x={T + leaf.x}
+            y={bottomY - leaf.gabaritH}
+            z={i === 0 ? T + 8 : 0}
+            w={leaf.gabaritW}
+            h={leaf.gabaritH}
+            d={T}
+            color={FRONT_FILL}
+            cam={view}
+            faces={{ front: true, top: true, right: true }}
+            opacity={0.88}
+          />
+        ))}
+
       {showFronts && (
         <FrontsOnCabinet
           layout={layout}
           W={W}
           T={T}
           innerFloorY={innerFloorY}
-          carcassTopY={frontTopY}
-          carcassBotY={frontBotY}
+          carcassTopY={m.sliding ? leftInnerY : frontTopY}
+          carcassBotY={m.sliding ? bottomY : frontBotY}
           z={0}
           d={T}
           cam={view}
+          clearanceBottom={m.sliding ? SLIDING_DRAWER_FROM_BOTTOM_MM : 0}
         />
       )}
 
@@ -2063,12 +2141,17 @@ function PlinthBoxFront3DView({
       {layout.partitions.length > 0 && (
         <PartitionDimLines
           partitions={layout.partitions}
-          leftovers={leftoverPartitionSpans(layout.partitions, layout.columns)}
+          leftovers={leftovers}
           cam={view}
           innerLeft={T}
-          y={innerFloorY - Math.abs(view.depthDelta(m.sideD).y) - Math.max(36, small * 0.55)}
+          y={innerFloorY - (m.sliding ? SLIDING_BOTTOM_TRACK_MM : 0) - Math.max(44, small * 0.4)}
           anchorY={innerFloorY}
-          z={zSide}
+          z={zPartition}
+          zAtX={(x) =>
+            layout.partitions.some((part) => x >= part.xLeft - 0.51 && x <= part.xRight + 0.51)
+              ? zPartition
+              : zSide
+          }
           fontSize={small}
         />
       )}

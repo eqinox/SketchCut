@@ -1,6 +1,6 @@
 import type { Sheet } from '@/types'
 import type { HardwareSettings } from '@/lib/settings'
-import { DEFAULT_HARDWARE_SETTINGS } from '@/lib/settings'
+import { DEFAULT_HARDWARE_SETTINGS, omitsCuttingEdgingLabor } from '@/lib/settings'
 import {
   CUTTING_MINUTES_PER_SHEET,
   EDGING_MINUTES_PER_SHEET,
@@ -33,9 +33,10 @@ import {
   formatMinutes,
   hourlyRateEur,
   laborCostEur,
-  laborFromPanels,
+  billedLaborFromPanels,
   laborMinutes,
   panelsAreaM2,
+  groupBuyoutDoors,
 } from './estimate'
 
 export interface PriceBreakdownLine {
@@ -134,17 +135,18 @@ function boardSection(
   panels: GeneratedPanel[],
   sheet: { width: number; height: number; priceEur: number },
   billWholeSheets: boolean,
+  skipCost: boolean,
 ): PriceBreakdownSection {
   const used = panelsAreaM2(panels, id)
   const full = sheetAreaM2(sheet.width, sheet.height)
   const frac = sheetFraction(used, sheet.width, sheet.height)
   const billed = billedSheetCount(used, sheet.width, sheet.height, billWholeSheets)
-  const cost = usedBoardCostEur(used, sheet.width, sheet.height, sheet.priceEur, billWholeSheets)
+  const cost = skipCost ? 0 : usedBoardCostEur(used, sheet.width, sheet.height, sheet.priceEur, billWholeSheets)
   const lines: PriceBreakdownLine[] = billablePanels(panels)
     .filter((p) => panelKind(p) === id)
     .map((p) => {
       const area = panelAreaM2(p)
-      const partCost = usedBoardCostEur(area, sheet.width, sheet.height, sheet.priceEur)
+      const partCost = skipCost ? 0 : usedBoardCostEur(area, sheet.width, sheet.height, sheet.priceEur)
       return {
         label: `${p.name} · ${p.quantity} бр. · ${mmSize(p.width, p.height)}`,
         hint: formatArea(area),
@@ -162,23 +164,28 @@ function boardSection(
     label: billWholeSheets
       ? `За закупуване ${formatSheetQty(billed)} плочи × ${formatEur(sheet.priceEur)}`
       : `Плоча ${mmSize(sheet.width, sheet.height)} · ${formatEur(sheet.priceEur)}`,
-    hint: billWholeSheets
-      ? `${usedHint} → закръглено до ${formatSheetQty(billed)} цели плочи`
-      : usedHint,
+    hint: skipCost
+      ? 'цената на плочите е изключена от сметката'
+      : billWholeSheets
+        ? `${usedHint} → закръглено до ${formatSheetQty(billed)} цели плочи`
+        : usedHint,
     amountEur: cost,
   })
   return {
     id,
     title,
-    intro: billWholeSheets
-      ? `Цената е за цели закупени плочи (${mmSize(sheet.width, sheet.height)} = ${formatEur(sheet.priceEur)}/бр.). Използвано ${formatSheetQty(frac)} → ${formatSheetQty(billed)} бр.`
-      : `Цената е дял от една плоча (${mmSize(sheet.width, sheet.height)} = ${formatArea(full)} на ${formatEur(sheet.priceEur)}).`,
+    intro: skipCost
+      ? 'Цената на плочите е изключена от сметката.'
+      : billWholeSheets
+        ? `Цената е за цели закупени плочи (${mmSize(sheet.width, sheet.height)} = ${formatEur(sheet.priceEur)}/бр.). Използвано ${formatSheetQty(frac)} → ${formatSheetQty(billed)} бр.`
+        : `Цената е дял от една плоча (${mmSize(sheet.width, sheet.height)} = ${formatArea(full)} на ${formatEur(sheet.priceEur)}).`,
     lines,
     subtotalEur: cost,
   }
 }
 
 function edgeSection(panels: GeneratedPanel[], settings: HardwareSettings): PriceBreakdownSection {
+  const skipCost = settings.skipBoardAndEdgeCost
   const mm2Price = settings.edgeMm2Eur ?? EDGE_PRICE_MM2_EUR
   const mm05Price = settings.edgeMm05Eur ?? EDGE_PRICE_MM05_EUR
   const lines: PriceBreakdownLine[] = []
@@ -198,21 +205,21 @@ function edgeSection(panels: GeneratedPanel[], settings: HardwareSettings): Pric
     else mm05 += totalM
     lines.push({
       label: `${p.name} · кант ${thick} · ${p.quantity} бр.`,
-      hint: edgePatternHint(p, totalM, unit),
-      amountEur: totalM * unit,
+      hint: skipCost ? 'кантът не влиза в сметката' : edgePatternHint(p, totalM, unit),
+      amountEur: skipCost ? 0 : totalM * unit,
     })
   }
-  const cost = edgeBandingCostEur(mm2, mm05, { mm2: mm2Price, mm05: mm05Price })
+  const cost = skipCost ? 0 : edgeBandingCostEur(mm2, mm05, { mm2: mm2Price, mm05: mm05Price })
   if (mm2 > 0) {
     lines.push({
       label: `Общо кант 2 мм: ${formatM(mm2)} × ${formatEur(mm2Price, 2)}/м`,
-      amountEur: mm2 * mm2Price,
+      amountEur: skipCost ? 0 : mm2 * mm2Price,
     })
   }
   if (mm05 > 0) {
     lines.push({
       label: `Общо кант 0.5 мм: ${formatM(mm05)} × ${formatEur(mm05Price, 2)}/м`,
-      amountEur: mm05 * mm05Price,
+      amountEur: skipCost ? 0 : mm05 * mm05Price,
     })
   }
   if (lines.length === 0) {
@@ -221,9 +228,28 @@ function edgeSection(panels: GeneratedPanel[], settings: HardwareSettings): Pric
   return {
     id: 'edge',
     title: 'Кант',
-    intro: `Дебел кант (2 мм) ${formatEur(mm2Price, 2)}/м · обикновен (0.5 мм) ${formatEur(mm05Price, 2)}/м.`,
+    intro: skipCost
+      ? 'Цената на канта е изключена от сметката.'
+      : `Дебел кант (2 мм) ${formatEur(mm2Price, 2)}/м · обикновен (0.5 мм) ${formatEur(mm05Price, 2)}/м.`,
     lines,
     subtotalEur: cost,
+  }
+}
+
+function buyoutDoorsSection(panels: GeneratedPanel[]): PriceBreakdownSection | null {
+  const groups = groupBuyoutDoors(panels)
+  if (groups.length === 0) return null
+  const totalQty = groups.reduce((s, g) => s + g.quantity, 0)
+  return {
+    id: 'buyout-doors',
+    title: 'Външни врати и чела — поръчай отделно',
+    intro: `${totalQty} бр. Не влизат в разкроя и засега нямат цена. Размерът е готовият (само фуги).`,
+    lines: groups.map((g) => ({
+      label: `${g.name} · ${g.quantity} бр. · ${mmSize(g.width, g.height)}`,
+      hint: 'готов размер · само фуги · поръчай',
+      amountEur: null,
+    })),
+    subtotalEur: 0,
   }
 }
 
@@ -369,8 +395,10 @@ function laborSection(
   assemblyMinutes: number | null,
   assemblySteps: AssemblyStep[],
   dailyRateEur: number,
+  settings: HardwareSettings,
 ): PriceBreakdownSection {
-  const computed = laborFromPanels(panels, sheets, assemblyMinutes)
+  const computed = billedLaborFromPanels(panels, sheets, assemblyMinutes, settings)
+  const skipCutEdge = omitsCuttingEdgingLabor(settings)
   const chipboard = referenceSheet(sheets, 'chipboard')
   const hardboard = referenceSheet(sheets, 'hardboard')
   const chipArea = panelsAreaM2(panels, 'chipboard')
@@ -382,23 +410,25 @@ function laborSection(
   const cost = laborCostEur(computed, dailyRateEur)
   const cutMin = computed.cuttingMinutes ?? 0
   const edgeMin = computed.edgingMinutes ?? 0
-  const chipCut = chipFrac * CUTTING_MINUTES_PER_SHEET
-  const hardCut = hardFrac * CUTTING_MINUTES_PER_SHEET
-  const chipEdge = chipFrac * EDGING_MINUTES_PER_SHEET
+  const chipCut = skipCutEdge ? 0 : chipFrac * CUTTING_MINUTES_PER_SHEET
+  const hardCut = skipCutEdge ? 0 : hardFrac * CUTTING_MINUTES_PER_SHEET
+  const chipEdge = skipCutEdge ? 0 : chipFrac * EDGING_MINUTES_PER_SHEET
   const lines: PriceBreakdownLine[] = [
     {
       label: 'Рязане',
-      hint:
-        `${formatPct(chipFrac)} × ${CUTTING_MINUTES_PER_SHEET} мин (ПДЧ) = ${formatMinutes(chipCut)}` +
-        ` + ${formatPct(hardFrac)} × ${CUTTING_MINUTES_PER_SHEET} мин (фазер) = ${formatMinutes(hardCut)}` +
-        ` → ${formatMinutes(cutMin)}`,
+      hint: skipCutEdge
+        ? 'трудът за рязане е изключен от сметката'
+        : `${formatPct(chipFrac)} × ${CUTTING_MINUTES_PER_SHEET} мин (ПДЧ) = ${formatMinutes(chipCut)}` +
+          ` + ${formatPct(hardFrac)} × ${CUTTING_MINUTES_PER_SHEET} мин (фазер) = ${formatMinutes(hardCut)}` +
+          ` → ${formatMinutes(cutMin)}`,
       amountEur: minutesCostEur(cutMin, hourly),
     },
     {
       label: 'Кантиране на машина',
-      hint:
-        `${formatPct(chipFrac)} ПДЧ × ${EDGING_MINUTES_PER_SHEET} мин/плоча = ${formatMinutes(chipEdge)}` +
-        ` (фазерът не се кантира) → ${formatMinutes(edgeMin)}`,
+      hint: skipCutEdge
+        ? 'трудът за кантиране е изключен от сметката'
+        : `${formatPct(chipFrac)} ПДЧ × ${EDGING_MINUTES_PER_SHEET} мин/плоча = ${formatMinutes(chipEdge)}` +
+          ` (фазерът не се кантира) → ${formatMinutes(edgeMin)}`,
       amountEur: minutesCostEur(edgeMin, hourly),
     },
   ]
@@ -442,8 +472,9 @@ function laborSection(
   return {
     id: 'labor',
     title: 'Труд',
-    intro:
-      'Рязането и машинното кантиране са дял от една плоча. Сглобяването е по операциите от настройките (Настройки → време).',
+    intro: skipCutEdge
+      ? 'Рязането и машинното кантиране са изключени. Сглобяването е по операциите от настройките (Настройки → време).'
+      : 'Рязането и машинното кантиране са дял от една плоча. Сглобяването е по операциите от настройките (Настройки → време).',
     lines,
     subtotalEur: cost,
   }
@@ -463,18 +494,21 @@ export function explainCabinetPrice(input: {
   const hardboard = referenceSheet(input.sheets, 'hardboard')
   const billed = billablePanels(input.panels)
   const sections: PriceBreakdownSection[] = []
+  const skipMats = settings.skipBoardAndEdgeCost
   const billWholeSheets = settings.billWholeSheets
   const billWholeHardboardSheets = settings.billWholeHardboardSheets
   if (billed.some((p) => panelKind(p) === 'chipboard')) {
-    sections.push(boardSection('chipboard', 'ПДЧ', input.panels, chipboard, billWholeSheets))
+    sections.push(boardSection('chipboard', 'ПДЧ', input.panels, chipboard, billWholeSheets, skipMats))
   }
   if (billed.some((p) => panelKind(p) === 'hardboard')) {
-    sections.push(boardSection('hardboard', 'Фазер', input.panels, hardboard, billWholeHardboardSheets))
+    sections.push(boardSection('hardboard', 'Фазер', input.panels, hardboard, billWholeHardboardSheets, skipMats))
   }
   const edge = edgeSection(input.panels, settings)
   if (edge.lines.length > 1 || (edge.subtotalEur ?? 0) > 0) {
     sections.push(edge)
   }
+  const buyout = buyoutDoorsSection(input.panels)
+  if (buyout) sections.push(buyout)
   if (input.hardware.length > 0) {
     sections.push(hardwareSection(input.hardware, settings))
   }
@@ -485,6 +519,7 @@ export function explainCabinetPrice(input: {
       input.assemblyMinutes,
       input.assemblySteps ?? [],
       input.dailyRateEur,
+      settings,
     ),
   )
   const totalEur = sections.reduce((s, sec) => s + (sec.subtotalEur ?? 0), 0)

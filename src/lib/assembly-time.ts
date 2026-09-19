@@ -723,6 +723,7 @@ export interface AssemblyPanelInput {
   quantity: number
   edges: { top?: boolean; bottom?: boolean; left?: boolean; right?: boolean }
   excludeFromCutting?: boolean
+  highlightColor?: string
 }
 
 function pushStep(steps: AssemblyStep[], step: AssemblyStep): void {
@@ -755,7 +756,8 @@ export function overlayFrontLeafCounts(
     if (isCombinedFirstCutName(p.name)) continue
     const qty = Math.max(0, p.quantity)
     if (p.role === 'door') {
-      if (finishedFrontHeightMm(p.height) > min) counts.tallDoors += qty
+      const finishedH = p.highlightColor === 'order' ? p.height : finishedFrontHeightMm(p.height)
+      if (finishedH > min) counts.tallDoors += qty
       else counts.smallDoors += qty
     } else if (p.role === 'drawer-front') {
       counts.drawerFronts += qty
@@ -806,6 +808,10 @@ export function collectCabinetAssembly(input: {
   partitionCount?: number
   /** Soft-close slides: 6 min per drawer on the sides, plus a project-wide groove on the taller rails. */
   softCloseDrawers?: boolean
+  /** Bought doors and drawer fronts: skip remnants and router; keep hinge hang and fitting the front. */
+  externalDoors?: boolean
+  /** Edge banding already finished — skip knocking/sanding after glue. */
+  skipEdgeFinishing?: boolean
 }): { steps: AssemblyStep[]; minutes: number } {
   const s = input.settings
   const steps: AssemblyStep[] = []
@@ -913,24 +919,26 @@ export function collectCabinetAssembly(input: {
     })
   }
 
-  for (const panel of input.panels) {
-    if (panel.excludeFromCutting) continue
-    const minutes = calculatePanelEdgeBandingTime(
-      panel.width,
-      panel.height,
-      panel.edges,
-      panel.quantity,
-      s.edgeBanding,
-    )
-    pushStep(steps, {
-      id: `edge:${panel.role}:${panel.name}`,
-      label: `Обработка на кант — ${panel.name}`,
-      minutes,
-      quantity: panel.quantity,
-      unitOne: 'бр.',
-      unitMany: 'бр.',
-      hint: 'изчукване и шлайфане след лепене според дължината на страната',
-    })
+  if (!input.skipEdgeFinishing) {
+    for (const panel of input.panels) {
+      if (panel.excludeFromCutting) continue
+      const minutes = calculatePanelEdgeBandingTime(
+        panel.width,
+        panel.height,
+        panel.edges,
+        panel.quantity,
+        s.edgeBanding,
+      )
+      pushStep(steps, {
+        id: `edge:${panel.role}:${panel.name}`,
+        label: `Обработка на кант — ${panel.name}`,
+        minutes,
+        quantity: panel.quantity,
+        unitOne: 'бр.',
+        unitMany: 'бр.',
+        hint: 'изчукване и шлайфане след лепене според дължината на страната',
+      })
+    }
   }
 
   if (input.shelfCount > 0) {
@@ -1126,7 +1134,9 @@ export function collectCabinetAssembly(input: {
   if (input.drawerCount > 0 && leaves.drawerFronts === 0) {
     leaves.drawerFronts = input.drawerCount
   }
-  const smallEdgeN = leaves.smallDoors + leaves.drawerFronts
+  const boughtDoors = input.externalDoors === true
+  const smallDoorEdgeN = boughtDoors ? 0 : leaves.smallDoors
+  const drawerEdgeN = boughtDoors ? 0 : leaves.drawerFronts
   const smallEdgePer =
     s.frontEdgeTakeSmallMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.frontEdgeTakeSmallMinutes
   const tallEdgePer =
@@ -1137,18 +1147,29 @@ export function collectCabinetAssembly(input: {
     s.installDoorTallMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.installDoorTallMinutes
   const routerPer = s.tallDoorRouterMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.tallDoorRouterMinutes
 
-  if (smallEdgeN > 0 && smallEdgePer > 0) {
+  if (smallDoorEdgeN > 0 && smallEdgePer > 0) {
     pushStep(steps, {
       id: 'front-edge-take-small',
-      label: 'Взимане на 4 ръбчета — малка врата/чело',
-      minutes: smallEdgePer * smallEdgeN,
-      quantity: smallEdgeN,
-      unitOne: 'бр.',
-      unitMany: 'бр.',
-      hint: `малка врата или чело · до ${threshold} мм`,
+      label: 'Взимане на 4 ръбчета — малка врата',
+      minutes: smallEdgePer * smallDoorEdgeN,
+      quantity: smallDoorEdgeN,
+      unitOne: 'врата',
+      unitMany: 'врати',
+      hint: `малка врата · до ${threshold} мм`,
     })
   }
-  if (leaves.tallDoors > 0 && tallEdgePer > 0) {
+  if (drawerEdgeN > 0 && smallEdgePer > 0) {
+    pushStep(steps, {
+      id: 'front-edge-take-drawer',
+      label: 'Взимане на 4 ръбчета — чело',
+      minutes: smallEdgePer * drawerEdgeN,
+      quantity: drawerEdgeN,
+      unitOne: 'чело',
+      unitMany: 'чела',
+      hint: `чело на чекмедже · до ${threshold} мм`,
+    })
+  }
+  if (!boughtDoors && leaves.tallDoors > 0 && tallEdgePer > 0) {
     pushStep(steps, {
       id: 'front-edge-take-tall',
       label: 'Взимане на 4 ръбчета — висока врата',
@@ -1181,7 +1202,7 @@ export function collectCabinetAssembly(input: {
       hint: `готова врата над ${threshold} мм`,
     })
   }
-  if (leaves.tallDoors > 0 && routerPer > 0) {
+  if (!boughtDoors && leaves.tallDoors > 0 && routerPer > 0) {
     pushStep(steps, {
       id: 'tall-door-router',
       label: 'Оправяне на кант с фреза — висока врата',

@@ -15,6 +15,7 @@ import {
   formatEur,
   generateCabinet,
   getCabinetType,
+  collectBuyoutDoorOrderList,
   hourlyRateEur,
   parseKitchenBaseParams,
   parseKitchenWallParams,
@@ -113,6 +114,14 @@ export function CabinetsPanel({
         )
       : null
 
+  const buyoutOrder = collectBuyoutDoorOrderList(
+    priced.map((row) => ({
+      label: `Ш${cabinets.findIndex((c) => c.id === row.cabinet.id) + 1}`,
+      panels: row.result.panels,
+    })),
+  )
+  const buyoutOrderQty = buyoutOrder.reduce((s, r) => s + r.quantity, 0)
+
   const openAdd = () => {
     setEditing(null)
     setFormKey((k) => k + 1)
@@ -207,6 +216,60 @@ export function CabinetsPanel({
                 Цели закупени плочи фазер
                 <span className="mt-0.5 block text-[var(--color-muted-foreground)]">
                   3,5 изразходвани → цена за 4 плочи
+                </span>
+              </span>
+            </label>
+            <label className="flex max-w-[16rem] cursor-pointer items-start gap-2 text-xs leading-snug">
+              <Checkbox
+                className="mt-0.5"
+                checked={
+                  settings.hardware.skipCuttingEdgingLabor || settings.hardware.skipBoardAndEdgeCost
+                }
+                disabled={settings.hardware.skipBoardAndEdgeCost}
+                onCheckedChange={(c) =>
+                  onHardwareSettingsChange?.({
+                    ...settings.hardware,
+                    skipCuttingEdgingLabor: c === true,
+                  })
+                }
+              />
+              <span>
+                Без труд за рязане и кантиране
+                <span className="mt-0.5 block text-[var(--color-muted-foreground)]">
+                  Без рязане, кантиране и обработка на кант
+                </span>
+              </span>
+            </label>
+            <label className="flex max-w-[16rem] cursor-pointer items-start gap-2 text-xs leading-snug">
+              <Checkbox
+                className="mt-0.5"
+                checked={settings.hardware.skipBoardAndEdgeCost}
+                onCheckedChange={(c) =>
+                  onHardwareSettingsChange?.({
+                    ...settings.hardware,
+                    skipBoardAndEdgeCost: c === true,
+                  })
+                }
+              />
+              <span>
+                Без цена на плочи и кант
+                <span className="mt-0.5 block text-[var(--color-muted-foreground)]">
+                  Плочи, кант и трудът за тях не влизат
+                </span>
+              </span>
+            </label>
+            <label className="flex max-w-[16rem] cursor-pointer items-start gap-2 text-xs leading-snug">
+              <Checkbox
+                className="mt-0.5"
+                checked={settings.hardware.externalDoors}
+                onCheckedChange={(c) =>
+                  onHardwareSettingsChange?.({ ...settings.hardware, externalDoors: c === true })
+                }
+              />
+              <span>
+                Външни врати и чела
+                <span className="mt-0.5 block text-[var(--color-muted-foreground)]">
+                  Не влизат в разкроя · само фуги · панти и чела се слагат
                 </span>
               </span>
             </label>
@@ -362,6 +425,42 @@ export function CabinetsPanel({
               )
             })}
           </ul>
+          {buyoutOrder.length > 0 && (
+            <div className="rounded-md border border-amber-500/60 bg-[var(--color-background)] px-3 py-2">
+              <p className="text-sm font-medium">Външни врати и чела — поръчай отделно</p>
+              <p className="mb-2 text-xs text-[var(--color-muted-foreground)]">
+                {buyoutOrderQty} бр. Не влизат в разкроя. Готов размер (само фуги), засега без цена.
+              </p>
+              <div className="overflow-x-auto">
+                <table className="w-full border-separate border-spacing-0 text-sm">
+                  <thead>
+                    <tr className="text-left text-xs text-[var(--color-muted-foreground)]">
+                      <th className="border-b border-[var(--color-border)] px-2 py-1.5">Размер</th>
+                      <th className="border-b border-[var(--color-border)] px-2 py-1.5">Детайл</th>
+                      <th className="border-b border-[var(--color-border)] px-2 py-1.5">Шкаф</th>
+                      <th className="border-b border-[var(--color-border)] px-2 py-1.5 text-right">Бр.</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {buyoutOrder.map((r) => (
+                      <tr key={`${r.name}-${r.width}-${r.height}`}>
+                        <td className="border-b border-[var(--color-border)]/50 px-2 py-1.5 tabular-nums">
+                          {r.width} × {r.height} мм
+                        </td>
+                        <td className="border-b border-[var(--color-border)]/50 px-2 py-1.5">{r.name}</td>
+                        <td className="border-b border-[var(--color-border)]/50 px-2 py-1.5 text-[var(--color-muted-foreground)]">
+                          {r.cabinets.join(', ')}
+                        </td>
+                        <td className="border-b border-[var(--color-border)]/50 px-2 py-1.5 text-right tabular-nums">
+                          {r.quantity}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
           {breakdown && <PriceBreakdownView breakdown={breakdown} />}
         </div>
       )}

@@ -49,6 +49,10 @@ function stripCabinetParts(state: CabinetState, partIds: string[]): CabinetState
   }
 }
 
+function nestablePanels(panels: GeneratedPanel[]): GeneratedPanel[] {
+  return panels.filter((p) => !p.excludeFromCutting)
+}
+
 function insertGenerated(
   state: CabinetState,
   cabinet: Omit<CabinetInstance, 'partIds' | 'name'> & { name?: string },
@@ -64,10 +68,7 @@ function insertGenerated(
   const newParts: Part[] = []
   const newBanding: PartEdgeBanding[] = []
 
-  result.panels.forEach((panel, i) => {
-    // Skip panels that are marked as reference only (excludeFromCutting)
-    if (panel.excludeFromCutting) return
-    
+  nestablePanels(result.panels).forEach((panel, i) => {
     const { part, banding } = panelToPart(panel, cabinet.id, i, reuseIds[i])
     partIds.push(part.id)
     newParts.push(part)
@@ -150,7 +151,7 @@ export function relabelCabinetParts(state: CabinetState, settings?: unknown): Ca
     const idx = cabinet.partIds.indexOf(p.id)
     if (idx < 0) return p
     const result = generateCabinet(cabinet.typeId, cabinet.params, settings)
-    const panel = result.panels[idx]
+    const panel = nestablePanels(result.panels)[idx]
     if (!panel) return p
     const prefix = state.cabinets.length > 1 ? `${cabinetShortIndex(state.cabinets, cabinet.id)} ` : ''
     return { ...p, label: `${prefix}${panel.name}` }
@@ -161,6 +162,18 @@ export function relabelCabinetParts(state: CabinetState, settings?: unknown): Ca
 function cabinetShortIndex(cabinets: CabinetInstance[], id: string): string {
   const i = cabinets.findIndex((c) => c.id === id)
   return `Ш${i + 1}`
+}
+
+export function rebuildCabinets(state: CabinetState, settings?: unknown): CabinetState {
+  let next = state
+  for (const c of state.cabinets) {
+    next = updateCabinet(next, c.id, {
+      typeId: c.typeId,
+      params: c.params,
+      quantity: c.quantity,
+    }, settings)
+  }
+  return relabelCabinetParts(next, settings)
 }
 
 export function addCabinetAndLabel(
