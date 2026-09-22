@@ -1,7 +1,7 @@
 import type { BoardKind, EdgeBandingSides } from '@/types'
 import type { CabinetPartColors } from './colors'
 import type { AssemblyStep } from '@/lib/assembly-time'
-import type { CabinetZoneId, DoorSpan, FixedShelfSpec, PartitionSpec, ZoneFittings } from './zones'
+import type { CabinetZoneId, DoorSpan, FixedShelfSpec, MovableShelfSpec, ClothesRailSpec, PartitionSpec, ZoneFittings } from './zones'
 
 /** Actual working hours counted per day (breaks are not billed). */
 export const WORK_HOURS_PER_DAY = 5
@@ -169,7 +169,7 @@ export interface LaborEstimate {
   cuttingMinutes: number | null
   edgingMinutes: number | null
   assemblyMinutes: number | null
-  /** Individual assembly operations from the workshop settings. */
+  /** Individual drawing and assembly operations from the workshop settings. */
   assemblySteps?: AssemblyStep[]
 }
 
@@ -201,8 +201,10 @@ export interface KitchenBaseParams {
   railWidth: number
   /** Default `rails`. `none` = open top. `fascia` = one rail hanging down (sink cabinet). */
   topStyle: CabinetTopStyle
-  /** Evenly spaced shelves */
+  /** Evenly spaced shelves, or pin-shelf count when `movableShelves` is set. */
   shelfCount: number
+  /** Pin shelves at given offsets; empty + shelfCount → even gaps. */
+  movableShelves: MovableShelfSpec[]
   /** 3 mm hardboard back. */
   hasBack: boolean
   /** 0 = no doors, otherwise 1 or 2. */
@@ -215,6 +217,7 @@ export interface KitchenBaseParams {
   includeHandles: boolean
   /** Clothes hanging rail between the sides. */
   hasClothesRail: boolean
+  clothesRails: ClothesRailSpec[]
   /** Runner type when the cabinet has a drawer. */
   slideKind: 'roller' | 'soft-full' | 'soft-partial'
   /** Runner length in mm (must fit in carcass depth). */

@@ -1,5 +1,5 @@
 import React, { type ReactNode } from 'react'
-import { evenShelfBottoms, KITCHEN_BASE_JOINERY, KITCHEN_WALL_JOINERY, measureCarcass } from '@/lib/cabinets/joinery'
+import { KITCHEN_BASE_JOINERY, KITCHEN_WALL_JOINERY, measureCarcass } from '@/lib/cabinets/joinery'
 import {
   parseKitchenBaseParams,
   parseKitchenWallParams,
@@ -60,6 +60,11 @@ interface CabinetPreviewProps {
 
 const SLIDE_STROKE_COLOR = DRAW_STROKE
 const CLOTHES_RAIL_COLOR = '#94a3b8'
+const SHELF_PIN_COLOR = '#6b7280'
+
+function shelfPinMark(vbH: number) {
+  return Math.max(8, Math.min(32, vbH * (5 / 460)))
+}
 const SLIDE_PROFILE_H = 18
 const SLIDE_FRONT_INSET = 28
 const SLIDE_STROKE = 10
@@ -163,9 +168,11 @@ export function CabinetPreview({
     doorSpan: p.doorSpan,
     doorCount: p.doorCount,
     shelfCount: p.shelfCount,
+    movableShelves: p.movableShelves,
     drawerFrontHeights: p.drawerFrontHeights,
     cutFromOneBoard: p.cutFromOneBoard,
     hasClothesRail: p.hasClothesRail,
+    clothesRails: p.clothesRails,
     zones: p.zones,
     overlayCovers: p.topStyle === 'rails' ? undefined : { top: false, bottom: true },
   })
@@ -264,19 +271,29 @@ function uniqueDrawerViews(p: {
   return [...byHeight.entries()].map(([frontHeight, v]) => ({ frontHeight, ...v }))
 }
 
+function shelfMeasureEndY(s: { toFace?: 'top' | 'bottom'; yTop: number; yBottom: number; endY: number }) {
+  return s.toFace === 'top' ? s.yTop : s.toFace === 'bottom' ? s.yBottom : s.endY
+}
+
 /** Always-on height for a fixed shelf: from the chosen carcass face to the chosen shelf face. */
 function FixedShelfDimLines({
   shelves,
   columns,
   innerFloorY,
-  dimX,
+  worldX0,
   fontSize,
+  cam,
+  originZ = 0,
+  shelfZ = 0,
 }: {
   shelves: InteriorLayout['shelves']
   columns: InteriorLayout['columns']
   innerFloorY: number
-  dimX: number
+  worldX0: number
   fontSize: number
+  cam: ReturnType<typeof createDrawCam>
+  originZ?: number
+  shelfZ?: number
 }) {
   const tick = Math.max(12, fontSize * 0.22)
   const stack = new Map<string, number>()
@@ -287,19 +304,131 @@ function FixedShelfDimLines({
         const n = stack.get(key) ?? 0
         stack.set(key, n + 1)
         const colX = s.columnIndex != null ? (columns[s.columnIndex]?.x0 ?? 0) : 0
-        const y1 = innerFloorY - s.startY
-        const y2 = innerFloorY - s.endY
-        const x = dimX + colX + n * Math.max(36, fontSize * 0.5)
-        const midY = (y1 + y2) / 2
+        const worldX = worldX0 + colX + n * Math.max(36, fontSize * 0.5)
+        const a = cam.proj(worldX, innerFloorY - s.startY, originZ)
+        const b = cam.proj(worldX, innerFloorY - shelfMeasureEndY(s), shelfZ)
         return (
           <g key={`fixed-dim-${i}`} stroke={DRAW_DIM} fill={DRAW_DIM}>
-            <line x1={x - tick} y1={y1} x2={x + tick} y2={y1} strokeWidth={2} />
-            <line x1={x - tick} y1={y2} x2={x + tick} y2={y2} strokeWidth={2} />
-            <DimLine x1={x} y1={y1} x2={x} y2={y2} />
-            <DimText x={x} y={midY} label={mm(s.offsetMm)} fontSize={fontSize} rotate={-90} fill={DRAW_DIM} />
+            <line x1={a.x - tick} y1={a.y} x2={a.x + tick} y2={a.y} strokeWidth={2} />
+            <line x1={b.x - tick} y1={b.y} x2={b.x + tick} y2={b.y} strokeWidth={2} />
+            <DimLine x1={a.x} y1={a.y} x2={b.x} y2={b.y} />
+            <DimText
+              x={(a.x + b.x) / 2}
+              y={(a.y + b.y) / 2}
+              label={mm(s.offsetMm)}
+              fontSize={fontSize}
+              rotate={-90}
+              fill={DRAW_DIM}
+            />
           </g>
         )
       })}
+    </>
+  )
+}
+
+/** Always-on height for a pin shelf: from the chosen carcass/zone face to the chosen shelf face. */
+function MovableShelfDimLines({
+  zones,
+  innerFloorY,
+  worldX0,
+  fontSize,
+  cam,
+  originZ = 0,
+  shelfZ = 0,
+}: {
+  zones: InteriorLayout['zones']
+  innerFloorY: number
+  worldX0: number
+  fontSize: number
+  cam: ReturnType<typeof createDrawCam>
+  originZ?: number
+  shelfZ?: number
+}) {
+  const tick = Math.max(12, fontSize * 0.22)
+  const stack = new Map<string, number>()
+  return (
+    <>
+      {zones.flatMap((z) => {
+        if ((z.movableShelves?.length ?? 0) === 0) return []
+        return z.movable.flatMap((s, i) => {
+          if (s.from === 'middle') return []
+          const key = String(z.colIndex)
+          const n = stack.get(key) ?? 0
+          stack.set(key, n + 1)
+          const worldX = worldX0 + z.x0 + n * Math.max(36, fontSize * 0.5)
+          const a = cam.proj(worldX, innerFloorY - (z.y0 + s.startY), originZ)
+          const b = cam.proj(worldX, innerFloorY - (z.y0 + shelfMeasureEndY(s)), shelfZ)
+          return (
+            <g key={`mov-dim-${z.id}-${i}`} stroke={DRAW_DIM} fill={DRAW_DIM}>
+              <line x1={a.x - tick} y1={a.y} x2={a.x + tick} y2={a.y} strokeWidth={2} />
+              <line x1={b.x - tick} y1={b.y} x2={b.x + tick} y2={b.y} strokeWidth={2} />
+              <DimLine x1={a.x} y1={a.y} x2={b.x} y2={b.y} />
+              <DimText
+                x={(a.x + b.x) / 2}
+                y={(a.y + b.y) / 2}
+                label={mm(s.offsetMm)}
+                fontSize={fontSize}
+                rotate={-90}
+                fill={DRAW_DIM}
+              />
+            </g>
+          )
+        })
+      })}
+    </>
+  )
+}
+
+/** Height of a clothes rail: from the chosen opening face to the top of the rod. */
+function ClothesRailDimLines({
+  zones,
+  innerFloorY,
+  worldX0,
+  fontSize,
+  cam,
+  originZ = 0,
+  railZ = 0,
+}: {
+  zones: InteriorLayout['zones']
+  innerFloorY: number
+  worldX0: number
+  fontSize: number
+  cam: ReturnType<typeof createDrawCam>
+  originZ?: number
+  railZ?: number
+}) {
+  const tick = Math.max(12, fontSize * 0.22)
+  const stack = new Map<string, number>()
+  return (
+    <>
+      {zones.flatMap((z) =>
+        z.rails.flatMap((r, i) => {
+          if (r.from === 'middle') return []
+          const key = String(z.colIndex)
+          const n = stack.get(key) ?? 0
+          stack.set(key, n + 1)
+          const worldX = worldX0 + z.x0 + n * Math.max(36, fontSize * 0.5)
+          const originY = r.from === 'top' ? z.y1 : z.y0
+          const a = cam.proj(worldX, innerFloorY - originY, originZ)
+          const b = cam.proj(worldX, innerFloorY - r.yTop, railZ)
+          return (
+            <g key={`rail-dim-${z.id}-${i}`} stroke={DRAW_DIM} fill={DRAW_DIM}>
+              <line x1={a.x - tick} y1={a.y} x2={a.x + tick} y2={a.y} strokeWidth={2} />
+              <line x1={b.x - tick} y1={b.y} x2={b.x + tick} y2={b.y} strokeWidth={2} />
+              <DimLine x1={a.x} y1={a.y} x2={b.x} y2={b.y} />
+              <DimText
+                x={(a.x + b.x) / 2}
+                y={(a.y + b.y) / 2}
+                label={mm(r.offsetMm)}
+                fontSize={fontSize}
+                rotate={-90}
+                fill={DRAW_DIM}
+              />
+            </g>
+          )
+        }),
+      )}
     </>
   )
 }
@@ -443,6 +572,64 @@ function PanelHoleMark({
   )
 }
 
+function ShelfPins({
+  x,
+  yTop,
+  z,
+  w,
+  shelfT,
+  d,
+  cam,
+  mark,
+}: {
+  x: number
+  yTop: number
+  z: number
+  w: number
+  shelfT: number
+  d: number
+  cam: ReturnType<typeof createDrawCam>
+  mark: number
+}) {
+  const pinH = mark * 0.85
+  const pinL = mark * 1.8
+  const pinD = mark * 0.85
+  const hangL = Math.min(mark * 0.55, w * 0.05)
+  const hangR = Math.min(Math.max(mark * 5.2, pinL * 2.2), w * 0.18)
+  const leftX = x + hangL
+  const rightX = Math.max(leftX + pinL + pinL * 1.4, x + w - pinL - hangR)
+  const y = yTop + shelfT
+  const zFront = z + Math.min(6, d * 0.02)
+  return (
+    <>
+      <Board
+        x={leftX}
+        y={y}
+        z={zFront}
+        w={pinL}
+        h={pinH}
+        d={pinD}
+        color={SHELF_PIN_COLOR}
+        cam={cam}
+        faces={{ front: true, top: true, right: true }}
+        strokeWidth={1.6}
+      />
+      <Board
+        x={rightX}
+        y={y}
+        z={zFront}
+        w={pinL}
+        h={pinH}
+        d={pinD}
+        color={SHELF_PIN_COLOR}
+        cam={cam}
+        faces={{ front: true, top: true, left: true }}
+        strokeWidth={1.6}
+      />
+    </>
+  )
+}
+
 function ColumnFill({
   layout,
   colIndex,
@@ -456,6 +643,7 @@ function ColumnFill({
   adjD,
   clothesZ,
   shelfHole,
+  pinMark = 10,
 }: {
   layout: InteriorLayout
   colIndex: number
@@ -469,6 +657,7 @@ function ColumnFill({
   adjD: number
   clothesZ: number
   shelfHole?: PanelHole
+  pinMark?: number
 }) {
   const col = layout.columns[colIndex]
   if (!col || !(col.innerW > 0)) return null
@@ -503,11 +692,11 @@ function ColumnFill({
       {layout.zones
         .filter((z) => z.colIndex === colIndex)
         .flatMap((z) =>
-          evenShelfBottoms(z.innerH, z.shelfCount, T).map((off, i) => (
+          z.movable.map((s, i) => (
             <g key={`shelf-${z.id}-${i}`}>
               <Board
                 x={T + z.x0}
-                y={innerFloorY - (z.y0 + off) - T}
+                y={innerFloorY - (z.y0 + s.yBottom) - T}
                 z={adjZ}
                 w={z.innerW}
                 h={T}
@@ -516,10 +705,20 @@ function ColumnFill({
                 cam={cam}
                 faces={BETWEEN_FACES}
               />
+              <ShelfPins
+                x={T + z.x0}
+                yTop={innerFloorY - (z.y0 + s.yBottom) - T}
+                z={adjZ}
+                w={z.innerW}
+                shelfT={T}
+                d={adjD}
+                cam={cam}
+                mark={pinMark}
+              />
               {shelfHole && (
                 <PanelHoleMark
                   x={T + z.x0}
-                  y={innerFloorY - (z.y0 + off) - T}
+                  y={innerFloorY - (z.y0 + s.yBottom) - T}
                   z={adjZ}
                   w={z.innerW}
                   d={adjD}
@@ -531,21 +730,23 @@ function ColumnFill({
           )),
         )}
       {layout.zones
-        .filter((z) => z.colIndex === colIndex && z.hasClothesRail)
-        .map((z) => (
-          <Board
-            key={`rail-${z.id}`}
-            x={T + z.x0}
-            y={innerFloorY - z.y1 + 48}
-            z={clothesZ}
-            w={z.innerW}
-            h={22}
-            d={22}
-            color={CLOTHES_RAIL_COLOR}
-            cam={cam}
-            faces={BETWEEN_FACES}
-          />
-        ))}
+        .filter((z) => z.colIndex === colIndex && z.rails.length > 0)
+        .flatMap((z) =>
+          z.rails.map((r, i) => (
+            <Board
+              key={`rail-${z.id}-${i}`}
+              x={T + z.x0}
+              y={innerFloorY - r.yTop}
+              z={clothesZ}
+              w={z.innerW}
+              h={22}
+              d={22}
+              color={CLOTHES_RAIL_COLOR}
+              cam={cam}
+              faces={BETWEEN_FACES}
+            />
+          )),
+        )}
     </>
   )
 }
@@ -976,11 +1177,10 @@ function Front3DView({
   const zRailFront = D - R
   const zBack = D
   const zShelfFront = DEFAULT_SHELF_FRONT_INSET
+  const clothesZ = Math.max(40, D * 0.35)
   const shelfDepth = D - zShelfFront
   const innerFloorY = floor - L - T
-  const adjShelfOffs = layout.zones.flatMap((z) =>
-    evenShelfBottoms(z.innerH, z.shelfCount, T).map((off) => z.y0 + off),
-  )
+  const adjShelfOffs = layout.zones.flatMap((z) => z.movable.map((s) => z.y0 + s.yBottom))
   const topShelfOff =
     layout.shelves.length > 0
       ? layout.shelves[layout.shelves.length - 1].yBottom
@@ -1054,7 +1254,8 @@ function Front3DView({
             fixedD={D}
             adjZ={zShelfFront}
             adjD={shelfDepth}
-            clothesZ={Math.max(40, D * 0.35)}
+            clothesZ={clothesZ}
+            pinMark={shelfPinMark(vbH)}
           />
           {p.topStyle === 'rails' && (
             <>
@@ -1174,10 +1375,27 @@ function Front3DView({
           shelves={layout.shelves}
           columns={layout.columns}
           innerFloorY={innerFloorY}
-          dimX={ox + T + Math.max(28, font * 0.32)}
+          worldX0={T + Math.max(28, font * 0.32)}
           fontSize={railFont}
+          cam={view}
         />
       )}
+      <MovableShelfDimLines
+        zones={layout.zones}
+        innerFloorY={innerFloorY}
+        worldX0={T + Math.max(28, font * 0.32)}
+        fontSize={railFont}
+        cam={view}
+        shelfZ={zShelfFront}
+      />
+      <ClothesRailDimLines
+        zones={layout.zones}
+        innerFloorY={innerFloorY}
+        worldX0={T + Math.max(28, font * 0.32)}
+        fontSize={railFont}
+        cam={view}
+        railZ={clothesZ}
+      />
       {layout.partitions.length > 0 && (
         <PartitionDimLines
           partitions={layout.partitions}
@@ -1252,9 +1470,11 @@ function KitchenWallPreview({
     doorSpan: p.doorSpan,
     doorCount: p.doorCount,
     shelfCount: p.shelfCount,
+    movableShelves: p.movableShelves,
     drawerFrontHeights: p.drawerFrontHeights,
     cutFromOneBoard: p.cutFromOneBoard,
     hasClothesRail: p.hasClothesRail,
+    clothesRails: p.clothesRails,
     zones: p.zones,
     overlayCovers: { top: true, bottom: true },
   })
@@ -1363,6 +1583,7 @@ function WallFront3DView({
   const backMx = ox + W / 2 + dx
   const backMy = topY + dy - font * 0.45
   const zShelfFront = DEFAULT_SHELF_FRONT_INSET
+  const clothesZ = Math.max(40, D * 0.35)
   const shelfDepth = D - zShelfFront
   const innerFloorY = floor - T
   const innerTopY = topY + T
@@ -1419,8 +1640,9 @@ function WallFront3DView({
             fixedD={D}
             adjZ={zShelfFront}
             adjD={shelfDepth}
-            clothesZ={Math.max(40, D * 0.35)}
+            clothesZ={clothesZ}
             shelfHole={shelfHole}
+            pinMark={shelfPinMark(vbH)}
           />
           {layout.partitions[i] && (
             <Board
@@ -1469,10 +1691,27 @@ function WallFront3DView({
           shelves={layout.shelves}
           columns={layout.columns}
           innerFloorY={innerFloorY}
-          dimX={ox + T + Math.max(28, font * 0.32)}
+          worldX0={T + Math.max(28, font * 0.32)}
           fontSize={small}
+          cam={view}
         />
       )}
+      <MovableShelfDimLines
+        zones={layout.zones}
+        innerFloorY={innerFloorY}
+        worldX0={T + Math.max(28, font * 0.32)}
+        fontSize={small}
+        cam={view}
+        shelfZ={zShelfFront}
+      />
+      <ClothesRailDimLines
+        zones={layout.zones}
+        innerFloorY={innerFloorY}
+        worldX0={T + Math.max(28, font * 0.32)}
+        fontSize={small}
+        cam={view}
+        railZ={clothesZ}
+      />
       {layout.partitions.length > 0 && (
         <PartitionDimLines
           partitions={layout.partitions}
@@ -1601,9 +1840,11 @@ function PlinthBoxPreview({
     doorSpan: sliding ? 'full' : p.doorSpan,
     doorCount: sliding ? 0 : p.doorCount,
     shelfCount: p.shelfCount,
+    movableShelves: p.movableShelves,
     drawerFrontHeights: p.drawerFrontHeights,
     cutFromOneBoard: p.cutFromOneBoard,
     hasClothesRail: p.hasClothesRail,
+    clothesRails: p.clothesRails,
     zones: sliding
       ? Object.fromEntries(
           Object.entries(p.zones ?? {}).map(([id, z]) => [id, z ? { ...z, doorCount: 0 as const } : z]),
@@ -1727,11 +1968,14 @@ function PlinthBoxFront3DView({
 
   const font = Math.max(72, Math.min(W, H) * 0.13)
   const small = Math.max(40, font * 0.55)
+  const tallCabinet = H >= 1800
+  const supportFont = Math.max(30, Math.min(tallCabinet ? 46 : 48, small * 0.58))
+  const supportGap = Math.max(34, supportFont * 0.75)
   const padL = font + 48
   const padT = font + Math.abs(dy) + 28
   const padR = 48
   const leftovers = leftoverPartitionSpans(layout.partitions, layout.columns)
-  const padB = 36
+  const padB = Math.max(52, supportFont * 0.85)
 
   const vbW = padL + W + dx + padR
   const vbH = padT + H + padB
@@ -1761,8 +2005,11 @@ function PlinthBoxFront3DView({
   const bottomFrontLabel = p.useLegs
     ? view.proj(W / 2, bottomY + T / 2, 0)
     : view.proj(T + m.bottomW / 2, bottomY + T / 2, zSide)
-  const supportLabelX = ox + T + 36
-  const supportLabelY = floor - supportH / 2
+  const supportLineX = ox - supportGap
+  const supportTick = Math.max(10, supportFont * 0.22)
+  const supportLabelX = supportLineX - supportFont * 0.28
+  const supportLift = tallCabinet ? Math.max(24, supportFont * 0.75) : 12
+  const supportLabelY = floor - supportH / 2 - supportLift
 
   const wood = p.colors
   const legW = Math.max(18, T * 1.2)
@@ -1780,6 +2027,7 @@ function PlinthBoxFront3DView({
       }
 
   const zShelfFront = zSide + (m.sideD - m.shelfD)
+  const clothesZ = zSide + Math.min(80, m.sideD * 0.4)
   const shelfDepth = m.shelfD
   const zPartition = zSide + (m.sideD - m.partitionD)
   const innerFloorY = bottomY
@@ -1966,7 +2214,8 @@ function PlinthBoxFront3DView({
             fixedD={m.sliding ? m.shelfD : m.sideD}
             adjZ={zShelfFront}
             adjD={shelfDepth}
-            clothesZ={zSide + Math.min(80, m.sideD * 0.4)}
+            clothesZ={clothesZ}
+            pinMark={shelfPinMark(vbH)}
           />
           {layout.partitions[i] && (
             <Board
@@ -2134,10 +2383,31 @@ function PlinthBoxFront3DView({
           shelves={layout.shelves}
           columns={layout.columns}
           innerFloorY={innerFloorY}
-          dimX={ox + T + Math.max(28, font * 0.32)}
+          worldX0={T + Math.max(28, font * 0.32)}
           fontSize={small}
+          cam={view}
+          originZ={m.sliding ? zShelfFront : zSide}
+          shelfZ={m.sliding ? zShelfFront : zSide}
         />
       )}
+      <MovableShelfDimLines
+        zones={layout.zones}
+        innerFloorY={innerFloorY}
+        worldX0={T + Math.max(28, font * 0.32)}
+        fontSize={small}
+        cam={view}
+        originZ={zSide}
+        shelfZ={zShelfFront}
+      />
+      <ClothesRailDimLines
+        zones={layout.zones}
+        innerFloorY={innerFloorY}
+        worldX0={T + Math.max(28, font * 0.32)}
+        fontSize={small}
+        cam={view}
+        originZ={zSide}
+        railZ={clothesZ}
+      />
       {layout.partitions.length > 0 && (
         <PartitionDimLines
           partitions={layout.partitions}
@@ -2161,7 +2431,31 @@ function PlinthBoxFront3DView({
       <DimText x={backMx} y={backMy} label={mm(W)} fontSize={font} />
       <DimText x={sideDepthLabel.x + 10} y={sideDepthLabel.y} label={mm(m.sideD)} fontSize={small} rotate={depthRot} />
       <DimText x={bottomFrontLabel.x} y={bottomFrontLabel.y} label={mm(m.bottomW)} fontSize={small} />
-      <DimText x={supportLabelX} y={supportLabelY} label={mm(supportH)} fontSize={small} rotate={-90} />
+      <g stroke={DRAW_DIM} fill={DRAW_DIM}>
+        <line
+          x1={supportLineX - supportTick}
+          y1={floor - supportH}
+          x2={supportLineX + supportTick}
+          y2={floor - supportH}
+          strokeWidth={2}
+        />
+        <line
+          x1={supportLineX - supportTick}
+          y1={floor}
+          x2={supportLineX + supportTick}
+          y2={floor}
+          strokeWidth={2}
+        />
+        <DimLine x1={supportLineX} y1={floor - supportH} x2={supportLineX} y2={floor} />
+        <DimText
+          x={supportLabelX}
+          y={supportLabelY}
+          label={mm(supportH)}
+          fontSize={supportFont}
+          rotate={-90}
+          fill={DRAW_DIM}
+        />
+      </g>
 
       {showDimLines && (
         <g>

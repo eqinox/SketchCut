@@ -352,7 +352,11 @@ export function CabinetsPanel({
                         ? ` · ${fit.shelfCount} ${fit.shelfCount === 1 ? 'рафт' : 'рафта'}`
                         : ''}
                       {p.hasBack ? ' · фазер' : ''}
-                      {fit.clothesRailCount > 0 ? ' · лост' : ''}
+                      {fit.clothesRailCount > 0
+                        ? fit.clothesRailCount === 1
+                          ? ' · лост'
+                          : ` · ${fit.clothesRailCount} лоста`
+                        : ''}
                       {fit.doorCount === 1 ? ' · 1 врата' : fit.doorCount > 1 ? ` · ${fit.doorCount} врати` : ''}
                       {fit.drawerCount === 1
                         ? ` · 1 чекмедже · водачи ${p.slideLength}`

@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react'
-import { Box, Plus, Trash2 } from 'lucide-react'
+import { useMemo, useState, type ReactNode } from 'react'
+import { Box, ChevronDown, ChevronRight, Plus, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -66,6 +66,8 @@ import {
   DRAWER_RAIL_BELOW_FRONT,
   MAX_DRAWERS,
   MAX_SHELVES,
+  MAX_CLOTHES_RAILS,
+  DEFAULT_CLOTHES_RAIL_FROM_TOP_MM,
   evenShelfGap,
   clothesRailLengthMm,
   hardboardCutSize,
@@ -95,7 +97,11 @@ import {
   defaultPartitionOffsetMm,
   defaultShelfFaces,
   defaultPartitionFaces,
+  evenShelfPlacements,
+  pinShelfOpenings,
   fixedShelfMeasureLabel,
+  movableShelfMeasureLabel,
+  clothesRailMeasureLabel,
   partitionMeasureLabel,
   partitionOriginCaption,
   layoutInterior,
@@ -120,36 +126,157 @@ import { CabinetSizeBadge } from '@/components/CabinetSizeBadge'
 import type { Sheet } from '@/types'
 import { cn, formatMeters } from '@/lib/utils'
 
+type MovableShelfUi = {
+  from: 'bottom' | 'top' | 'middle'
+  fromFace: PanelFace
+  toFace: PanelFace
+  offsetMm: string
+  /** Which remaining opening a middle shelf sits in (0 = lowest). */
+  gapIndex?: number
+}
+
+type ClothesRailUi = {
+  from: 'top' | 'bottom' | 'middle'
+  offsetMm: string
+}
+
 type ZoneUi = {
   shelfCount: number
+  movableShelves: MovableShelfUi[]
   doorCount: 0 | 1 | 2
   drawerFrontHeights: string[]
   cutFromOneBoard: boolean
   hasClothesRail: boolean
+  clothesRails: ClothesRailUi[]
+}
+
+function movableToUi(s: {
+  from: 'bottom' | 'top' | 'middle'
+  fromFace?: PanelFace
+  toFace?: PanelFace
+  offsetMm: number
+  gapIndex?: number
+}): MovableShelfUi {
+  if (s.from === 'middle') {
+    return {
+      from: 'middle',
+      fromFace: 'top',
+      toFace: 'bottom',
+      offsetMm: String(s.offsetMm || 0),
+      gapIndex: s.gapIndex,
+    }
+  }
+  const faces = defaultShelfFaces(s.from)
+  return {
+    from: s.from,
+    fromFace: s.fromFace ?? faces.fromFace,
+    toFace: s.toFace ?? faces.toFace,
+    offsetMm: String(s.offsetMm),
+  }
+}
+
+function displayedMovable(rows: MovableShelfUi[], count: number, innerH: number, thickness: number): MovableShelfUi[] {
+  if (rows.length > 0) return rows
+  return evenShelfPlacements(innerH, count, thickness).map(movableToUi)
+}
+
+function newMovableShelf(innerH: number, thickness: number, already: number): MovableShelfUi {
+  const from = already === 0 ? ('bottom' as const) : ('top' as const)
+  return {
+    from,
+    ...defaultShelfFaces(from),
+    offsetMm: String(defaultFixedOffsetMm(innerH, thickness, already)),
+  }
+}
+
+function newMiddlePinShelf(gapIndex?: number): MovableShelfUi {
+  return { from: 'middle', fromFace: 'top', toFace: 'bottom', offsetMm: '0', gapIndex }
+}
+
+function fittingsFromMovable(
+  rows: MovableShelfUi[],
+  evenCount: number,
+): { shelfCount: number; movableShelves: ReturnType<typeof rowsToSpecs> } {
+  if (rows.length === 0) return { shelfCount: evenCount, movableShelves: [] }
+  const movableShelves = rowsToSpecs(rows)
+  return { shelfCount: movableShelves.length, movableShelves }
+}
+
+function rowsToSpecs(rows: MovableShelfUi[]) {
+  return rows
+    .map((s) => ({
+      from: s.from,
+      fromFace: s.fromFace,
+      toFace: s.toFace,
+      offsetMm: parseInt(s.offsetMm, 10) || 0,
+      ...(s.from === 'middle' && s.gapIndex != null ? { gapIndex: s.gapIndex } : {}),
+    }))
+    .filter((s) => s.from === 'middle' || s.offsetMm > 0)
+}
+
+function railToUi(s: { from: 'top' | 'bottom' | 'middle'; offsetMm: number }): ClothesRailUi {
+  return { from: s.from, offsetMm: String(s.from === 'middle' ? 0 : s.offsetMm) }
+}
+
+function railsToSpecs(rows: ClothesRailUi[]) {
+  return rows
+    .map((s) => ({
+      from: s.from,
+      offsetMm: s.from === 'middle' ? 0 : parseInt(s.offsetMm, 10) || 0,
+    }))
+    .filter((s) => s.from === 'middle' || s.offsetMm > 0)
+}
+
+function newClothesRail(innerH: number, already: number): ClothesRailUi {
+  if (already === 0) return { from: 'top', offsetMm: String(DEFAULT_CLOTHES_RAIL_FROM_TOP_MM) }
+  return {
+    from: 'bottom',
+    offsetMm: String(Math.max(MIN_ZONE_CLEAR_MM, Math.round(innerH / (already + 1)))),
+  }
+}
+
+function newMiddleRail(): ClothesRailUi {
+  return { from: 'middle', offsetMm: '0' }
 }
 
 function emptyZoneUi(): ZoneUi {
-  return { shelfCount: 0, doorCount: 0, drawerFrontHeights: [], cutFromOneBoard: false, hasClothesRail: false }
+  return {
+    shelfCount: 0,
+    movableShelves: [],
+    doorCount: 0,
+    drawerFrontHeights: [],
+    cutFromOneBoard: false,
+    hasClothesRail: false,
+    clothesRails: [],
+  }
 }
 
 function parseZoneUi(raw: ZoneFittings | undefined): ZoneUi {
   if (!raw) return emptyZoneUi()
+  const clothesRails = (raw.clothesRails ?? []).map(railToUi)
+  const hasRail = clothesRails.length > 0 || raw.hasClothesRail
   return {
     shelfCount: raw.shelfCount,
+    movableShelves: (raw.movableShelves ?? []).map(movableToUi),
     doorCount: raw.doorCount,
     drawerFrontHeights: raw.drawerFrontHeights.map(String),
     cutFromOneBoard: raw.cutFromOneBoard,
-    hasClothesRail: raw.hasClothesRail,
+    clothesRails: hasRail && clothesRails.length === 0 ? [newClothesRail(0, 0)] : clothesRails,
+    hasClothesRail: hasRail,
   }
 }
 
 function zoneUiToParams(z: ZoneUi): ZoneFittings {
+  const { shelfCount, movableShelves } = fittingsFromMovable(z.movableShelves, z.shelfCount)
+  const clothesRails = railsToSpecs(z.clothesRails)
   return {
-    shelfCount: z.shelfCount,
+    shelfCount,
+    movableShelves,
     doorCount: z.doorCount,
     drawerFrontHeights: z.drawerFrontHeights.map((s) => parseInt(s, 10) || 0).filter((n) => n > 0),
     cutFromOneBoard: z.cutFromOneBoard,
-    hasClothesRail: z.hasClothesRail,
+    clothesRails,
+    hasClothesRail: clothesRails.length > 0,
   }
 }
 
@@ -200,6 +327,7 @@ function mergeColumnZones(z: Record<string, ZoneUi>, colIndex: number): Record<s
   delete next[`c${colIndex}-top`]
   next[`c${colIndex}`] = {
     shelfCount: bottom.shelfCount + middle.shelfCount + top.shelfCount,
+    movableShelves: [...bottom.movableShelves, ...middle.movableShelves, ...top.movableShelves],
     doorCount: withDoor?.doorCount ?? 0,
     drawerFrontHeights: [
       ...top.drawerFrontHeights,
@@ -207,7 +335,15 @@ function mergeColumnZones(z: Record<string, ZoneUi>, colIndex: number): Record<s
       ...bottom.drawerFrontHeights,
     ],
     cutFromOneBoard: bottom.cutFromOneBoard || middle.cutFromOneBoard || top.cutFromOneBoard,
-    hasClothesRail: bottom.hasClothesRail || middle.hasClothesRail || top.hasClothesRail,
+    clothesRails: [...bottom.clothesRails, ...middle.clothesRails, ...top.clothesRails].slice(
+      0,
+      MAX_CLOTHES_RAILS,
+    ),
+    hasClothesRail:
+      bottom.clothesRails.length + middle.clothesRails.length + top.clothesRails.length > 0 ||
+      bottom.hasClothesRail ||
+      middle.hasClothesRail ||
+      top.hasClothesRail,
   }
   return next
 }
@@ -237,10 +373,10 @@ function filledDrawerRows(frontHeight: number, count: number, hasDoor: boolean, 
 
 type FrontTarget = CabinetZoneId | 'full'
 type PendingAdd =
-  | { kind: 'shelf' }
+  | { kind: 'shelf'; middle?: boolean }
   | { kind: 'drawer' }
   | { kind: 'door'; count: 1 | 2 }
-  | { kind: 'rail' }
+  | { kind: 'rail'; middle?: boolean }
   | { kind: 'fixed-shelf' }
 
 type FixedShelfUi = {
@@ -252,6 +388,159 @@ type FixedShelfUi = {
 }
 
 const FULL_CABINET_LABEL = 'На целия шкаф'
+
+function FormSection({
+  title,
+  summary,
+  children,
+  defaultOpen = true,
+}: {
+  title: string
+  summary?: string
+  children: ReactNode
+  defaultOpen?: boolean
+}) {
+  const [open, setOpen] = useState(defaultOpen)
+  return (
+    <div>
+      <button
+        type="button"
+        className="flex w-full items-center gap-1.5 rounded-sm py-0.5 text-left text-sm font-medium leading-none hover:opacity-80"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+      >
+        {open ? (
+          <ChevronDown className="h-4 w-4 shrink-0 text-[var(--color-muted-foreground)]" />
+        ) : (
+          <ChevronRight className="h-4 w-4 shrink-0 text-[var(--color-muted-foreground)]" />
+        )}
+        <span>{title}</span>
+        {!open && summary ? (
+          <span className="ml-auto text-xs font-normal text-[var(--color-muted-foreground)]">{summary}</span>
+        ) : null}
+      </button>
+      {open ? children : null}
+    </div>
+  )
+}
+
+function ShelfMeasureFields({
+  from,
+  fromFace,
+  toFace,
+  offsetMm,
+  originHint,
+  measureHint,
+  offsetId,
+  allowMiddle,
+  onFrom,
+  onFromFace,
+  onToFace,
+  onOffset,
+}: {
+  from: 'bottom' | 'top' | 'middle'
+  fromFace: PanelFace
+  toFace: PanelFace
+  offsetMm: string
+  originHint: string
+  measureHint: string
+  offsetId: string
+  allowMiddle?: boolean
+  onFrom: (from: 'bottom' | 'top' | 'middle') => void
+  onFromFace: (face: PanelFace) => void
+  onToFace: (face: PanelFace) => void
+  onOffset: (value: string) => void
+}) {
+  const middle = from === 'middle'
+  return (
+    <>
+      <div className="flex flex-wrap gap-2">
+        <Button
+          type="button"
+          size="sm"
+          variant={from === 'bottom' ? 'default' : 'outline'}
+          onClick={() => onFrom('bottom')}
+        >
+          Отдолу
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant={from === 'top' ? 'default' : 'outline'}
+          onClick={() => onFrom('top')}
+        >
+          Отгоре
+        </Button>
+        {allowMiddle && (
+          <Button
+            type="button"
+            size="sm"
+            variant={middle ? 'default' : 'outline'}
+            onClick={() => onFrom('middle')}
+          >
+            По средата
+          </Button>
+        )}
+      </div>
+      <p className="text-xs text-[var(--color-muted-foreground)]">{originHint}</p>
+      {!middle && (
+        <>
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant={fromFace === 'bottom' ? 'default' : 'outline'}
+              onClick={() => onFromFace('bottom')}
+            >
+              Долна страна
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={fromFace === 'top' ? 'default' : 'outline'}
+              onClick={() => onFromFace('top')}
+            >
+              Горна страна
+            </Button>
+          </div>
+          <p className="text-xs text-[var(--color-muted-foreground)]">До рафта</p>
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant={toFace === 'bottom' ? 'default' : 'outline'}
+              onClick={() => onToFace('bottom')}
+            >
+              Долна страна
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={toFace === 'top' ? 'default' : 'outline'}
+              onClick={() => onToFace('top')}
+            >
+              Горна страна
+            </Button>
+          </div>
+          <div className="flex items-center gap-2">
+            <Label htmlFor={offsetId} className="w-28 shrink-0 text-xs">
+              Размер (мм)
+            </Label>
+            <Input
+              id={offsetId}
+              type="number"
+              inputMode="numeric"
+              min={1}
+              value={offsetMm}
+              onChange={(e) => onOffset(e.target.value)}
+            />
+          </div>
+        </>
+      )}
+      <p className="text-xs text-[var(--color-muted-foreground)]">{measureHint}</p>
+    </>
+  )
+}
 
 interface CabinetDialogProps {
   open: boolean
@@ -297,8 +586,15 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
     'legHeight' in initialKitchen && initialKitchen.legHeight === 150 ? 150 : 100,
   )
   const [shelfCount, setShelfCount] = useState(initialFittings.shelfCount)
+  const [movableShelves, setMovableShelves] = useState<MovableShelfUi[]>(
+    (initialFittings.movableShelves ?? []).map(movableToUi),
+  )
   const [hasBack, setHasBack] = useState(initialFittings.hasBack)
-  const [hasClothesRail, setHasClothesRail] = useState(initialFittings.hasClothesRail === true)
+  const [clothesRails, setClothesRails] = useState<ClothesRailUi[]>(() => {
+    const rows = (initialFittings.clothesRails ?? []).map(railToUi)
+    if (rows.length > 0) return rows
+    return initialFittings.hasClothesRail ? [newClothesRail(0, 0)] : []
+  })
   const [doorCount, setDoorCount] = useState(initialFittings.doorCount)
   const [externalDoors, setExternalDoors] = useState(initialFittings.externalDoors === true)
   const [doorStyle, setDoorStyle] = useState<DoorStyle>(
@@ -377,10 +673,13 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
 
   const params = useMemo(() => {
     const hasSplit = fixedShelves.length > 0 || partitions.length > 0
+    const movable = fittingsFromMovable(hasSplit ? [] : movableShelves, hasSplit ? 0 : shelfCount)
     const fittings = {
-      shelfCount: hasSplit ? 0 : shelfCount,
+      shelfCount: movable.shelfCount,
+      movableShelves: movable.movableShelves,
       hasBack,
-      hasClothesRail: hasSplit ? false : hasClothesRail,
+      hasClothesRail: hasSplit ? false : clothesRails.length > 0,
+      clothesRails: hasSplit ? [] : railsToSpecs(clothesRails),
       doorCount,
       doorStyle: typeId === 'wardrobe' ? 'sliding' : doorStyle,
       slidingEdges,
@@ -486,7 +785,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
       colors,
       ...fittings,
     })
-  }, [typeId, width, height, depth, thickness, legHeight, shelfCount, hasBack, hasClothesRail, doorCount, doorStyle, slidingEdges, drawerFrontHeights, cutFromOneBoard, includeHandles, slideKind, slideLength, useLegs, plinthCount, plinthHeight, colors, topStyle, hasHood, hoodShape, hoodDiameter, hoodRectW, hoodRectD, fixedShelves, partitions, doorSpan, zoneUi, externalDoors])
+  }, [typeId, width, height, depth, thickness, legHeight, shelfCount, movableShelves, hasBack, clothesRails, doorCount, doorStyle, slidingEdges, drawerFrontHeights, cutFromOneBoard, includeHandles, slideKind, slideLength, useLegs, plinthCount, plinthHeight, colors, topStyle, hasHood, hoodShape, hoodDiameter, hoodRectW, hoodRectD, fixedShelves, partitions, doorSpan, zoneUi, externalDoors])
 
   const qty = Math.max(1, parseInt(quantity, 10) || 1)
   const result = useMemo(() => {
@@ -524,6 +823,14 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
       : typeId === 'kitchen-wall'
         ? params.height - 2 * params.thickness
         : nsMeasure!.innerH
+  const topBoardCaption =
+    typeId === 'kitchen-base'
+      ? topStyle === 'rails'
+        ? 'блендата'
+        : 'горе'
+      : topStyle === 'panel'
+        ? 'плота'
+        : 'горе'
   const innerW = isKitchenCarcass ? params.width - 2 * params.thickness : nsMeasure!.innerW
   const frontH = isKitchenCarcass ? params.height : nsMeasure!.frontHeight
   const drawerFrontH = isSlidingCabinet ? innerH : frontH
@@ -537,9 +844,11 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
     doorSpan: params.doorSpan ?? 'full',
     doorCount: isSlidingCabinet ? 0 : params.doorCount,
     shelfCount: params.shelfCount,
+    movableShelves: params.movableShelves,
     drawerFrontHeights: params.drawerFrontHeights,
     cutFromOneBoard: params.cutFromOneBoard,
     hasClothesRail: params.hasClothesRail,
+    clothesRails: params.clothesRails,
     overlayCovers: nsMeasure
       ? isSlidingCabinet
         ? { top: false, bottom: false }
@@ -563,6 +872,36 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
   const hasFixed = (params.fixedShelves?.length ?? 0) > 0
   const hasPartitions = (params.partitions?.length ?? 0) > 0
   const hasSplit = hasFixed || hasPartitions
+  const middleBetweenExtras =
+    pendingAdd?.kind === 'shelf' && pendingAdd.middle
+      ? betweenRowExtras(layout.zones, layout.columns.length)
+      : []
+  const cabinetPinOpenings = pinShelfOpenings(
+    rowsToSpecs(displayedMovable(movableShelves, shelfCount, innerH, params.thickness)),
+    innerH,
+    params.thickness,
+  )
+  const pinGapZoneExtras =
+    pendingAdd?.kind === 'shelf' && pendingAdd.middle && hasSplit
+      ? layout.zones.flatMap((z) => {
+          const cur = zoneOf(zoneUi, z.id)
+          const rows = displayedMovable(cur.movableShelves, cur.shelfCount, z.innerH, params.thickness)
+          const openings = pinShelfOpenings(rowsToSpecs(rows), z.innerH, params.thickness)
+          if (openings.length < 2) return []
+          return openings.map((o) => ({
+            id: `pin-gap:${z.id}:${o.index}`,
+            label:
+              openings.length === 2
+                ? `${z.label} · ${o.index === 0 ? 'под рафта' : 'над рафта'}`
+                : `${z.label} · ${o.label}`,
+          }))
+        })
+      : []
+  const pinSplitZoneIds = new Set(
+    pinGapZoneExtras.map((e) => parsePinGapTarget(e.id)?.zoneId).filter((id): id is string => !!id),
+  )
+  const showCabinetPinParts =
+    pendingAdd?.kind === 'shelf' && pendingAdd.middle === true && !hasSplit && cabinetPinOpenings.length > 1
   const shelfGap = evenShelfGap(innerH, shelfCount, params.thickness)
   const backPlinth =
     typeId !== 'kitchen-base' && !(params as ReturnType<typeof parseNightstandParams>).useLegs
@@ -592,29 +931,39 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
           bottom: {
             ...emptyZoneUi(),
             shelfCount,
-            hasClothesRail,
+            movableShelves,
+            clothesRails,
+            hasClothesRail: clothesRails.length > 0,
           },
           middle: emptyZoneUi(),
           top: emptyZoneUi(),
         })
         setDoorSpan(doorCount > 0 ? 'full' : 'zones')
         setShelfCount(0)
-        setHasClothesRail(false)
+        setMovableShelves([])
+        setClothesRails([])
       } else if (fixedShelves.length > 0 && next.length === 0) {
         setShelfCount(
           zoneOf(zoneUi, 'bottom').shelfCount +
             zoneOf(zoneUi, 'middle').shelfCount +
             zoneOf(zoneUi, 'top').shelfCount,
         )
+        setMovableShelves([
+          ...zoneOf(zoneUi, 'bottom').movableShelves,
+          ...zoneOf(zoneUi, 'middle').movableShelves,
+          ...zoneOf(zoneUi, 'top').movableShelves,
+        ])
         setDrawerFrontHeights([
           ...zoneOf(zoneUi, 'top').drawerFrontHeights,
           ...zoneOf(zoneUi, 'middle').drawerFrontHeights,
           ...zoneOf(zoneUi, 'bottom').drawerFrontHeights,
         ])
-        setHasClothesRail(
-          zoneOf(zoneUi, 'bottom').hasClothesRail ||
-            zoneOf(zoneUi, 'middle').hasClothesRail ||
-            zoneOf(zoneUi, 'top').hasClothesRail,
+        setClothesRails(
+          [
+            ...zoneOf(zoneUi, 'bottom').clothesRails,
+            ...zoneOf(zoneUi, 'middle').clothesRails,
+            ...zoneOf(zoneUi, 'top').clothesRails,
+          ].slice(0, MAX_CLOTHES_RAILS),
         )
         if (doorSpan === 'zones') {
           const first = [zoneOf(zoneUi, 'top'), zoneOf(zoneUi, 'middle'), zoneOf(zoneUi, 'bottom')].find(
@@ -647,6 +996,24 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
     ])
   }
 
+  const addPinShelfRows = (
+    innerHMm: number,
+    rows: MovableShelfUi[],
+    evenCount: number,
+    middle = false,
+    gapIndex?: number,
+  ): MovableShelfUi[] => {
+    const current = displayedMovable(rows, evenCount, innerHMm, params.thickness)
+    if (current.length >= MAX_SHELVES) return current
+    return [...current, middle ? newMiddlePinShelf(gapIndex) : newMovableShelf(innerHMm, params.thickness, current.length)]
+  }
+
+  const addCabinetPinShelf = (middle = false, gapIndex?: number) => {
+    const next = addPinShelfRows(innerH, movableShelves, shelfCount, middle, gapIndex)
+    setMovableShelves(next)
+    setShelfCount(next.length)
+  }
+
   const applyPending = (target: FrontTarget) => {
     if (!pendingAdd) return
     if (pendingAdd.kind === 'fixed-shelf') {
@@ -654,19 +1021,47 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
       return
     }
     if (pendingAdd.kind === 'shelf') {
-      if (target === 'full') {
+      const middle = pendingAdd.middle === true
+      const pinGap = parsePinGapTarget(target)
+      if (pinGap) {
+        if (pinGap.zoneId) {
+          const zone = layout.zones.find((row) => row.id === pinGap.zoneId)
+          const zoneH = zone?.innerH ?? innerH
+          setZoneUi((z) => {
+            const cur = zoneOf(z, pinGap.zoneId!)
+            const nextRows = addPinShelfRows(zoneH, cur.movableShelves, cur.shelfCount, true, pinGap.gapIndex)
+            return { ...z, [pinGap.zoneId!]: { ...cur, movableShelves: nextRows, shelfCount: nextRows.length } }
+          })
+        } else {
+          addCabinetPinShelf(true, pinGap.gapIndex)
+        }
+        setPendingAdd(null)
+        return
+      }
+      const between = parseBetweenTarget(target)
+      const zoneId = between
+        ? zoneForBetweenPair(layout.zones, between.colIndex, between.pairIndex)?.id
+        : target === 'full'
+          ? undefined
+          : target
+      if (target === 'full' && !between) {
         setZoneUi((z) => {
           const next = { ...z }
           for (const zone of layout.zones) {
-            next[zone.id] = {
-              ...next[zone.id],
-              shelfCount: Math.min(MAX_SHELVES, next[zone.id].shelfCount + 1),
-            }
+            const cur = zoneOf(next, zone.id)
+            const nextRows = addPinShelfRows(zone.innerH, cur.movableShelves, cur.shelfCount, middle)
+            next[zone.id] = { ...cur, movableShelves: nextRows, shelfCount: nextRows.length }
           }
           return next
         })
-      } else {
-        patchZone(target, { shelfCount: Math.min(MAX_SHELVES, zoneOf(zoneUi, target).shelfCount + 1) })
+      } else if (zoneId) {
+        const zone = layout.zones.find((row) => row.id === zoneId)
+        const zoneH = zone?.innerH ?? innerH
+        setZoneUi((z) => {
+          const cur = zoneOf(z, zoneId)
+          const nextRows = addPinShelfRows(zoneH, cur.movableShelves, cur.shelfCount, middle)
+          return { ...z, [zoneId]: { ...cur, movableShelves: nextRows, shelfCount: nextRows.length } }
+        })
       }
     } else if (pendingAdd.kind === 'drawer') {
       if (target === 'full') {
@@ -707,27 +1102,52 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
         patchZone(target, { doorCount: pendingAdd.count })
       }
     } else if (pendingAdd.kind === 'rail') {
+      const middle = pendingAdd.middle === true
+      const pushRail = (id: CabinetZoneId) => {
+        const cur = zoneOf(zoneUi, id)
+        if (cur.clothesRails.length >= MAX_CLOTHES_RAILS) return cur
+        const zone = layout.zones.find((z) => z.id === id)
+        const nextRails = [
+          ...cur.clothesRails,
+          middle ? newMiddleRail() : newClothesRail(zone?.innerH ?? innerH, cur.clothesRails.length),
+        ]
+        return { ...cur, clothesRails: nextRails, hasClothesRail: true }
+      }
       if (target === 'full') {
         setZoneUi((z) => {
           const next = { ...z }
           for (const zone of layout.zones) {
-            next[zone.id] = { ...zoneOf(next, zone.id), hasClothesRail: true }
+            next[zone.id] = pushRail(zone.id)
           }
           return next
         })
       } else {
-        patchZone(target, { hasClothesRail: true })
+        patchZone(target, pushRail(target))
       }
     }
     setPendingAdd(null)
   }
 
   const startAdd = (next: PendingAdd) => {
+    if (next.kind === 'shelf' && next.middle) {
+      if (hasSplit && !layout.error) {
+        setPendingAdd(next)
+        return
+      }
+      const current = displayedMovable(movableShelves, shelfCount, innerH, params.thickness)
+      const openings = pinShelfOpenings(rowsToSpecs(current), innerH, params.thickness)
+      if (openings.length > 1) {
+        setPendingAdd(next)
+        return
+      }
+      addCabinetPinShelf(true, openings.length === 1 ? 0 : undefined)
+      return
+    }
     if (hasSplit && !layout.error) {
       setPendingAdd(next)
       return
     }
-    if (next.kind === 'shelf') setShelfCount((n) => Math.min(MAX_SHELVES, n + 1))
+    if (next.kind === 'shelf') addCabinetPinShelf(next.middle === true)
     else if (next.kind === 'drawer') {
       setDrawerFrontHeights((rows) =>
         !isSlidingCabinet && doorCount > 0
@@ -736,7 +1156,13 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
       )
     }
     else if (next.kind === 'door') setDoorCount(next.count)
-    else if (next.kind === 'rail') setHasClothesRail(true)
+    else if (next.kind === 'rail') {
+      setClothesRails((rows) =>
+        rows.length >= MAX_CLOTHES_RAILS
+          ? rows
+          : [...rows, next.middle ? newMiddleRail() : newClothesRail(innerH, rows.length)],
+      )
+    }
   }
 
   const parseDrawerRows = (rows: string[]) =>
@@ -844,8 +1270,9 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                   setLegHeight(DEFAULT_NIGHTSTAND_PARAMS.legHeight)
                   setTopStyle('panel')
                   setShelfCount(0)
+                  setMovableShelves([])
                   setHasBack(false)
-                  setHasClothesRail(false)
+                  setClothesRails([])
                   setDoorCount(0)
                   setDoorStyle('hinged')
                   setSlidingEdges(defaultSlidingEdges(2))
@@ -865,8 +1292,9 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                   setPlinthHeight(String(DEFAULT_SECTION_PARAMS.plinthHeight))
                   setTopStyle('panel')
                   setShelfCount(0)
+                  setMovableShelves([])
                   setHasBack(false)
-                  setHasClothesRail(false)
+                  setClothesRails([])
                   setDoorCount(0)
                   setDoorStyle('hinged')
                   setSlidingEdges(defaultSlidingEdges(2))
@@ -889,8 +1317,9 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                   setPlinthHeight(String(d.plinthHeight))
                   setTopStyle('panel')
                   setShelfCount(0)
+                  setMovableShelves([])
                   setHasBack(false)
-                  setHasClothesRail(false)
+                  setClothesRails([])
                   setDoorCount(2)
                   setDoorStyle('sliding')
                   setSlidingEdges(defaultSlidingEdges(2))
@@ -918,7 +1347,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                   setDepth(String(DEFAULT_KITCHEN_WALL_PARAMS.depth))
                   setThickness(String(DEFAULT_KITCHEN_WALL_PARAMS.thickness))
                   setHasBack(DEFAULT_KITCHEN_WALL_PARAMS.hasBack)
-                  setHasClothesRail(false)
+                  setClothesRails([])
                   setIncludeHandles(true)
                   setHasHood(false)
                   setHoodShape('round')
@@ -926,6 +1355,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                   setHoodRectW(String(DEFAULT_HOOD_RECT_W_MM))
                   setHoodRectD(String(DEFAULT_HOOD_RECT_D_MM))
                   setShelfCount(0)
+                  setMovableShelves([])
                   setDoorCount(0)
                   setDoorStyle('hinged')
                   setSlidingEdges(defaultSlidingEdges(2))
@@ -941,7 +1371,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                   setThickness(String(DEFAULT_KITCHEN_BASE_PARAMS.thickness))
                   setHasBack(DEFAULT_KITCHEN_BASE_PARAMS.hasBack)
                   setTopStyle('rails')
-                  setHasClothesRail(false)
+                  setClothesRails([])
                   setIncludeHandles(true)
                   setDoorStyle('hinged')
                   setSlidingEdges(defaultSlidingEdges(2))
@@ -994,8 +1424,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
         {hasFittings && (
           <>
             {typeId === 'kitchen-base' && (
-            <div>
-              <Label>Крачета</Label>
+            <FormSection defaultOpen={!isEdit} title="Крачета" summary={`${legHeight / 10} см`}>
               <div className="mt-1 flex gap-2">
                 {([100, 150] as const).map((h) => (
                   <Button
@@ -1012,12 +1441,22 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
               <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
                 От пода до върха: {(params as ReturnType<typeof parseKitchenBaseParams>).height + (params as ReturnType<typeof parseKitchenBaseParams>).legHeight} мм · 4 крачета
               </p>
-            </div>
+            </FormSection>
             )}
 
             {typeId !== 'kitchen-wall' && (
-            <div>
-              <Label>Горе</Label>
+            <FormSection defaultOpen={!isEdit}
+              title="Горе"
+              summary={
+                topStyle === 'rails'
+                  ? 'Две бленди'
+                  : topStyle === 'none'
+                    ? 'Без плот'
+                    : topStyle === 'fascia'
+                      ? 'Бленда надолу'
+                      : 'Плот'
+              }
+            >
               <div className="mt-1 flex flex-wrap gap-2">
                 {typeId === 'kitchen-base' ? (
                   <>
@@ -1086,12 +1525,14 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                         ? 'Плотът влиза между страниците.'
                         : 'Плот върху страниците, хваща се с ъгълчета отвътре.'}
               </p>
-            </div>
+            </FormSection>
             )}
 
             {typeId === 'kitchen-wall' && (
-            <div>
-              <Label>Абсорбатор</Label>
+            <FormSection defaultOpen={!isEdit}
+              title="Абсорбатор"
+              summary={!hasHood ? 'Без' : hoodShape === 'round' ? 'Кръгъл отвор' : 'Правоъгълен отвор'}
+            >
               <div className="mt-1 flex flex-wrap gap-2">
                 <Button
                   type="button"
@@ -1179,11 +1620,13 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                   Без отвор в дъното. Включи абсорбатор, ако въздуховодът минава през шкафа.
                 </p>
               )}
-            </div>
+            </FormSection>
             )}
 
-            <div>
-              <Label>Фиксиран рафт</Label>
+            <FormSection defaultOpen={!isEdit}
+              title="Фиксиран рафт"
+              summary={fixedShelves.length > 0 ? `${fixedShelves.length} бр.` : 'няма'}
+            >
               <p className="mt-0.5 text-xs text-[var(--color-muted-foreground)]">
                 Хваща се с винтове 5×60 през страниците и разделя частта. До 2 рафта на част — долна, средна,
                 горна.
@@ -1414,10 +1857,12 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
               {layout.error && layout.shelves.length > 0 && (
                 <p className="mt-1 text-xs text-[var(--color-destructive)]">{layout.error}</p>
               )}
-            </div>
+            </FormSection>
 
-            <div>
-              <Label>Разделителна страница</Label>
+            <FormSection defaultOpen={!isEdit}
+              title="Разделителна страница"
+              summary={partitions.length > 0 ? `${partitions.length} бр.` : 'няма'}
+            >
               <p className="mt-0.5 text-xs text-[var(--color-muted-foreground)]">
                 Вътрешна страница — сяда на дъното, не на пода. Мери се от лявата/дясната страница на корпуса
                 или от вече добавена страница. До 3 страници — 4 части.
@@ -1445,8 +1890,9 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                         if (remapped.length === 0 && fixedShelves.length === 0) {
                           const cols = [0, 1, 2, 3].map((c) => zoneOf(zoneUi, `c${c}`))
                           setShelfCount(cols.reduce((n, z) => n + z.shelfCount, 0))
+                          setMovableShelves(cols.flatMap((z) => z.movableShelves))
                           setDrawerFrontHeights(cols.flatMap((z) => z.drawerFrontHeights))
-                          setHasClothesRail(cols.some((z) => z.hasClothesRail))
+                          setClothesRails(cols.flatMap((z) => z.clothesRails).slice(0, MAX_CLOTHES_RAILS))
                           if (doorSpan === 'zones') {
                             const first = cols.find((z) => z.doorCount > 0)
                             setDoorCount(first?.doorCount ?? 0)
@@ -1673,13 +2119,16 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                           c0: {
                             ...emptyZoneUi(),
                             shelfCount,
-                            hasClothesRail,
+                            movableShelves,
+                            clothesRails,
+                            hasClothesRail: clothesRails.length > 0,
                           },
                           c1: emptyZoneUi(),
                         })
                         setDoorSpan(doorCount > 0 ? 'full' : 'zones')
                         setShelfCount(0)
-                        setHasClothesRail(false)
+                        setMovableShelves([])
+                        setClothesRails([])
                       }
                       setPendingAdd(null)
                       setPartitions([
@@ -1733,7 +2182,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
               {layout.error && layout.partitions.length > 0 && (
                 <p className="mt-1 text-xs text-[var(--color-destructive)]">{layout.error}</p>
               )}
-            </div>
+            </FormSection>
 
             {hasSplit && !layout.error && (
               <p className="text-xs text-[var(--color-muted-foreground)]">
@@ -1745,66 +2194,232 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
               </p>
             )}
 
-            <div>
-              <Label>Рафтове</Label>
+            <FormSection defaultOpen={!isEdit}
+              title="Рафтове"
+              summary={counts.shelfCount > 0 ? `${counts.shelfCount} бр.` : 'няма'}
+            >
               <p className="mt-0.5 text-xs text-[var(--color-muted-foreground)]">
-                {hasSplit
-                  ? 'Подвижни рафтове с рафтоносачи — във всяка част отделно.'
-                  : 'Равни празнини над, между и под рафтовете.'}
+                Подвижни рафтове с рафтоносачи. Отгоре, отдолу или по средата на оставащия отвор. Рафт на точно
+                разстояние дели отвора на части — после слагаш рафт по средата над или под него.
               </p>
-              {!hasSplit && shelfCount > 0 && (
-                <div className="mt-2 flex items-center gap-2">
-                  <span className="w-28 shrink-0 text-xs">
-                    {shelfCount} {shelfCount === 1 ? 'рафт' : 'рафта'}
-                  </span>
-                  <Button
-                    type="button"
-                    size="icon"
-                    variant="ghost"
-                    className="h-8 w-8 shrink-0"
-                    onClick={() => setShelfCount((n) => Math.max(0, n - 1))}
-                    aria-label="Премахни рафт"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </div>
-              )}
-              {hasSplit &&
-                layout.zones.map((z) =>
-                  zoneOf(zoneUi, z.id).shelfCount > 0 ? (
-                    <div key={z.id} className="mt-2 flex items-center gap-2">
-                      <span className="shrink-0 text-xs">
-                        {zoneOf(zoneUi, z.id).shelfCount} {zoneOf(zoneUi, z.id).shelfCount === 1 ? 'рафт' : 'рафта'} · {z.label}
-                      </span>
+              {!hasSplit &&
+                displayedMovable(movableShelves, shelfCount, innerH, params.thickness).map((shelf, i) => (
+                  <div key={`pin-${i}`} className="mt-2 space-y-2 rounded-md border border-[var(--color-border)] p-2">
+                    <div className="flex items-center gap-2">
+                      <span className="min-w-28 shrink-0 text-xs">Рафт {i + 1}</span>
                       <Button
                         type="button"
                         size="icon"
                         variant="ghost"
                         className="h-8 w-8 shrink-0"
-                        onClick={() => patchZone(z.id, { shelfCount: Math.max(0, zoneOf(zoneUi, z.id).shelfCount - 1) })}
-                        aria-label={`Премахни рафт от ${z.label}`}
+                        onClick={() => {
+                          const next = displayedMovable(movableShelves, shelfCount, innerH, params.thickness).filter(
+                            (_, j) => j !== i,
+                          )
+                          setMovableShelves(next)
+                          setShelfCount(next.length)
+                        }}
+                        aria-label={`Премахни рафт ${i + 1}`}
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>
                     </div>
-                  ) : null,
-                )}
+                    <ShelfMeasureFields
+                      from={shelf.from}
+                      fromFace={shelf.fromFace}
+                      toFace={shelf.toFace}
+                      offsetMm={shelf.offsetMm}
+                      allowMiddle
+                      originHint={
+                        shelf.from === 'middle'
+                          ? 'По средата на отвора между рафтовете — равни празнини над и под рафта'
+                          : `От ${shelf.from === 'bottom' ? 'дъното' : topBoardCaption}`
+                      }
+                      measureHint={`${movableShelfMeasureLabel(
+                        layout.zones[0]?.movable[i] ?? {
+                          from: shelf.from,
+                          fromFace: shelf.fromFace,
+                          toFace: shelf.toFace,
+                          offsetMm: parseInt(shelf.offsetMm, 10) || 0,
+                        },
+                        topBoardCaption,
+                      )}${shelf.from === 'middle' ? '' : '. Линията е на 3D изгледа.'}`}
+                      offsetId={`pin-off-${i}`}
+                      onFrom={(from) => {
+                        const current = displayedMovable(movableShelves, shelfCount, innerH, params.thickness)
+                        const next = current.map((r, j) =>
+                          j === i
+                            ? from === 'middle'
+                              ? newMiddlePinShelf()
+                              : { ...r, from, ...defaultShelfFaces(from) }
+                            : r,
+                        )
+                        setMovableShelves(next)
+                        setShelfCount(next.length)
+                      }}
+                      onFromFace={(fromFace) => {
+                        const current = displayedMovable(movableShelves, shelfCount, innerH, params.thickness)
+                        const next = current.map((r, j) => (j === i ? { ...r, fromFace } : r))
+                        setMovableShelves(next)
+                        setShelfCount(next.length)
+                      }}
+                      onToFace={(toFace) => {
+                        const current = displayedMovable(movableShelves, shelfCount, innerH, params.thickness)
+                        const next = current.map((r, j) => (j === i ? { ...r, toFace } : r))
+                        setMovableShelves(next)
+                        setShelfCount(next.length)
+                      }}
+                      onOffset={(offsetMm) => {
+                        const current = displayedMovable(movableShelves, shelfCount, innerH, params.thickness)
+                        const next = current.map((r, j) => (j === i ? { ...r, offsetMm } : r))
+                        setMovableShelves(next)
+                        setShelfCount(next.length)
+                      }}
+                    />
+                  </div>
+                ))}
+              {hasSplit &&
+                layout.zones.map((z) => {
+                  const cur = zoneOf(zoneUi, z.id)
+                  const rows = displayedMovable(cur.movableShelves, cur.shelfCount, z.innerH, params.thickness)
+                  return rows.map((shelf, i) => (
+                    <div key={`pin-${z.id}-${i}`} className="mt-2 space-y-2 rounded-md border border-[var(--color-border)] p-2">
+                      <div className="flex items-center gap-2">
+                        <span className="min-w-28 shrink-0 text-xs">
+                          Рафт {i + 1} · {z.label}
+                        </span>
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          className="h-8 w-8 shrink-0"
+                          onClick={() => {
+                            const nextRows = displayedMovable(
+                              cur.movableShelves,
+                              cur.shelfCount,
+                              z.innerH,
+                              params.thickness,
+                            ).filter((_, j) => j !== i)
+                            patchZone(z.id, { movableShelves: nextRows, shelfCount: nextRows.length })
+                          }}
+                          aria-label={`Премахни рафт ${i + 1} от ${z.label}`}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                      <ShelfMeasureFields
+                        from={shelf.from}
+                        fromFace={shelf.fromFace}
+                        toFace={shelf.toFace}
+                        offsetMm={shelf.offsetMm}
+                        allowMiddle
+                        originHint={
+                          shelf.from === 'middle'
+                            ? `По средата на отвора между рафтовете · ${z.label}`
+                            : `От ${shelf.from === 'bottom' ? 'долната плоскост' : 'горната плоскост'} · ${z.label}`
+                        }
+                        measureHint={`${movableShelfMeasureLabel(
+                          z.movable[i] ?? {
+                            from: shelf.from,
+                            fromFace: shelf.fromFace,
+                            toFace: shelf.toFace,
+                            offsetMm: parseInt(shelf.offsetMm, 10) || 0,
+                          },
+                          'горната плоскост',
+                          'долната плоскост',
+                        )}${shelf.from === 'middle' ? '' : '. Линията е на 3D изгледа.'}`}
+                        offsetId={`pin-off-${z.id}-${i}`}
+                        onFrom={(from) => {
+                          const nextRows = displayedMovable(
+                            cur.movableShelves,
+                            cur.shelfCount,
+                            z.innerH,
+                            params.thickness,
+                          ).map((r, j) =>
+                            j === i
+                              ? from === 'middle'
+                                ? newMiddlePinShelf()
+                                : { ...r, from, ...defaultShelfFaces(from) }
+                              : r,
+                          )
+                          patchZone(z.id, { movableShelves: nextRows, shelfCount: nextRows.length })
+                        }}
+                        onFromFace={(fromFace) => {
+                          const nextRows = displayedMovable(
+                            cur.movableShelves,
+                            cur.shelfCount,
+                            z.innerH,
+                            params.thickness,
+                          ).map((r, j) => (j === i ? { ...r, fromFace } : r))
+                          patchZone(z.id, { movableShelves: nextRows, shelfCount: nextRows.length })
+                        }}
+                        onToFace={(toFace) => {
+                          const nextRows = displayedMovable(
+                            cur.movableShelves,
+                            cur.shelfCount,
+                            z.innerH,
+                            params.thickness,
+                          ).map((r, j) => (j === i ? { ...r, toFace } : r))
+                          patchZone(z.id, { movableShelves: nextRows, shelfCount: nextRows.length })
+                        }}
+                        onOffset={(offsetMm) => {
+                          const nextRows = displayedMovable(
+                            cur.movableShelves,
+                            cur.shelfCount,
+                            z.innerH,
+                            params.thickness,
+                          ).map((r, j) => (j === i ? { ...r, offsetMm } : r))
+                          patchZone(z.id, { movableShelves: nextRows, shelfCount: nextRows.length })
+                        }}
+                      />
+                    </div>
+                  ))
+                })}
               <div className="mt-2 flex flex-wrap items-center gap-2">
                 <Button
                   type="button"
                   size="sm"
-                  variant={pendingAdd?.kind === 'shelf' ? 'default' : 'outline'}
+                  variant={pendingAdd?.kind === 'shelf' && !pendingAdd.middle ? 'default' : 'outline'}
                   disabled={counts.shelfCount >= MAX_SHELVES * Math.max(1, layout.zones.length)}
                   onClick={() => startAdd({ kind: 'shelf' })}
                 >
                   <Plus className="h-4 w-4" />
                   Добави рафт
                 </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={pendingAdd?.kind === 'shelf' && pendingAdd.middle ? 'default' : 'outline'}
+                  disabled={counts.shelfCount >= MAX_SHELVES * Math.max(1, layout.zones.length)}
+                  onClick={() => startAdd({ kind: 'shelf', middle: true })}
+                >
+                  <Plus className="h-4 w-4" />
+                  По средата
+                </Button>
               </div>
-              {pendingAdd?.kind === 'shelf' && (
+              {pendingAdd?.kind === 'shelf' && (hasSplit || showCabinetPinParts) && (
                 <WherePicker
-                  zones={layout.zones}
-                  allowFull
+                  zones={
+                    showCabinetPinParts
+                      ? cabinetPinOpenings.map((o) => ({
+                          id: `pin-gap:${o.index}`,
+                          label: o.label,
+                        }))
+                      : pendingAdd.middle
+                        ? layout.zones.filter((z) => !pinSplitZoneIds.has(z.id))
+                        : layout.zones
+                  }
+                  extras={hasSplit ? [...middleBetweenExtras, ...pinGapZoneExtras] : undefined}
+                  allowFull={hasSplit && !showCabinetPinParts}
+                  hint={
+                    showCabinetPinParts
+                      ? 'Рафтът на точно разстояние дели шкафа. Избери в коя част да е рафтът по средата.'
+                      : pinGapZoneExtras.length > 0
+                        ? 'Рафт на точно разстояние дели частта — избери над или под него.'
+                        : middleBetweenExtras.length > 0
+                          ? '„Между долната и горната“ слага рафта над фиксирания, в отвора до горния рафт.'
+                          : undefined
+                  }
                   onPick={applyPending}
                   onCancel={() => setPendingAdd(null)}
                 />
@@ -1814,12 +2429,13 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                   ? 'Без подвижен рафт'
                   : hasSplit
                     ? `${counts.shelfCount * SHELF_PINS_PER_SHELF} рафтоносача · ${formatEur(settings.hardware.shelfPinEur)}/бр.`
-                    : `Разстояние между рафтовете: ${Math.round(shelfGap)} мм · ${shelfCount * SHELF_PINS_PER_SHELF} рафтоносача · ${formatEur(settings.hardware.shelfPinEur)}/бр. · дълбочина ${slideDepth - DEFAULT_SHELF_FRONT_INSET} мм`}
+                    : movableShelves.length > 0
+                      ? `${counts.shelfCount * SHELF_PINS_PER_SHELF} рафтоносача · ${formatEur(settings.hardware.shelfPinEur)}/бр. · дълбочина ${slideDepth - DEFAULT_SHELF_FRONT_INSET} мм`
+                      : `Разстояние между рафтовете: ${Math.round(shelfGap)} мм · ${shelfCount * SHELF_PINS_PER_SHELF} рафтоносача · ${formatEur(settings.hardware.shelfPinEur)}/бр. · дълбочина ${slideDepth - DEFAULT_SHELF_FRONT_INSET} мм`}
               </p>
-            </div>
+            </FormSection>
 
-        <div>
-          <Label>Фазер на гърба</Label>
+        <FormSection defaultOpen={!isEdit} title="Фазер на гърба" summary={hasBack ? 'С фазер' : 'Без'}>
           <div className="mt-1 flex gap-2">
             <Button
               type="button"
@@ -1845,39 +2461,237 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                 : `Рязане ${backCut.width} × ${backCut.height} мм — покрива целия гръб.`
               : 'Без гръб.'}
           </p>
-        </div>
+        </FormSection>
 
-        <div>
-          <Label>Лост за дрехи</Label>
-          <div className="mt-1 flex gap-2">
+        <FormSection defaultOpen={!isEdit}
+          title="Лост за дрехи"
+          summary={counts.clothesRailCount > 0 ? `${counts.clothesRailCount} бр.` : 'няма'}
+        >
+          <p className="mt-0.5 text-xs text-[var(--color-muted-foreground)]">
+            Между страниците. Отгоре (обикновено 48 мм), отдолу или по средата на отвора.
+          </p>
+          {!hasSplit &&
+            clothesRails.map((rail, i) => (
+              <div key={`rail-${i}`} className="mt-2 space-y-2 rounded-md border border-[var(--color-border)] p-2">
+                <div className="flex items-center gap-2">
+                  <span className="min-w-28 shrink-0 text-xs">Лост {i + 1}</span>
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    className="h-8 w-8 shrink-0"
+                    onClick={() => setClothesRails((rows) => rows.filter((_, j) => j !== i))}
+                    aria-label={`Премахни лост ${i + 1}`}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={rail.from === 'bottom' ? 'default' : 'outline'}
+                    onClick={() =>
+                      setClothesRails((rows) =>
+                        rows.map((r, j) =>
+                          j === i ? { from: 'bottom', offsetMm: r.from === 'middle' ? String(DEFAULT_CLOTHES_RAIL_FROM_TOP_MM) : r.offsetMm } : r,
+                        ),
+                      )
+                    }
+                  >
+                    Отдолу
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={rail.from === 'top' ? 'default' : 'outline'}
+                    onClick={() =>
+                      setClothesRails((rows) =>
+                        rows.map((r, j) =>
+                          j === i ? { from: 'top', offsetMm: r.from === 'middle' ? String(DEFAULT_CLOTHES_RAIL_FROM_TOP_MM) : r.offsetMm } : r,
+                        ),
+                      )
+                    }
+                  >
+                    Отгоре
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={rail.from === 'middle' ? 'default' : 'outline'}
+                    onClick={() =>
+                      setClothesRails((rows) => rows.map((r, j) => (j === i ? newMiddleRail() : r)))
+                    }
+                  >
+                    По средата
+                  </Button>
+                </div>
+                {rail.from !== 'middle' && (
+                  <div>
+                    <Label htmlFor={`rail-off-${i}`} className="text-xs">
+                      Размер (мм)
+                    </Label>
+                    <Input
+                      id={`rail-off-${i}`}
+                      type="number"
+                      min={1}
+                      value={rail.offsetMm}
+                      onChange={(e) =>
+                        setClothesRails((rows) =>
+                          rows.map((r, j) => (j === i ? { ...r, offsetMm: e.target.value } : r)),
+                        )
+                      }
+                    />
+                  </div>
+                )}
+                <p className="text-xs text-[var(--color-muted-foreground)]">
+                  {`${clothesRailMeasureLabel(
+                    { from: rail.from, offsetMm: parseInt(rail.offsetMm, 10) || 0 },
+                    topBoardCaption,
+                  )}${rail.from === 'middle' ? '.' : '. Линията е на 3D изгледа.'}`}
+                </p>
+              </div>
+            ))}
+          {hasSplit &&
+            layout.zones.map((z) => {
+              const rows = zoneOf(zoneUi, z.id).clothesRails
+              return rows.map((rail, i) => (
+                <div key={`rail-${z.id}-${i}`} className="mt-2 space-y-2 rounded-md border border-[var(--color-border)] p-2">
+                  <div className="flex items-center gap-2">
+                    <span className="min-w-28 shrink-0 text-xs">
+                      Лост {i + 1} · {z.label}
+                    </span>
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      className="h-8 w-8 shrink-0"
+                      onClick={() => {
+                        const next = rows.filter((_, j) => j !== i)
+                        patchZone(z.id, { clothesRails: next, hasClothesRail: next.length > 0 })
+                      }}
+                      aria-label={`Премахни лост ${i + 1} от ${z.label}`}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={rail.from === 'bottom' ? 'default' : 'outline'}
+                      onClick={() =>
+                        patchZone(z.id, {
+                          clothesRails: rows.map((r, j) =>
+                            j === i
+                              ? { from: 'bottom', offsetMm: r.from === 'middle' ? String(DEFAULT_CLOTHES_RAIL_FROM_TOP_MM) : r.offsetMm }
+                              : r,
+                          ),
+                        })
+                      }
+                    >
+                      Отдолу
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={rail.from === 'top' ? 'default' : 'outline'}
+                      onClick={() =>
+                        patchZone(z.id, {
+                          clothesRails: rows.map((r, j) =>
+                            j === i
+                              ? { from: 'top', offsetMm: r.from === 'middle' ? String(DEFAULT_CLOTHES_RAIL_FROM_TOP_MM) : r.offsetMm }
+                              : r,
+                          ),
+                        })
+                      }
+                    >
+                      Отгоре
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={rail.from === 'middle' ? 'default' : 'outline'}
+                      onClick={() =>
+                        patchZone(z.id, {
+                          clothesRails: rows.map((r, j) => (j === i ? newMiddleRail() : r)),
+                        })
+                      }
+                    >
+                      По средата
+                    </Button>
+                  </div>
+                  {rail.from !== 'middle' && (
+                    <div>
+                      <Label htmlFor={`rail-off-${z.id}-${i}`} className="text-xs">
+                        Размер (мм)
+                      </Label>
+                      <Input
+                        id={`rail-off-${z.id}-${i}`}
+                        type="number"
+                        min={1}
+                        value={rail.offsetMm}
+                        onChange={(e) =>
+                          patchZone(z.id, {
+                            clothesRails: rows.map((r, j) =>
+                              j === i ? { ...r, offsetMm: e.target.value } : r,
+                            ),
+                            hasClothesRail: true,
+                          })
+                        }
+                      />
+                    </div>
+                  )}
+                  <p className="text-xs text-[var(--color-muted-foreground)]">
+                    {`${clothesRailMeasureLabel(
+                      { from: rail.from, offsetMm: parseInt(rail.offsetMm, 10) || 0 },
+                      topBoardCaption,
+                    )}${rail.from === 'middle' ? '.' : '. Линията е на 3D изгледа.'}`}
+                  </p>
+                </div>
+              ))
+            })}
+          <div className="mt-2 flex flex-wrap gap-2">
             <Button
               type="button"
               size="sm"
-              variant={
-                (hasSplit ? counts.clothesRailCount > 0 : hasClothesRail) || pendingAdd?.kind === 'rail'
-                  ? 'default'
-                  : 'outline'
-              }
+              variant={pendingAdd?.kind === 'rail' && !pendingAdd.middle ? 'default' : 'outline'}
+              disabled={counts.clothesRailCount >= MAX_CLOTHES_RAILS * Math.max(1, layout.zones.length)}
               onClick={() => startAdd({ kind: 'rail' })}
             >
-              С лост
+              <Plus className="h-4 w-4" />
+              Добави лост
             </Button>
             <Button
               type="button"
               size="sm"
-              variant={!(hasSplit ? counts.clothesRailCount > 0 : hasClothesRail) ? 'default' : 'outline'}
-              onClick={() => {
-                setPendingAdd(null)
-                setHasClothesRail(false)
-                setZoneUi((z) => ({
-                  bottom: { ...z.bottom, hasClothesRail: false },
-                  middle: { ...z.middle, hasClothesRail: false },
-                  top: { ...z.top, hasClothesRail: false },
-                }))
-              }}
+              variant={pendingAdd?.kind === 'rail' && pendingAdd.middle ? 'default' : 'outline'}
+              disabled={counts.clothesRailCount >= MAX_CLOTHES_RAILS * Math.max(1, layout.zones.length)}
+              onClick={() => startAdd({ kind: 'rail', middle: true })}
             >
-              Без
+              <Plus className="h-4 w-4" />
+              По средата
             </Button>
+            {counts.clothesRailCount > 0 && (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  setPendingAdd(null)
+                  setClothesRails([])
+                  setZoneUi((z) => {
+                    const next = { ...z }
+                    for (const id of Object.keys(next)) {
+                      next[id] = { ...zoneOf(next, id), clothesRails: [], hasClothesRail: false }
+                    }
+                    return next
+                  })
+                }}
+              >
+                Без
+              </Button>
+            )}
           </div>
           {pendingAdd?.kind === 'rail' && (
             <WherePicker
@@ -1887,23 +2701,25 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
               onCancel={() => setPendingAdd(null)}
             />
           )}
-          {hasSplit &&
-            layout.zones
-              .filter((z) => zoneOf(zoneUi, z.id).hasClothesRail)
-              .map((z) => (
-                <p key={z.id} className="mt-1 text-xs text-[var(--color-muted-foreground)]">
-                  Лост в {z.label}.
-                </p>
-              ))}
           <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
-            {(hasSplit ? counts.clothesRailCount > 0 : hasClothesRail)
-              ? `Лост ${clothesRailLengthMm(params.width, params.thickness)} мм между страниците · ${formatEur(settings.hardware.clothesRailEurPerM)}/м.`
-              : 'Без лост.'}
+            {counts.clothesRailCount === 0
+              ? 'Без лост.'
+              : `${counts.clothesRailCount === 1 ? 'Лост' : `${counts.clothesRailCount} лоста`} ${clothesRailLengthMm(params.width, params.thickness)} мм между страниците · ${formatEur(settings.hardware.clothesRailEurPerM)}/м.`}
           </p>
-        </div>
+        </FormSection>
 
-        <div>
-          <Label>Врати</Label>
+        <FormSection defaultOpen={!isEdit}
+          title="Врати"
+          summary={
+            isSlidingCabinet
+              ? doorCount > 0
+                ? `Плъзгащи ${doorCount}`
+                : 'Без'
+              : doorCount > 0
+                ? `${doorCount} бр.`
+                : 'Без'
+          }
+        >
           {(typeId === 'section' || typeId === 'wardrobe') && (
             <>
               <p className="mt-0.5 text-xs text-[var(--color-muted-foreground)]">
@@ -2165,10 +2981,12 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
           </p>
             </>
           )}
-        </div>
+        </FormSection>
 
-        <div>
-          <Label>Чекмеджета</Label>
+        <FormSection defaultOpen={!isEdit}
+          title="Чекмеджета"
+          summary={counts.drawerCount > 0 ? `${counts.drawerCount} бр.` : 'няма'}
+        >
           <p className="mt-0.5 text-xs text-[var(--color-muted-foreground)]">
             Отгоре надолу в избраната част, всяко със своя височина.
           </p>
@@ -2308,11 +3126,10 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                   drawerBottomGap,
                 )}
           </p>
-        </div>
+        </FormSection>
 
         {showCombineFronts && (
-          <div>
-            <Label>Рязане</Label>
+          <FormSection defaultOpen={!isEdit} title="Рязане" summary={cutFromOneBoard ? 'От една плоча' : 'Отделно'}>
             <div className="mt-1 flex gap-2">
               <Button
                 type="button"
@@ -2338,12 +3155,16 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                 adjacentCombine,
               )}
             </p>
-          </div>
+          </FormSection>
         )}
 
         {counts.drawerCount > 0 && (
-          <div>
-            <Label>Водачи</Label>
+          <FormSection defaultOpen={!isEdit}
+            title="Водачи"
+            summary={
+              slideKind === 'roller' ? 'Ролкови' : slideKind === 'soft-full' ? 'Плавно пълно' : 'Плавно частично'
+            }
+          >
             <div className="mt-1 flex flex-wrap gap-2">
               {(['roller', 'soft-full', 'soft-partial'] as const).map((kind) => (
                 <Button
@@ -2433,7 +3254,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
               )
             })
             })()}
-          </div>
+          </FormSection>
         )}
           </>
         )}
@@ -2441,8 +3262,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
         {isPlinthBox && (
           <>
             {typeId === 'nightstand' && (
-            <div>
-              <Label>Опора</Label>
+            <FormSection defaultOpen={!isEdit} title="Опора" summary={useLegs ? 'Крачета' : 'Цокъл и дъно'}>
               <div className="mt-1 flex gap-2">
                 <Button
                   type="button"
@@ -2466,12 +3286,11 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                   ? '4 крачета под дъното, без цокъл. Дъното е външно, страниците влизат в него.'
                   : 'Цокъл с канта надолу, дъното върху него, после между страниците. Без крачета.'}
               </p>
-            </div>
+            </FormSection>
             )}
 
             {typeId === 'nightstand' && useLegs ? (
-              <div>
-                <Label>Крачета</Label>
+              <FormSection defaultOpen={!isEdit} title="Крачета" summary={`${legHeight / 10} см`}>
                 <div className="mt-1 flex gap-2">
                   {([100, 150] as const).map((h) => (
                     <Button
@@ -2485,11 +3304,10 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                     </Button>
                   ))}
                 </div>
-              </div>
+              </FormSection>
             ) : (
               <>
-                <div>
-                  <Label>Брой цокли</Label>
+                <FormSection defaultOpen={!isEdit} title="Брой цокли" summary={String(plinthCount)}>
                   <div className="mt-1 flex gap-2">
                     {([1, 2] as const).map((n) => (
                       <Button
@@ -2506,10 +3324,9 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                   <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
                     Цокълът се хваща за дъното на 2 см навътре от канта
                   </p>
-                </div>
+                </FormSection>
 
-                <div>
-                  <Label htmlFor="plinth-height">Височина на цокъл (мм)</Label>
+                <FormSection defaultOpen={!isEdit} title="Височина на цокъл (мм)" summary={`${plinthHeight} мм`}>
                   <div className="mt-1 flex items-center gap-2">
                     <Input
                       id="plinth-height"
@@ -2543,14 +3360,13 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                   <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
                     Обикновено 100 мм, може и 60 мм или друга стойност
                   </p>
-                </div>
+                </FormSection>
               </>
             )}
           </>
         )}
 
-        <div>
-          <Label>Цветове</Label>
+        <FormSection defaultOpen={!isEdit} title="Цветове">
           <p className="mt-0.5 text-xs text-[var(--color-muted-foreground)]">
             По подразбиране плоскостите са еднакви. Смени само ако трябва да се отличават.
           </p>
@@ -2588,7 +3404,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
               Еднакви
             </Button>
           </div>
-        </div>
+        </FormSection>
 
         <div className="flex flex-wrap items-center justify-between gap-3">
           <label className="flex cursor-pointer items-center gap-2 text-sm">
@@ -2737,8 +3553,8 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
             {breakdown && <PriceBreakdownView breakdown={breakdown} />}
 
             <ul className="list-inside list-disc text-xs text-[var(--color-muted-foreground)]">
-              {result.notes.map((n) => (
-                <li key={n}>{n}</li>
+              {result.notes.map((n, i) => (
+                <li key={`${i}:${n}`}>{n}</li>
               ))}
             </ul>
           </div>
@@ -2798,12 +3614,16 @@ function DoorSourcePicker({
 
 function WherePicker({
   zones,
+  extras,
   allowFull,
+  hint,
   onPick,
   onCancel,
 }: {
   zones: { id: CabinetZoneId; label: string }[]
+  extras?: { id: string; label: string }[]
   allowFull: boolean
+  hint?: string
   onPick: (target: FrontTarget) => void
   onCancel: () => void
 }) {
@@ -2811,6 +3631,11 @@ function WherePicker({
     <div className="mt-2 rounded-md border border-[var(--color-border)] p-2">
       <p className="text-xs font-medium">В коя част?</p>
       <div className="mt-1 flex flex-wrap gap-2">
+        {extras?.map((z) => (
+          <Button key={z.id} type="button" size="sm" variant="outline" onClick={() => onPick(z.id)}>
+            {z.label}
+          </Button>
+        ))}
         {zones.map((z) => (
           <Button key={z.id} type="button" size="sm" variant="outline" onClick={() => onPick(z.id)}>
             {z.label}
@@ -2825,8 +3650,68 @@ function WherePicker({
           Отказ
         </Button>
       </div>
+      {hint && <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">{hint}</p>}
     </div>
   )
+}
+
+function parsePinGapTarget(target: string): { zoneId: string | null; gapIndex: number } | null {
+  const m = /^pin-gap:(?:(.+):)?(\d+)$/.exec(target)
+  if (!m) return null
+  return { zoneId: m[1] ?? null, gapIndex: Number(m[2]) }
+}
+
+function parseBetweenTarget(target: string): { colIndex: number; pairIndex: number } | null {
+  const m = /^mid:(\d+):(\d+)$/.exec(target)
+  if (!m) return null
+  return { colIndex: Number(m[1]), pairIndex: Number(m[2]) }
+}
+
+function rowBetweenWord(z: { id: string }): string {
+  if (z.id === 'top' || z.id.endsWith('-top')) return 'горната'
+  if (z.id === 'middle' || z.id.endsWith('-middle')) return 'средната'
+  return 'долната'
+}
+
+function betweenRowExtras(
+  zones: InteriorLayout['zones'],
+  colCount: number,
+): { id: string; label: string }[] {
+  const byCol = new Map<number, InteriorLayout['zones']>()
+  for (const z of zones) {
+    const c = z.colIndex ?? 0
+    const arr = byCol.get(c) ?? []
+    arr.push(z)
+    byCol.set(c, arr)
+  }
+  const extra: { id: string; label: string }[] = []
+  const multiCol = byCol.size > 1 || colCount > 1
+  for (const [c, rows] of [...byCol.entries()].sort((a, b) => a[0] - b[0])) {
+    const sorted = [...rows].sort((a, b) => a.y0 - b.y0)
+    if (sorted.length < 2) continue
+    for (let i = 0; i < sorted.length - 1; i++) {
+      const lower = sorted[i]
+      const upper = sorted[i + 1]
+      const between = `между ${rowBetweenWord(lower)} и ${rowBetweenWord(upper)}`
+      const prefix = multiCol ? `${columnLabel(c, Math.max(colCount, byCol.size)).replace(/ част$/, '')}: ` : ''
+      extra.push({
+        id: `mid:${c}:${i}`,
+        label: prefix ? `${prefix}${between}` : `Между ${rowBetweenWord(lower)} и ${rowBetweenWord(upper)}`,
+      })
+    }
+  }
+  return extra
+}
+
+function zoneForBetweenPair(
+  zones: InteriorLayout['zones'],
+  colIndex: number,
+  pairIndex: number,
+): InteriorLayout['zones'][number] | undefined {
+  const rows = zones.filter((z) => (z.colIndex ?? 0) === colIndex).sort((a, b) => a.y0 - b.y0)
+  // The opening between the two parts sits on the shared fixed shelf — that is the upper
+  // compartment (between the upper pin shelf and the fixed shelf below it).
+  return rows[pairIndex + 1] ?? rows[pairIndex]
 }
 
 function doorSizeHint(

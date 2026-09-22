@@ -198,6 +198,11 @@ export function SettingsDialog({
   const [sizeHeightMedium, setSizeHeightMedium] = useState('')
   const [sizeDepthSmall, setSizeDepthSmall] = useState('')
   const [sizeDepthMedium, setSizeDepthMedium] = useState('')
+  const [partitionMark, setPartitionMark] = useState('')
+  const [fixedShelfMark, setFixedShelfMark] = useState('')
+  const [partitionDetailSmall, setPartitionDetailSmall] = useState('')
+  const [partitionDetailMedium, setPartitionDetailMedium] = useState('')
+  const [partitionDetailLarge, setPartitionDetailLarge] = useState('')
   const [backLargeMinHeight, setBackLargeMinHeight] = useState('')
   const [backLargeMinWidth, setBackLargeMinWidth] = useState('')
 
@@ -279,6 +284,17 @@ export function SettingsDialog({
     setSizeHeightMedium(String(s.heightMediumMaxMm ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.heightMediumMaxMm))
     setSizeDepthSmall(String(s.depthSmallMaxMm ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.depthSmallMaxMm))
     setSizeDepthMedium(String(s.depthMediumMaxMm ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.depthMediumMaxMm))
+    setPartitionMark(String(s.partitionMarkMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.partitionMarkMinutes))
+    setFixedShelfMark(String(s.fixedShelfMarkMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.fixedShelfMarkMinutes))
+    setPartitionDetailSmall(
+      String(s.partitionDetailMarkSmallMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.partitionDetailMarkSmallMinutes),
+    )
+    setPartitionDetailMedium(
+      String(s.partitionDetailMarkMediumMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.partitionDetailMarkMediumMinutes),
+    )
+    setPartitionDetailLarge(
+      String(s.partitionDetailMarkLargeMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.partitionDetailMarkLargeMinutes),
+    )
     setBackLargeMinHeight(String(s.backLargeMinHeightMm ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.backLargeMinHeightMm))
     setBackLargeMinWidth(String(s.backLargeMinWidthMm ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.backLargeMinWidthMm))
   }
@@ -385,6 +401,14 @@ export function SettingsDialog({
       installDoorTallMinutes: parseFloat(installDoorTall) || DEFAULT_ASSEMBLY_TIME_SETTINGS.installDoorTallMinutes,
       tallDoorRouterMinutes: parseFloat(tallDoorRouter) || DEFAULT_ASSEMBLY_TIME_SETTINGS.tallDoorRouterMinutes,
       tallDoorMinHeightMm: parsePositiveMm(tallDoorMinHeight, DEFAULT_ASSEMBLY_TIME_SETTINGS.tallDoorMinHeightMm),
+      partitionMarkMinutes: parseFloat(partitionMark) || DEFAULT_ASSEMBLY_TIME_SETTINGS.partitionMarkMinutes,
+      fixedShelfMarkMinutes: parseFloat(fixedShelfMark) || DEFAULT_ASSEMBLY_TIME_SETTINGS.fixedShelfMarkMinutes,
+      partitionDetailMarkSmallMinutes:
+        parseFloat(partitionDetailSmall) || DEFAULT_ASSEMBLY_TIME_SETTINGS.partitionDetailMarkSmallMinutes,
+      partitionDetailMarkMediumMinutes:
+        parseFloat(partitionDetailMedium) || DEFAULT_ASSEMBLY_TIME_SETTINGS.partitionDetailMarkMediumMinutes,
+      partitionDetailMarkLargeMinutes:
+        parseFloat(partitionDetailLarge) || DEFAULT_ASSEMBLY_TIME_SETTINGS.partitionDetailMarkLargeMinutes,
       widthSmallMaxMm: width.smallMaxMm,
       widthMediumMaxMm: width.mediumMaxMm,
       heightSmallMaxMm: height.smallMaxMm,
@@ -888,6 +912,72 @@ export function SettingsDialog({
                   />
                 </div>
                 <p className="mt-3 text-xs text-[var(--color-muted-foreground)]">{previewSizeText}</p>
+              </div>
+
+              <div className="rounded-md border border-[var(--color-border)] p-4">
+                <h3 className="mb-3 font-medium">Начертаване</h3>
+                <p className="mb-3 text-xs text-[var(--color-muted-foreground)]">
+                  Отделно от сглобяването. Всяка разделителна страница се чертае на дъното и на плота (или
+                  блендите). Ако има разделители, операции като рафтоносачи, водачи и лост получават допълнително
+                  време × броя страници според размера на шкафа (30 сек / 1 мин / 1 мин 30 сек).
+                </p>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <Label htmlFor="partition-mark">Разделителна страница на дъното или плота (минути)</Label>
+                    <Input
+                      id="partition-mark"
+                      type="number"
+                      step="0.5"
+                      min="0"
+                      value={partitionMark}
+                      onChange={(e) => setPartitionMark(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="fixed-shelf-mark">Фиксиран рафт (минути)</Label>
+                    <Input
+                      id="fixed-shelf-mark"
+                      type="number"
+                      step="0.5"
+                      min="0"
+                      value={fixedShelfMark}
+                      onChange={(e) => setFixedShelfMark(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="partition-detail-small">Допълнително на операция — малък</Label>
+                    <Input
+                      id="partition-detail-small"
+                      type="number"
+                      step="0.5"
+                      min="0"
+                      value={partitionDetailSmall}
+                      onChange={(e) => setPartitionDetailSmall(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="partition-detail-medium">Допълнително на операция — среден</Label>
+                    <Input
+                      id="partition-detail-medium"
+                      type="number"
+                      step="0.5"
+                      min="0"
+                      value={partitionDetailMedium}
+                      onChange={(e) => setPartitionDetailMedium(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="partition-detail-large">Допълнително на операция — голям</Label>
+                    <Input
+                      id="partition-detail-large"
+                      type="number"
+                      step="0.5"
+                      min="0"
+                      value={partitionDetailLarge}
+                      onChange={(e) => setPartitionDetailLarge(e.target.value)}
+                    />
+                  </div>
+                </div>
               </div>
 
               <div className="rounded-md border border-[var(--color-border)] p-4">

@@ -24,7 +24,7 @@ function BreakdownSection({
 }: {
   section: PriceBreakdown['sections'][number]
 }) {
-  const [open, setOpen] = useState(true)
+  const [open, setOpen] = useState(false)
 
   return (
     <section className="space-y-2">

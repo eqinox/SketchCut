@@ -65,9 +65,12 @@ import {
   layoutCounts,
   parseDoorSpan,
   parseFixedShelves,
+  parseMovableShelves,
   parsePartitions,
+  parseClothesRails,
   parseZoneMap,
   fixedShelfMeasureLabel,
+  movableShelfMeasureLabel,
   partitionMeasureLabel,
   consecutiveZoneFrontRuns,
   canCombineZoneFrontRun,
@@ -77,12 +80,16 @@ import {
   type FixedShelfSpec,
   type OverlayFrontCovers,
   type LaidOutZone,
+  type MovableShelfSpec,
+  type ClothesRailSpec,
   type PartitionSpec,
   type ZoneFittings,
 } from './zones'
 
 export interface InteriorFittings {
   shelfCount: number
+  /** Pin shelves at given offsets; empty + shelfCount → even gaps (legacy). */
+  movableShelves: MovableShelfSpec[]
   /** 3 mm hardboard back. */
   hasBack: boolean
   doorCount: DoorCount
@@ -96,6 +103,7 @@ export interface InteriorFittings {
   includeHandles: boolean
   /** Clothes hanging rail between the sides. */
   hasClothesRail: boolean
+  clothesRails: ClothesRailSpec[]
   slideKind: SlideKind
   slideLength: number
   /** Up to 2 shelves screwed through the sides with 5×60. */
@@ -115,6 +123,7 @@ export interface InteriorFittings {
 
 export const EMPTY_INTERIOR_FITTINGS: InteriorFittings = {
   shelfCount: 0,
+  movableShelves: [],
   hasBack: false,
   doorCount: 0,
   doorStyle: 'hinged',
@@ -123,6 +132,7 @@ export const EMPTY_INTERIOR_FITTINGS: InteriorFittings = {
   cutFromOneBoard: false,
   includeHandles: true,
   hasClothesRail: false,
+  clothesRails: [],
   slideKind: 'roller',
   slideLength: 300,
   fixedShelves: [],
@@ -135,8 +145,11 @@ export const EMPTY_INTERIOR_FITTINGS: InteriorFittings = {
 export function parseInteriorFittings(raw: Record<string, unknown>, slideDepth: number): InteriorFittings {
   const slideKind = parseSlideKind(raw.slideKind)
   const doorCount = parseDoorCount(raw.doorCount)
+  const movableShelves = parseMovableShelves(raw.movableShelves)
+  const clothesRails = parseClothesRails(raw.clothesRails, raw.hasClothesRail === true)
   return {
-    shelfCount: parseShelfCount(raw.shelfCount),
+    shelfCount: movableShelves.length > 0 ? movableShelves.length : parseShelfCount(raw.shelfCount),
+    movableShelves,
     hasBack: raw.hasBack === true,
     doorCount,
     doorStyle: parseDoorStyle(raw.doorStyle),
@@ -144,7 +157,8 @@ export function parseInteriorFittings(raw: Record<string, unknown>, slideDepth: 
     drawerFrontHeights: parseDrawerFrontHeights(raw.drawerFrontHeights, raw.drawerFrontHeight),
     cutFromOneBoard: typeof raw.cutFromOneBoard === 'boolean' ? raw.cutFromOneBoard : false,
     includeHandles: raw.includeHandles !== false,
-    hasClothesRail: raw.hasClothesRail === true,
+    clothesRails,
+    hasClothesRail: clothesRails.length > 0,
     slideKind,
     slideLength: parseSlideLength(raw.slideLength, slideDepth, slideKind),
     fixedShelves: parseFixedShelves(raw.fixedShelves),
@@ -220,21 +234,26 @@ export function appendShelves(
     hole?: PanelHole
     shelfDepth?: number
     depthNote?: string
+    placements?: MovableShelfSpec[]
   },
   panels: GeneratedPanel[],
   hardware: HardwareItem[],
   notes: string[],
   hardwareSettings: HardwareSettings,
 ): void {
-  if (input.shelfCount <= 0) return
-  const bottoms = evenShelfBottoms(input.innerH, input.shelfCount, input.thickness)
+  const placements = (input.placements ?? []).filter((s) => s.offsetMm > 0)
+  const count = placements.length > 0 ? placements.length : input.shelfCount
+  if (count <= 0) return
+  const bottoms = evenShelfBottoms(input.innerH, count, input.thickness)
   const gap = bottoms[0] ?? 0
   const shelfDepth = input.shelfDepth ?? input.sideD - DEFAULT_SHELF_FRONT_INSET
   const hole = input.hole && panelHoleFits(input.innerW, shelfDepth, input.hole) ? input.hole : undefined
   const where = input.zoneLabel ? `${input.zoneLabel}: ` : ''
   const name = input.zoneLabel ? `Рафт (${input.zoneLabel})` : 'Рафт'
   notes.push(
-    `${where}${input.shelfCount} ${input.shelfCount === 1 ? 'рафт' : 'рафта'} с еднакви празнини по ${Math.round(gap)} мм.`,
+    placements.length > 0
+      ? `${where}${count} ${count === 1 ? 'рафт' : 'рафта'}: ${placements.map((s) => movableShelfMeasureLabel(s)).join('; ')}.`
+      : `${where}${count} ${count === 1 ? 'рафт' : 'рафта'} с еднакви празнини по ${Math.round(gap)} мм.`,
   )
   notes.push(
     input.depthNote ??
@@ -244,12 +263,12 @@ export function appendShelves(
     notes.push(`${where}${panelHoleNote(hole)}`)
   }
   notes.push(
-    `Рафтоносачи: ${input.shelfCount * SHELF_PINS_PER_SHELF} бр. (по ${SHELF_PINS_PER_SHELF} на рафт, 5 цента/бр.).`,
+    `Рафтоносачи: ${count * SHELF_PINS_PER_SHELF} бр. (по ${SHELF_PINS_PER_SHELF} на рафт, 5 цента/бр.).`,
   )
   hardware.push(
     pricedLine(
       { ...SHELF_PIN, unitPriceEur: hardwareSettings.shelfPinEur },
-      input.shelfCount * SHELF_PINS_PER_SHELF,
+      count * SHELF_PINS_PER_SHELF,
       `по ${SHELF_PINS_PER_SHELF} на рафт${input.zoneLabel ? ` · ${input.zoneLabel}` : ''}`,
     ),
   )
@@ -258,7 +277,7 @@ export function appendShelves(
     name,
     width: input.innerW,
     height: shelfDepth,
-    quantity: input.shelfCount,
+    quantity: count,
     canRotate: false,
     edges: edges({ top: true }),
     note: hole
@@ -871,9 +890,11 @@ export function appendZonedInterior(
     doorSpan: sliding ? 'full' : f.doorSpan,
     doorCount: sliding ? 0 : f.doorCount,
     shelfCount: f.shelfCount,
+    movableShelves: f.movableShelves,
     drawerFrontHeights: f.drawerFrontHeights,
     cutFromOneBoard: f.cutFromOneBoard,
     hasClothesRail: f.hasClothesRail,
+    clothesRails: f.clothesRails,
     zones: sliding
       ? Object.fromEntries(
           Object.entries(f.zones ?? {}).map(([id, z]) => [id, z ? { ...z, doorCount: 0 as const } : z]),
@@ -935,6 +956,7 @@ export function appendZonedInterior(
     appendShelves(
       {
         shelfCount: z.shelfCount,
+        placements: z.movable,
         innerW: z.innerW > 0 ? z.innerW : input.innerW,
         innerH: z.innerH,
         sideD: input.sideD,
@@ -949,7 +971,7 @@ export function appendZonedInterior(
       notes,
       hardwareSettings,
     )
-    if (z.hasClothesRail) {
+    for (const _rail of z.rails) {
       appendClothesRail(
         {
           width: input.width,

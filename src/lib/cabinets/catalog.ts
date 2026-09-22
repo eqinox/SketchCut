@@ -46,6 +46,7 @@ export function scaleCabinetResult(
       ...step,
       minutes: Math.round(step.minutes * q * 10) / 10,
       quantity: step.quantity != null ? step.quantity * q : undefined,
+      calc: undefined,
     }
   })
   return {

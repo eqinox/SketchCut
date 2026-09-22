@@ -325,6 +325,15 @@ export interface AssemblyTimeSettings {
   /** Extra router time applies when finished door height is over this (mm). */
   tallDoorMinHeightMm: number
 
+  /** Drawing one partition on the bottom (or on the top) — minutes per page. */
+  partitionMarkMinutes: number
+  /** Drawing one fixed shelf on the carcass — minutes. Assembly is separate. */
+  fixedShelfMarkMinutes: number
+  /** Extra drawing time per interior job (pins, slides, rail) for one partition, small cabinet. */
+  partitionDetailMarkSmallMinutes: number
+  partitionDetailMarkMediumMinutes: number
+  partitionDetailMarkLargeMinutes: number
+
   widthSmallMaxMm: number
   widthMediumMaxMm: number
   heightSmallMaxMm: number
@@ -386,6 +395,11 @@ export const DEFAULT_ASSEMBLY_TIME_SETTINGS: AssemblyTimeSettings = {
   installDoorTallMinutes: 9,
   tallDoorRouterMinutes: 10,
   tallDoorMinHeightMm: TALL_DOOR_MIN_HEIGHT_MM,
+  partitionMarkMinutes: 2,
+  fixedShelfMarkMinutes: 2,
+  partitionDetailMarkSmallMinutes: 0.5,
+  partitionDetailMarkMediumMinutes: 1,
+  partitionDetailMarkLargeMinutes: 1.5,
   ...DEFAULT_CABINET_SIZE_LIMITS,
 }
 
@@ -540,6 +554,23 @@ export function parseAssemblyTimeSettings(raw: unknown): AssemblyTimeSettings {
     installDoorTallMinutes: numPositive(src, 'installDoorTallMinutes', d.installDoorTallMinutes),
     tallDoorRouterMinutes: numPositive(src, 'tallDoorRouterMinutes', d.tallDoorRouterMinutes),
     tallDoorMinHeightMm: numMm(src, 'tallDoorMinHeightMm', d.tallDoorMinHeightMm),
+    partitionMarkMinutes: numPositive(src, 'partitionMarkMinutes', d.partitionMarkMinutes),
+    fixedShelfMarkMinutes: numPositive(src, 'fixedShelfMarkMinutes', d.fixedShelfMarkMinutes),
+    partitionDetailMarkSmallMinutes: numPositive(
+      src,
+      'partitionDetailMarkSmallMinutes',
+      d.partitionDetailMarkSmallMinutes,
+    ),
+    partitionDetailMarkMediumMinutes: numPositive(
+      src,
+      'partitionDetailMarkMediumMinutes',
+      d.partitionDetailMarkMediumMinutes,
+    ),
+    partitionDetailMarkLargeMinutes: numPositive(
+      src,
+      'partitionDetailMarkLargeMinutes',
+      d.partitionDetailMarkLargeMinutes,
+    ),
     widthSmallMaxMm: width.smallMaxMm,
     widthMediumMaxMm: width.mediumMaxMm,
     heightSmallMaxMm: height.smallMaxMm,
@@ -646,6 +677,8 @@ export interface AssemblyStep {
   id: string
   label: string
   minutes: number
+  /** Drawing/marking vs putting the piece together. Default assemble. */
+  kind?: 'mark' | 'assemble'
   hint?: string
   quantity?: number
   /** Singular unit name, e.g. чифт. */
@@ -689,7 +722,29 @@ function formatQty(n: number): string {
 }
 
 function minText(minutes: number): string {
-  return `${formatQty(minutes)} мин`
+  const rounded = Math.round(minutes * 10) / 10
+  const totalSec = Math.round(rounded * 60)
+  const m = Math.floor(totalSec / 60)
+  const sec = totalSec % 60
+  if (sec === 0) return `${formatQty(m)} мин`
+  if (m === 0) return `${sec} сек`
+  return `${m} мин ${sec} сек`
+}
+
+function partitionPagesPhrase(n: number): string {
+  return n === 1 ? '1 разделителна страница' : `${formatQty(n)} разделителни страници`
+}
+
+function markTopCaption(input: {
+  hasTop: boolean
+  hasTopRails: boolean
+  hasFrontFascia?: boolean
+  isWallCabinet?: boolean
+}): string {
+  if (input.hasTop || input.isWallCabinet) return 'плота'
+  if (input.hasTopRails) return 'блендите горе'
+  if (input.hasFrontFascia) return 'блендата'
+  return 'горната плоскост'
 }
 
 function qtyPhrase(n: number, one?: string, many?: string): string {
@@ -821,6 +876,113 @@ export function collectCabinetAssembly(input: {
   )
   const tier = classified.tier
   const size = formatCabinetSizeBreakdown(classified)
+  const partitions = Math.max(0, input.partitionCount ?? 0)
+  const fixedN = Math.max(0, input.fixedShelfCount ?? 0)
+  const railN = input.clothesRailCount ?? (input.hasClothesRail ? 1 : 0)
+  const markPerFace = s.partitionMarkMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.partitionMarkMinutes
+  const fixedMarkPer = s.fixedShelfMarkMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.fixedShelfMarkMinutes
+  const detailMarkPer = pickTier(
+    tier,
+    s.partitionDetailMarkSmallMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.partitionDetailMarkSmallMinutes,
+    s.partitionDetailMarkMediumMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.partitionDetailMarkMediumMinutes,
+    s.partitionDetailMarkLargeMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.partitionDetailMarkLargeMinutes,
+  )
+  const sizeWord = OVERALL_TIER_BG[tier]
+  const topCaption = markTopCaption(input)
+
+  if (partitions > 0 && markPerFace > 0) {
+    const faceMinutes = markPerFace * partitions
+    const pages = partitionPagesPhrase(partitions)
+    const faceCalc = `${pages} × ${minText(markPerFace)} = ${minText(faceMinutes)}`
+    pushStep(steps, {
+      id: 'mark-partition-bottom',
+      kind: 'mark',
+      label:
+        partitions === 1
+          ? 'Начертаване на разделителна страница на дъното'
+          : 'Начертаване на разделителни страници на дъното',
+      minutes: faceMinutes,
+      quantity: partitions,
+      unitOne: 'страница',
+      unitMany: 'страници',
+      calc: faceCalc,
+      hint: `време за начертаване върху дъното · да се начертаят ${pages}`,
+    })
+    pushStep(steps, {
+      id: 'mark-partition-top',
+      kind: 'mark',
+      label:
+        partitions === 1
+          ? `Начертаване на разделителна страница на ${topCaption}`
+          : `Начертаване на разделителни страници на ${topCaption}`,
+      minutes: faceMinutes,
+      quantity: partitions,
+      unitOne: 'страница',
+      unitMany: 'страници',
+      calc: faceCalc,
+      hint: `време за начертаване върху ${topCaption} · да се начертаят ${pages}`,
+    })
+  }
+
+  if (fixedN > 0 && fixedMarkPer > 0) {
+    const minutes = fixedMarkPer * fixedN
+    pushStep(steps, {
+      id: 'mark-fixed-shelf',
+      kind: 'mark',
+      label: fixedN === 1 ? 'Начертаване на фиксиран рафт' : 'Начертаване на фиксирани рафтове',
+      minutes,
+      quantity: fixedN,
+      unitOne: 'рафт',
+      unitMany: 'рафта',
+      calc: `${fixedN === 1 ? '1 фиксиран рафт' : `${formatQty(fixedN)} фиксирани рафта`} × ${minText(fixedMarkPer)} = ${minText(minutes)}`,
+      hint: 'начертаване върху страниците',
+    })
+  }
+
+  if (partitions > 0 && detailMarkPer > 0) {
+    const extra = detailMarkPer * partitions
+    const extraCalc = `${partitionPagesPhrase(partitions)} × ${minText(detailMarkPer)} (${sizeWord} шкаф) = ${minText(extra)}`
+    const extraHint = `${size} · по ${minText(detailMarkPer)} на разделителна страница, защото разделителите усложняват чертежа`
+    if (input.shelfCount > 0) {
+      pushStep(steps, {
+        id: 'mark-shelf-pins',
+        kind: 'mark',
+        label: 'Начертаване за рафтоносачи',
+        minutes: extra,
+        quantity: partitions,
+        unitOne: 'страница',
+        unitMany: 'страници',
+        calc: extraCalc,
+        hint: extraHint,
+      })
+    }
+    if (input.drawerCount > 0) {
+      pushStep(steps, {
+        id: 'mark-drawer-guides',
+        kind: 'mark',
+        label: 'Начертаване за водачи на страниците',
+        minutes: extra,
+        quantity: partitions,
+        unitOne: 'страница',
+        unitMany: 'страници',
+        calc: extraCalc,
+        hint: extraHint,
+      })
+    }
+    if (railN > 0) {
+      pushStep(steps, {
+        id: 'mark-clothes-rail',
+        kind: 'mark',
+        label: 'Начертаване за лост за дрехи',
+        minutes: extra,
+        quantity: partitions,
+        unitOne: 'страница',
+        unitMany: 'страници',
+        calc: extraCalc,
+        hint: extraHint,
+      })
+    }
+  }
 
   if (input.hasLegs) {
     pushStep(steps, {
@@ -1013,7 +1175,6 @@ export function collectCabinetAssembly(input: {
     })
   }
 
-  const railN = input.clothesRailCount ?? (input.hasClothesRail ? 1 : 0)
   if (railN > 0) {
     const len = Math.max(0, Math.round(input.clothesRailLengthMm ?? 0))
     pushStep(steps, {

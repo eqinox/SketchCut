@@ -379,10 +379,15 @@ function mergeAssemblySteps(groups: AssemblyStep[][]): AssemblyStep[] {
       ...prev,
       minutes,
       quantity,
+      kind: prev.kind === 'mark' || step.kind === 'mark' ? 'mark' : prev.kind,
     }
-    if (prev.id === 'shelf-pins' && (prev.calc != null || step.calc != null)) {
+    if (prev.kind === 'mark' || step.kind === 'mark' || prev.id === 'shelf-pins') {
       merged.calc = `${formatMinutes(minutes)} (сбор по шкафове)`
-      merged.hint = 'първи рафт по-дълго, всеки следващ по-кратко — на всеки шкаф отделно'
+      if (prev.kind === 'mark' || step.kind === 'mark') {
+        merged.hint = prev.hint ?? step.hint
+      } else {
+        merged.hint = 'първи рафт по-дълго, всеки следващ по-кратко — на всеки шкаф отделно'
+      }
     }
     map.set(step.id, merged)
   }
@@ -434,21 +439,50 @@ function laborSection(
   ]
 
   if (assemblySteps.length > 0) {
-    for (const step of assemblySteps) {
+    const markSteps = assemblySteps.filter((step) => step.kind === 'mark')
+    const assembleSteps = assemblySteps.filter((step) => step.kind !== 'mark')
+    const markMinutes = assemblyMinutesFromSteps(markSteps)
+    const assembleMinutes = assemblyMinutesFromSteps(assembleSteps)
+    for (const step of markSteps) {
       lines.push({
         label: step.label,
         hint: describeAssemblyCalc(step),
         amountEur: minutesCostEur(step.minutes, hourly),
       })
     }
-    lines.push({
-      label: 'Общо сглобяване',
-      hint:
-        assemblyMinutes != null
-          ? `сбор на операциите по-горе = ${formatMinutes(assemblyMinutes)}`
-          : 'няма зададено време за сглобяване',
-      amountEur: null,
-    })
+    if (markSteps.length > 0) {
+      lines.push({
+        label: 'Общо начертаване',
+        hint: `сбор на начертаването по-горе = ${formatMinutes(markMinutes)}`,
+        amountEur: null,
+      })
+    }
+    for (const step of assembleSteps) {
+      lines.push({
+        label: step.label,
+        hint: describeAssemblyCalc(step),
+        amountEur: minutesCostEur(step.minutes, hourly),
+      })
+    }
+    if (assembleSteps.length > 0) {
+      lines.push({
+        label: 'Общо сглобяване',
+        hint:
+          assemblyMinutes != null
+            ? markSteps.length > 0
+              ? `сбор на сглобяването по-горе = ${formatMinutes(assembleMinutes)}`
+              : `сбор на операциите по-горе = ${formatMinutes(assemblyMinutes)}`
+            : 'няма зададено време за сглобяване',
+        amountEur: null,
+      })
+    }
+    if (markSteps.length > 0 && assembleSteps.length > 0 && assemblyMinutes != null) {
+      lines.push({
+        label: 'Общо начертаване и сглобяване',
+        hint: `${formatMinutes(markMinutes)} начертаване + ${formatMinutes(assembleMinutes)} сглобяване = ${formatMinutes(assemblyMinutes)}`,
+        amountEur: null,
+      })
+    }
   } else {
     lines.push({
       label: 'Сглобяване',
@@ -473,8 +507,8 @@ function laborSection(
     id: 'labor',
     title: 'Труд',
     intro: skipCutEdge
-      ? 'Рязането и машинното кантиране са изключени. Сглобяването е по операциите от настройките (Настройки → време).'
-      : 'Рязането и машинното кантиране са дял от една плоча. Сглобяването е по операциите от настройките (Настройки → време).',
+      ? 'Рязането и машинното кантиране са изключени. Начертаването и сглобяването са по операциите от настройките (Настройки → време).'
+      : 'Рязането и машинното кантиране са дял от една плоча. Начертаването и сглобяването са по операциите от настройките (Настройки → време).',
     lines,
     subtotalEur: cost,
   }
