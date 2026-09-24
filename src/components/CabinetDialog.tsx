@@ -581,6 +581,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
   const [width, setWidth] = useState(String(editing?.params.width ?? DEFAULT_KITCHEN_BASE_PARAMS.width))
   const [height, setHeight] = useState(String(editing?.params.height ?? DEFAULT_KITCHEN_BASE_PARAMS.height))
   const [depth, setDepth] = useState(String(editing?.params.depth ?? DEFAULT_KITCHEN_BASE_PARAMS.depth))
+  const [depthIncludesDoor, setDepthIncludesDoor] = useState<'with-door' | 'without-door'>('without-door')
   const [thickness, setThickness] = useState(String(editing?.params.thickness ?? DEFAULT_KITCHEN_BASE_PARAMS.thickness))
   const [legHeight, setLegHeight] = useState(
     'legHeight' in initialKitchen && initialKitchen.legHeight === 150 ? 150 : 100,
@@ -672,6 +673,12 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
   })
 
   const params = useMemo(() => {
+    const inputDepth = parseInt(depth, 10)
+    const inputThickness = parseInt(thickness, 10)
+    const actualDepth = depthIncludesDoor === 'with-door' 
+      ? inputDepth - inputThickness - 2 
+      : inputDepth
+    
     const hasSplit = fixedShelves.length > 0 || partitions.length > 0
     const movable = fittingsFromMovable(hasSplit ? [] : movableShelves, hasSplit ? 0 : shelfCount)
     const fittings = {
@@ -714,8 +721,8 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
       return parseNightstandParams({
         width: parseInt(width, 10),
         height: parseInt(height, 10),
-        depth: parseInt(depth, 10),
-        thickness: parseInt(thickness, 10),
+        depth: actualDepth,
+        thickness: inputThickness,
         useLegs,
         plinthCount,
         plinthHeight: parseInt(plinthHeight, 10),
@@ -730,8 +737,8 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
       return parseSectionParams({
         width: parseInt(width, 10),
         height: parseInt(height, 10),
-        depth: parseInt(depth, 10),
-        thickness: parseInt(thickness, 10),
+        depth: actualDepth,
+        thickness: inputThickness,
         useLegs: false,
         plinthCount,
         plinthHeight: parseInt(plinthHeight, 10),
@@ -745,8 +752,8 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
       return parseWardrobeParams({
         width: parseInt(width, 10),
         height: parseInt(height, 10),
-        depth: parseInt(depth, 10),
-        thickness: parseInt(thickness, 10),
+        depth: actualDepth,
+        thickness: inputThickness,
         useLegs: false,
         plinthCount,
         plinthHeight: parseInt(plinthHeight, 10),
@@ -762,8 +769,8 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
       return parseKitchenWallParams({
         width: parseInt(width, 10),
         height: parseInt(height, 10),
-        depth: parseInt(depth, 10),
-        thickness: parseInt(thickness, 10),
+        depth: actualDepth,
+        thickness: inputThickness,
         hasHood,
         hoodShape,
         hoodDiameter: parseInt(hoodDiameter, 10),
@@ -777,15 +784,15 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
     return parseKitchenBaseParams({
       width: parseInt(width, 10),
       height: parseInt(height, 10),
-      depth: parseInt(depth, 10),
-      thickness: parseInt(thickness, 10),
+      depth: actualDepth,
+      thickness: inputThickness,
       legHeight,
       railWidth: DEFAULT_KITCHEN_BASE_PARAMS.railWidth,
       topStyle,
       colors,
       ...fittings,
     })
-  }, [typeId, width, height, depth, thickness, legHeight, shelfCount, movableShelves, hasBack, clothesRails, doorCount, doorStyle, slidingEdges, drawerFrontHeights, cutFromOneBoard, includeHandles, slideKind, slideLength, useLegs, plinthCount, plinthHeight, colors, topStyle, hasHood, hoodShape, hoodDiameter, hoodRectW, hoodRectD, fixedShelves, partitions, doorSpan, zoneUi, externalDoors])
+  }, [typeId, width, height, depth, depthIncludesDoor, thickness, legHeight, shelfCount, movableShelves, hasBack, clothesRails, doorCount, doorStyle, slidingEdges, drawerFrontHeights, cutFromOneBoard, includeHandles, slideKind, slideLength, useLegs, plinthCount, plinthHeight, colors, topStyle, hasHood, hoodShape, hoodDiameter, hoodRectW, hoodRectD, fixedShelves, partitions, doorSpan, zoneUi, externalDoors])
 
   const qty = Math.max(1, parseInt(quantity, 10) || 1)
   const result = useMemo(() => {
@@ -1413,6 +1420,35 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
           <NumField id="cab-d" label="Дълбочина" value={depth} onChange={setDepth} />
           <NumField id="cab-t" label="Плоскост" value={thickness} onChange={setThickness} />
         </div>
+        
+        <div className="flex items-center gap-4 rounded border p-2">
+          <span className="text-sm font-medium">Дълбочината е:</span>
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id="depth-without-door"
+              checked={depthIncludesDoor === 'without-door'}
+              onCheckedChange={(checked) => {
+                if (checked) setDepthIncludesDoor('without-door')
+              }}
+            />
+            <Label htmlFor="depth-without-door" className="cursor-pointer text-sm font-normal">
+              Без вратата
+            </Label>
+          </div>
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id="depth-with-door"
+              checked={depthIncludesDoor === 'with-door'}
+              onCheckedChange={(checked) => {
+                if (checked) setDepthIncludesDoor('with-door')
+              }}
+            />
+            <Label htmlFor="depth-with-door" className="cursor-pointer text-sm font-normal">
+              Заедно с вратата
+            </Label>
+          </div>
+        </div>
+        
         <CabinetSizeBadge
           width={params.width}
           height={params.height}
@@ -1424,7 +1460,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
         {hasFittings && (
           <>
             {typeId === 'kitchen-base' && (
-            <FormSection defaultOpen={!isEdit} title="Крачета" summary={`${legHeight / 10} см`}>
+            <FormSection defaultOpen={false} title="Крачета" summary={`${legHeight / 10} см`}>
               <div className="mt-1 flex gap-2">
                 {([100, 150] as const).map((h) => (
                   <Button
@@ -1445,7 +1481,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
             )}
 
             {typeId !== 'kitchen-wall' && (
-            <FormSection defaultOpen={!isEdit}
+            <FormSection defaultOpen={false}
               title="Горе"
               summary={
                 topStyle === 'rails'
@@ -1529,7 +1565,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
             )}
 
             {typeId === 'kitchen-wall' && (
-            <FormSection defaultOpen={!isEdit}
+            <FormSection defaultOpen={false}
               title="Абсорбатор"
               summary={!hasHood ? 'Без' : hoodShape === 'round' ? 'Кръгъл отвор' : 'Правоъгълен отвор'}
             >
@@ -1623,7 +1659,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
             </FormSection>
             )}
 
-            <FormSection defaultOpen={!isEdit}
+            <FormSection defaultOpen={false}
               title="Фиксиран рафт"
               summary={fixedShelves.length > 0 ? `${fixedShelves.length} бр.` : 'няма'}
             >
@@ -1859,7 +1895,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
               )}
             </FormSection>
 
-            <FormSection defaultOpen={!isEdit}
+            <FormSection defaultOpen={false}
               title="Разделителна страница"
               summary={partitions.length > 0 ? `${partitions.length} бр.` : 'няма'}
             >
@@ -2194,7 +2230,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
               </p>
             )}
 
-            <FormSection defaultOpen={!isEdit}
+            <FormSection defaultOpen={false}
               title="Рафтове"
               summary={counts.shelfCount > 0 ? `${counts.shelfCount} бр.` : 'няма'}
             >
@@ -2435,7 +2471,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
               </p>
             </FormSection>
 
-        <FormSection defaultOpen={!isEdit} title="Фазер на гърба" summary={hasBack ? 'С фазер' : 'Без'}>
+        <FormSection defaultOpen={false} title="Фазер на гърба" summary={hasBack ? 'С фазер' : 'Без'}>
           <div className="mt-1 flex gap-2">
             <Button
               type="button"
@@ -2463,7 +2499,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
           </p>
         </FormSection>
 
-        <FormSection defaultOpen={!isEdit}
+        <FormSection defaultOpen={false}
           title="Лост за дрехи"
           summary={counts.clothesRailCount > 0 ? `${counts.clothesRailCount} бр.` : 'няма'}
         >
@@ -2708,7 +2744,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
           </p>
         </FormSection>
 
-        <FormSection defaultOpen={!isEdit}
+        <FormSection defaultOpen={false}
           title="Врати"
           summary={
             isSlidingCabinet
@@ -2983,7 +3019,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
           )}
         </FormSection>
 
-        <FormSection defaultOpen={!isEdit}
+        <FormSection defaultOpen={false}
           title="Чекмеджета"
           summary={counts.drawerCount > 0 ? `${counts.drawerCount} бр.` : 'няма'}
         >
@@ -3129,7 +3165,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
         </FormSection>
 
         {showCombineFronts && (
-          <FormSection defaultOpen={!isEdit} title="Рязане" summary={cutFromOneBoard ? 'От една плоча' : 'Отделно'}>
+          <FormSection defaultOpen={false} title="Рязане" summary={cutFromOneBoard ? 'От една плоча' : 'Отделно'}>
             <div className="mt-1 flex gap-2">
               <Button
                 type="button"
@@ -3159,7 +3195,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
         )}
 
         {counts.drawerCount > 0 && (
-          <FormSection defaultOpen={!isEdit}
+          <FormSection defaultOpen={false}
             title="Водачи"
             summary={
               slideKind === 'roller' ? 'Ролкови' : slideKind === 'soft-full' ? 'Плавно пълно' : 'Плавно частично'
@@ -3262,7 +3298,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
         {isPlinthBox && (
           <>
             {typeId === 'nightstand' && (
-            <FormSection defaultOpen={!isEdit} title="Опора" summary={useLegs ? 'Крачета' : 'Цокъл и дъно'}>
+            <FormSection defaultOpen={false} title="Опора" summary={useLegs ? 'Крачета' : 'Цокъл и дъно'}>
               <div className="mt-1 flex gap-2">
                 <Button
                   type="button"
@@ -3290,7 +3326,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
             )}
 
             {typeId === 'nightstand' && useLegs ? (
-              <FormSection defaultOpen={!isEdit} title="Крачета" summary={`${legHeight / 10} см`}>
+              <FormSection defaultOpen={false} title="Крачета" summary={`${legHeight / 10} см`}>
                 <div className="mt-1 flex gap-2">
                   {([100, 150] as const).map((h) => (
                     <Button
@@ -3307,7 +3343,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
               </FormSection>
             ) : (
               <>
-                <FormSection defaultOpen={!isEdit} title="Брой цокли" summary={String(plinthCount)}>
+                <FormSection defaultOpen={false} title="Брой цокли" summary={String(plinthCount)}>
                   <div className="mt-1 flex gap-2">
                     {([1, 2] as const).map((n) => (
                       <Button
@@ -3326,7 +3362,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                   </p>
                 </FormSection>
 
-                <FormSection defaultOpen={!isEdit} title="Височина на цокъл (мм)" summary={`${plinthHeight} мм`}>
+                <FormSection defaultOpen={false} title="Височина на цокъл (мм)" summary={`${plinthHeight} мм`}>
                   <div className="mt-1 flex items-center gap-2">
                     <Input
                       id="plinth-height"
@@ -3366,7 +3402,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
           </>
         )}
 
-        <FormSection defaultOpen={!isEdit} title="Цветове">
+        <FormSection defaultOpen={false} title="Цветове">
           <p className="mt-0.5 text-xs text-[var(--color-muted-foreground)]">
             По подразбиране плоскостите са еднакви. Смени само ако трябва да се отличават.
           </p>
