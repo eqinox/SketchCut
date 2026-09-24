@@ -836,6 +836,53 @@ export function defaultPartitionOffsetMm(innerW: number, thickness: number, alre
   return Math.max(MIN_ZONE_CLEAR_MM, piece)
 }
 
+/**
+ * Calculate the middle position between two elements (sides or partitions).
+ * Returns a PartitionSpec that places a divider exactly in the middle.
+ */
+export function middlePartitionBetween(
+  leftElement: 'left-side' | number,
+  rightElement: 'right-side' | number,
+  partitions: ResolvedPartition[],
+  innerW: number,
+  thickness: number,
+): PartitionSpec | null {
+  const T = thickness
+  let leftX: number
+  let rightX: number
+
+  if (leftElement === 'left-side') {
+    leftX = 0
+  } else {
+    const leftPart = partitions.find(p => p.specIndex === leftElement)
+    if (!leftPart) return null
+    leftX = leftPart.xRight
+  }
+
+  if (rightElement === 'right-side') {
+    rightX = innerW
+  } else {
+    const rightPart = partitions.find(p => p.specIndex === rightElement)
+    if (!rightPart) return null
+    rightX = rightPart.xLeft
+  }
+
+  const middleX = (leftX + rightX) / 2
+  const offsetMm = Math.round(middleX - leftX)
+
+  if (offsetMm < MIN_ZONE_CLEAR_MM || (rightX - middleX - T) < MIN_ZONE_CLEAR_MM) {
+    return null
+  }
+
+  return {
+    from: 'left',
+    offsetMm,
+    fromFace: 'right',
+    toFace: 'left',
+    fromPartition: leftElement === 'left-side' ? null : leftElement,
+  }
+}
+
 export function resolvePartitions(
   specs: PartitionSpec[],
   innerW: number,
