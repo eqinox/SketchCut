@@ -2318,98 +2318,110 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                 layout.zones.map((z) => {
                   const cur = zoneOf(zoneUi, z.id)
                   const rows = displayedMovable(cur.movableShelves, cur.shelfCount, z.innerH, params.thickness)
-                  return rows.map((shelf, i) => (
-                    <div key={`pin-${z.id}-${i}`} className="mt-2 space-y-2 rounded-md border border-[var(--color-border)] p-2">
-                      <div className="flex items-center gap-2">
-                        <span className="min-w-28 shrink-0 text-xs">
-                          Рафт {i + 1} · {z.label}
-                        </span>
-                        <Button
-                          type="button"
-                          size="icon"
-                          variant="ghost"
-                          className="h-8 w-8 shrink-0"
-                          onClick={() => {
-                            const nextRows = displayedMovable(
-                              cur.movableShelves,
-                              cur.shelfCount,
-                              z.innerH,
-                              params.thickness,
-                            ).filter((_, j) => j !== i)
-                            patchZone(z.id, { movableShelves: nextRows, shelfCount: nextRows.length })
-                          }}
-                          aria-label={`Премахни рафт ${i + 1} от ${z.label}`}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                      <ShelfMeasureFields
-                        from={shelf.from}
-                        fromFace={shelf.fromFace}
-                        toFace={shelf.toFace}
-                        offsetMm={shelf.offsetMm}
-                        allowMiddle
-                        originHint={
-                          shelf.from === 'middle'
-                            ? `По средата на отвора между рафтовете · ${z.label}`
-                            : `От ${shelf.from === 'bottom' ? 'долната плоскост' : 'горната плоскост'} · ${z.label}`
-                        }
-                        measureHint={`${movableShelfMeasureLabel(
-                          z.movable[i] ?? {
-                            from: shelf.from,
-                            fromFace: shelf.fromFace,
-                            toFace: shelf.toFace,
-                            offsetMm: parseInt(shelf.offsetMm, 10) || 0,
-                          },
-                          'горната плоскост',
-                          'долната плоскост',
-                        )}${shelf.from === 'middle' ? '' : '. Линията е на 3D изгледа.'}`}
-                        offsetId={`pin-off-${z.id}-${i}`}
-                        onFrom={(from) => {
-                          const nextRows = displayedMovable(
-                            cur.movableShelves,
-                            cur.shelfCount,
-                            z.innerH,
-                            params.thickness,
-                          ).map((r, j) =>
-                            j === i
-                              ? from === 'middle'
-                                ? newMiddlePinShelf()
-                                : { ...r, from, ...defaultShelfFaces(from) }
-                              : r,
-                          )
-                          patchZone(z.id, { movableShelves: nextRows, shelfCount: nextRows.length })
-                        }}
-                        onFromFace={(fromFace) => {
-                          const nextRows = displayedMovable(
-                            cur.movableShelves,
-                            cur.shelfCount,
-                            z.innerH,
-                            params.thickness,
-                          ).map((r, j) => (j === i ? { ...r, fromFace } : r))
-                          patchZone(z.id, { movableShelves: nextRows, shelfCount: nextRows.length })
-                        }}
-                        onToFace={(toFace) => {
-                          const nextRows = displayedMovable(
-                            cur.movableShelves,
-                            cur.shelfCount,
-                            z.innerH,
-                            params.thickness,
-                          ).map((r, j) => (j === i ? { ...r, toFace } : r))
-                          patchZone(z.id, { movableShelves: nextRows, shelfCount: nextRows.length })
-                        }}
-                        onOffset={(offsetMm) => {
-                          const nextRows = displayedMovable(
-                            cur.movableShelves,
-                            cur.shelfCount,
-                            z.innerH,
-                            params.thickness,
-                          ).map((r, j) => (j === i ? { ...r, offsetMm } : r))
-                          patchZone(z.id, { movableShelves: nextRows, shelfCount: nextRows.length })
-                        }}
-                      />
+                  const zoneShelfGap = cur.movableShelves.length === 0 && cur.shelfCount > 0 
+                    ? evenShelfGap(z.innerH, cur.shelfCount, params.thickness)
+                    : 0
+                  return (
+                    <div key={`zone-${z.id}`}>
+                      {rows.map((shelf, i) => (
+                        <div key={`pin-${z.id}-${i}`} className="mt-2 space-y-2 rounded-md border border-[var(--color-border)] p-2">
+                          <div className="flex items-center gap-2">
+                            <span className="min-w-28 shrink-0 text-xs">
+                              Рафт {i + 1} · {z.label}
+                            </span>
+                            <Button
+                              type="button"
+                              size="icon"
+                              variant="ghost"
+                              className="h-8 w-8 shrink-0"
+                              onClick={() => {
+                                const nextRows = displayedMovable(
+                                  cur.movableShelves,
+                                  cur.shelfCount,
+                                  z.innerH,
+                                  params.thickness,
+                                ).filter((_, j) => j !== i)
+                                patchZone(z.id, { movableShelves: nextRows, shelfCount: nextRows.length })
+                              }}
+                              aria-label={`Премахни рафт ${i + 1} от ${z.label}`}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                          <ShelfMeasureFields
+                            from={shelf.from}
+                            fromFace={shelf.fromFace}
+                            toFace={shelf.toFace}
+                            offsetMm={shelf.offsetMm}
+                            allowMiddle
+                            originHint={
+                              shelf.from === 'middle'
+                                ? `По средата на отвора между рафтовете · ${z.label}`
+                                : `От ${shelf.from === 'bottom' ? 'долната плоскост' : 'горната плоскост'} · ${z.label}`
+                            }
+                            measureHint={`${movableShelfMeasureLabel(
+                              z.movable[i] ?? {
+                                from: shelf.from,
+                                fromFace: shelf.fromFace,
+                                toFace: shelf.toFace,
+                                offsetMm: parseInt(shelf.offsetMm, 10) || 0,
+                              },
+                              'горната плоскост',
+                              'долната плоскост',
+                            )}${shelf.from === 'middle' ? '' : '. Линията е на 3D изгледа.'}`}
+                            offsetId={`pin-off-${z.id}-${i}`}
+                            onFrom={(from) => {
+                              const nextRows = displayedMovable(
+                                cur.movableShelves,
+                                cur.shelfCount,
+                                z.innerH,
+                                params.thickness,
+                              ).map((r, j) =>
+                                j === i
+                                  ? from === 'middle'
+                                    ? newMiddlePinShelf()
+                                    : { ...r, from, ...defaultShelfFaces(from) }
+                                  : r,
+                              )
+                              patchZone(z.id, { movableShelves: nextRows, shelfCount: nextRows.length })
+                            }}
+                            onFromFace={(fromFace) => {
+                              const nextRows = displayedMovable(
+                                cur.movableShelves,
+                                cur.shelfCount,
+                                z.innerH,
+                                params.thickness,
+                              ).map((r, j) => (j === i ? { ...r, fromFace } : r))
+                              patchZone(z.id, { movableShelves: nextRows, shelfCount: nextRows.length })
+                            }}
+                            onToFace={(toFace) => {
+                              const nextRows = displayedMovable(
+                                cur.movableShelves,
+                                cur.shelfCount,
+                                z.innerH,
+                                params.thickness,
+                              ).map((r, j) => (j === i ? { ...r, toFace } : r))
+                              patchZone(z.id, { movableShelves: nextRows, shelfCount: nextRows.length })
+                            }}
+                            onOffset={(offsetMm) => {
+                              const nextRows = displayedMovable(
+                                cur.movableShelves,
+                                cur.shelfCount,
+                                z.innerH,
+                                params.thickness,
+                              ).map((r, j) => (j === i ? { ...r, offsetMm } : r))
+                              patchZone(z.id, { movableShelves: nextRows, shelfCount: nextRows.length })
+                            }}
+                          />
+                        </div>
+                      ))}
+                      {zoneShelfGap > 0 && (
+                        <p className="mt-2 text-xs text-[var(--color-muted-foreground)]">
+                          {z.label}: Разстояние между рафтовете: {Math.round(zoneShelfGap)} мм
+                        </p>
+                      )}
                     </div>
-                  ))
+                  )
                 })}
               <div className="mt-2 flex flex-wrap items-center gap-2">
                 <Button
