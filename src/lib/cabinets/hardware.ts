@@ -48,11 +48,19 @@ export const SCREW_35X16: FastenerPack = {
   packPriceEur: 5,
 }
 
+export const SCREW_35X20: FastenerPack = {
+  id: 'screw-3.5x20',
+  name: 'Винтче 3.5×20',
+  packQty: 1000,
+  packPriceEur: 5,
+}
+
 export const FASTENERS = {
   [SCREW_5X60.id]: SCREW_5X60,
   [SCREW_4X16.id]: SCREW_4X16,
   [SCREW_4X20.id]: SCREW_4X20,
   [SCREW_35X16.id]: SCREW_35X16,
+  [SCREW_35X20.id]: SCREW_35X20,
 } as const
 
 export type FastenerId = keyof typeof FASTENERS
@@ -99,17 +107,18 @@ export const SCREWS_4X16_PER_HINGE = 2
 export const SCREWS_4X20_PER_HINGE = 2
 
 export const SLIDES_PER_DRAWER = 2
-/** Screws that hold the runner itself. */
-export const SCREWS_35X16_PER_SLIDE = 3
-/** Extra screws for the wings on soft-close runners. */
-export const SCREWS_35X16_PER_SLIDE_WING = 4
+
+/** Screws for normal (roller) slides - per drawer (not per slide). */
+export const SCREWS_35X20_PER_DRAWER_NORMAL = 6
+
+/** Screws 4×16 for soft-close slides - per drawer (not per slide). */
+export const SCREWS_4X16_PER_DRAWER_SOFT = 4
+
+/** Screws 3.5×16 for soft-close slides - per drawer (not per slide). */
+export const SCREWS_35X16_PER_DRAWER_SOFT = 2
 
 export function isSoftCloseSlide(kind: SlideKind): boolean {
   return kind === 'soft-full' || kind === 'soft-partial'
-}
-
-export function screws35x16PerSlide(kind: SlideKind): number {
-  return SCREWS_35X16_PER_SLIDE + (isSoftCloseSlide(kind) ? SCREWS_35X16_PER_SLIDE_WING : 0)
 }
 
 export const SLIDE_KIND_LABEL: Record<SlideKind, string> = {
