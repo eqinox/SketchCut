@@ -5,6 +5,7 @@ import {
   SCREW_4X16,
   SCREW_4X20,
   SCREW_35X16,
+  SCREW_35X20,
   SHELF_PIN,
   SHELF_PINS_PER_SHELF,
   HINGE_SOFT_CLOSE,
@@ -16,10 +17,10 @@ import {
   SCREWS_4X16_PER_HINGE,
   SCREWS_4X20_PER_HINGE,
   SLIDES_PER_DRAWER,
-  SCREWS_35X16_PER_SLIDE,
-  SCREWS_35X16_PER_SLIDE_WING,
+  SCREWS_35X20_PER_DRAWER_NORMAL,
+  SCREWS_4X16_PER_DRAWER_SOFT,
+  SCREWS_35X16_PER_DRAWER_SOFT,
   isSoftCloseSlide,
-  screws35x16PerSlide,
   parseSlideKind,
   parseSlideLength,
   slideId,
@@ -469,12 +470,11 @@ export function appendDoorsAndDrawers(
     const heightCounts = countByHeight(drawerHeights)
     const n = drawerHeights.length
     const slideQty = n * SLIDES_PER_DRAWER
-    const perSlide = screws35x16PerSlide(input.slideKind)
-    const slideScrews = slideQty * perSlide
     const slidePrice = slideUnitPriceEur(input.slideKind, input.slideLength, hardwareSettings)
-    const slideScrewNote = softClose
-      ? `по ${SCREWS_35X16_PER_SLIDE} на водач + ${SCREWS_35X16_PER_SLIDE_WING} за перките`
-      : `по ${SCREWS_35X16_PER_SLIDE} на водач`
+    
+    const screws35x20 = softClose ? 0 : n * SCREWS_35X20_PER_DRAWER_NORMAL
+    const screws4x16 = softClose ? n * SCREWS_4X16_PER_DRAWER_SOFT : 0
+    const screws35x16 = softClose ? n * SCREWS_35X16_PER_DRAWER_SOFT : 0
 
     const heightsLabel = drawerHeights.map((h) => `${Math.round(h)}`).join(' + ')
     notes.push(
@@ -625,8 +625,12 @@ export function appendDoorsAndDrawers(
       })
     }
 
+    const screwsNote = softClose
+      ? `винтчета 4×16: ${screws4x16} бр. и 3.5×16: ${screws35x16} бр. (по ${SCREWS_4X16_PER_DRAWER_SOFT}+${SCREWS_35X16_PER_DRAWER_SOFT} на чекмедже)`
+      : `винтчета 3.5×20: ${screws35x20} бр. (по ${SCREWS_35X20_PER_DRAWER_NORMAL} на чекмедже)`
+    
     notes.push(
-      `Водачи: ${slideQty} бр. ${slideName(input.slideKind, input.slideLength)} (по ${SLIDES_PER_DRAWER} на чекмедже) · винтчета 3.5×16: ${slideScrews} бр. (${slideScrewNote}).`,
+      `Водачи: ${slideQty} бр. ${slideName(input.slideKind, input.slideLength)} (по ${SLIDES_PER_DRAWER} на чекмедже) · ${screwsNote}.`,
     )
 
     let wroteBoxIntro = false
@@ -677,13 +681,30 @@ export function appendDoorsAndDrawers(
         `по ${SLIDES_PER_DRAWER} на чекмедже`,
       ),
     )
-    hardware.push(
-      fastenerLine(
-        { ...SCREW_35X16, packPriceEur: hardwareSettings.smallScrew1000PackEur },
-        slideScrews,
-        slideScrewNote,
-      ),
-    )
+    if (softClose) {
+      hardware.push(
+        fastenerLine(
+          { ...SCREW_4X16, packPriceEur: hardwareSettings.smallScrew1000PackEur },
+          screws4x16,
+          `по ${SCREWS_4X16_PER_DRAWER_SOFT} на чекмедже`,
+        ),
+      )
+      hardware.push(
+        fastenerLine(
+          { ...SCREW_35X16, packPriceEur: hardwareSettings.smallScrew1000PackEur },
+          screws35x16,
+          `по ${SCREWS_35X16_PER_DRAWER_SOFT} на чекмедже`,
+        ),
+      )
+    } else {
+      hardware.push(
+        fastenerLine(
+          { ...SCREW_35X20, packPriceEur: hardwareSettings.smallScrew1000PackEur },
+          screws35x20,
+          `по ${SCREWS_35X20_PER_DRAWER_NORMAL} на чекмедже`,
+        ),
+      )
+    }
   }
 
   if (hasDoors && door) {
