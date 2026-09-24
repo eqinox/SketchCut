@@ -95,6 +95,7 @@ import {
   MIN_ZONE_CLEAR_MM,
   defaultFixedOffsetMm,
   defaultPartitionOffsetMm,
+  middlePartitionBetween,
   defaultShelfFaces,
   defaultPartitionFaces,
   evenShelfPlacements,
@@ -2079,6 +2080,80 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                         )
                       }
                     />
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-xs text-[var(--color-muted-foreground)]">Или постави по средата между:</p>
+                    <div className="flex flex-wrap gap-2">
+                      {(() => {
+                        const options: { left: 'left-side' | number; right: 'right-side' | number; label: string }[] = []
+                        const sortedPartitions = [...layout.partitions].sort((a, b) => a.xLeft - b.xLeft)
+                        
+                        options.push({
+                          left: 'left-side',
+                          right: sortedPartitions.length > 0 ? sortedPartitions[0].specIndex : 'right-side',
+                          label: sortedPartitions.length > 0 
+                            ? `Лява и Стр. ${sortedPartitions[0].specIndex + 1}`
+                            : 'Лява и Дясна'
+                        })
+                        
+                        for (let idx = 0; idx < sortedPartitions.length - 1; idx++) {
+                          const leftPart = sortedPartitions[idx]
+                          const rightPart = sortedPartitions[idx + 1]
+                          options.push({
+                            left: leftPart.specIndex,
+                            right: rightPart.specIndex,
+                            label: `Стр. ${leftPart.specIndex + 1} и Стр. ${rightPart.specIndex + 1}`
+                          })
+                        }
+                        
+                        if (sortedPartitions.length > 0) {
+                          const lastPart = sortedPartitions[sortedPartitions.length - 1]
+                          options.push({
+                            left: lastPart.specIndex,
+                            right: 'right-side',
+                            label: `Стр. ${lastPart.specIndex + 1} и Дясна`
+                          })
+                        }
+                        
+                        return options.filter(opt => 
+                          opt.left !== i && opt.right !== i
+                        ).map((opt, optIdx) => (
+                          <Button
+                            key={optIdx}
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              const middleSpec = middlePartitionBetween(
+                                opt.left,
+                                opt.right,
+                                layout.partitions,
+                                innerW,
+                                params.thickness
+                              )
+                              if (middleSpec) {
+                                setPartitions((rows) =>
+                                  rows.map((r, j) => 
+                                    j === i 
+                                      ? { 
+                                          ...r,
+                                          from: middleSpec.from,
+                                          fromPartition: middleSpec.fromPartition,
+                                          fromFace: middleSpec.fromFace,
+                                          toFace: middleSpec.toFace,
+                                          offsetMm: String(middleSpec.offsetMm)
+                                        }
+                                      : r
+                                  )
+                                )
+                              }
+                            }}
+                          >
+                            {opt.label}
+                          </Button>
+                        ))
+                      })()}
+                    </div>
                   </div>
                   <p className="text-xs text-[var(--color-muted-foreground)]">
                     {`${partitionMeasureLabel({

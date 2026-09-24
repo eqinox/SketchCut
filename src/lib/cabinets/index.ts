@@ -41,6 +41,7 @@ export {
   canAddMoreFixedShelves,
   defaultFixedOffsetMm,
   defaultPartitionOffsetMm,
+  middlePartitionBetween,
   DEFAULT_CLOTHES_RAIL_FROM_TOP_MM,
   CLOTHES_RAIL_SECTION_MM,
   MAX_CLOTHES_RAILS,
