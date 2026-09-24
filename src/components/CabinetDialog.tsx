@@ -2138,7 +2138,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                                       ? { 
                                           ...r,
                                           from: middleSpec.from,
-                                          fromPartition: middleSpec.fromPartition,
+                                          fromPartition: middleSpec.fromPartition ?? null,
                                           fromFace: middleSpec.fromFace,
                                           toFace: middleSpec.toFace,
                                           offsetMm: String(middleSpec.offsetMm)
