@@ -2238,82 +2238,97 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                 Подвижни рафтове с рафтоносачи. Отгоре, отдолу или по средата на оставащия отвор. Рафт на точно
                 разстояние дели отвора на части — после слагаш рафт по средата над или под него.
               </p>
-              {!hasSplit &&
-                displayedMovable(movableShelves, shelfCount, innerH, params.thickness).map((shelf, i) => (
-                  <div key={`pin-${i}`} className="mt-2 space-y-2 rounded-md border border-[var(--color-border)] p-2">
-                    <div className="flex items-center gap-2">
-                      <span className="min-w-28 shrink-0 text-xs">Рафт {i + 1}</span>
-                      <Button
-                        type="button"
-                        size="icon"
-                        variant="ghost"
-                        className="h-8 w-8 shrink-0"
-                        onClick={() => {
-                          const next = displayedMovable(movableShelves, shelfCount, innerH, params.thickness).filter(
-                            (_, j) => j !== i,
-                          )
-                          setMovableShelves(next)
-                          setShelfCount(next.length)
-                        }}
-                        aria-label={`Премахни рафт ${i + 1}`}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                    <ShelfMeasureFields
-                      from={shelf.from}
-                      fromFace={shelf.fromFace}
-                      toFace={shelf.toFace}
-                      offsetMm={shelf.offsetMm}
-                      allowMiddle
-                      originHint={
-                        shelf.from === 'middle'
-                          ? 'По средата на отвора между рафтовете — равни празнини над и под рафта'
-                          : `От ${shelf.from === 'bottom' ? 'дъното' : topBoardCaption}`
-                      }
-                      measureHint={`${movableShelfMeasureLabel(
-                        layout.zones[0]?.movable[i] ?? {
-                          from: shelf.from,
-                          fromFace: shelf.fromFace,
-                          toFace: shelf.toFace,
-                          offsetMm: parseInt(shelf.offsetMm, 10) || 0,
-                        },
-                        topBoardCaption,
-                      )}${shelf.from === 'middle' ? '' : '. Линията е на 3D изгледа.'}`}
-                      offsetId={`pin-off-${i}`}
-                      onFrom={(from) => {
-                        const current = displayedMovable(movableShelves, shelfCount, innerH, params.thickness)
-                        const next = current.map((r, j) =>
-                          j === i
-                            ? from === 'middle'
-                              ? newMiddlePinShelf()
-                              : { ...r, from, ...defaultShelfFaces(from) }
-                            : r,
-                        )
-                        setMovableShelves(next)
-                        setShelfCount(next.length)
-                      }}
-                      onFromFace={(fromFace) => {
-                        const current = displayedMovable(movableShelves, shelfCount, innerH, params.thickness)
-                        const next = current.map((r, j) => (j === i ? { ...r, fromFace } : r))
-                        setMovableShelves(next)
-                        setShelfCount(next.length)
-                      }}
-                      onToFace={(toFace) => {
-                        const current = displayedMovable(movableShelves, shelfCount, innerH, params.thickness)
-                        const next = current.map((r, j) => (j === i ? { ...r, toFace } : r))
-                        setMovableShelves(next)
-                        setShelfCount(next.length)
-                      }}
-                      onOffset={(offsetMm) => {
-                        const current = displayedMovable(movableShelves, shelfCount, innerH, params.thickness)
-                        const next = current.map((r, j) => (j === i ? { ...r, offsetMm } : r))
-                        setMovableShelves(next)
-                        setShelfCount(next.length)
-                      }}
-                    />
-                  </div>
-                ))}
+              {!hasSplit && (() => {
+                const rows = displayedMovable(movableShelves, shelfCount, innerH, params.thickness)
+                const allMiddle = shelfCount > 0 && rows.every(r => r.from === 'middle')
+                const cabinetShelfGap = allMiddle
+                  ? evenShelfGap(innerH, shelfCount, params.thickness)
+                  : 0
+                return (
+                  <>
+                    {rows.map((shelf, i) => (
+                      <div key={`pin-${i}`} className="mt-2 space-y-2 rounded-md border border-[var(--color-border)] p-2">
+                        <div className="flex items-center gap-2">
+                          <span className="min-w-28 shrink-0 text-xs">Рафт {i + 1}</span>
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="ghost"
+                            className="h-8 w-8 shrink-0"
+                            onClick={() => {
+                              const next = displayedMovable(movableShelves, shelfCount, innerH, params.thickness).filter(
+                                (_, j) => j !== i,
+                              )
+                              setMovableShelves(next)
+                              setShelfCount(next.length)
+                            }}
+                            aria-label={`Премахни рафт ${i + 1}`}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                        <ShelfMeasureFields
+                          from={shelf.from}
+                          fromFace={shelf.fromFace}
+                          toFace={shelf.toFace}
+                          offsetMm={shelf.offsetMm}
+                          allowMiddle
+                          originHint={
+                            shelf.from === 'middle'
+                              ? 'По средата на отвора между рафтовете — равни празнини над и под рафта'
+                              : `От ${shelf.from === 'bottom' ? 'дъното' : topBoardCaption}`
+                          }
+                          measureHint={`${movableShelfMeasureLabel(
+                            layout.zones[0]?.movable[i] ?? {
+                              from: shelf.from,
+                              fromFace: shelf.fromFace,
+                              toFace: shelf.toFace,
+                              offsetMm: parseInt(shelf.offsetMm, 10) || 0,
+                            },
+                            topBoardCaption,
+                          )}${shelf.from === 'middle' ? '' : '. Линията е на 3D изгледа.'}`}
+                          offsetId={`pin-off-${i}`}
+                          onFrom={(from) => {
+                            const current = displayedMovable(movableShelves, shelfCount, innerH, params.thickness)
+                            const next = current.map((r, j) =>
+                              j === i
+                                ? from === 'middle'
+                                  ? newMiddlePinShelf()
+                                  : { ...r, from, ...defaultShelfFaces(from) }
+                                : r,
+                            )
+                            setMovableShelves(next)
+                            setShelfCount(next.length)
+                          }}
+                          onFromFace={(fromFace) => {
+                            const current = displayedMovable(movableShelves, shelfCount, innerH, params.thickness)
+                            const next = current.map((r, j) => (j === i ? { ...r, fromFace } : r))
+                            setMovableShelves(next)
+                            setShelfCount(next.length)
+                          }}
+                          onToFace={(toFace) => {
+                            const current = displayedMovable(movableShelves, shelfCount, innerH, params.thickness)
+                            const next = current.map((r, j) => (j === i ? { ...r, toFace } : r))
+                            setMovableShelves(next)
+                            setShelfCount(next.length)
+                          }}
+                          onOffset={(offsetMm) => {
+                            const current = displayedMovable(movableShelves, shelfCount, innerH, params.thickness)
+                            const next = current.map((r, j) => (j === i ? { ...r, offsetMm } : r))
+                            setMovableShelves(next)
+                            setShelfCount(next.length)
+                          }}
+                        />
+                      </div>
+                    ))}
+                    {cabinetShelfGap > 0 && (
+                      <p className="mt-2 text-xs text-[var(--color-muted-foreground)]">
+                        Разстояние между рафтовете: {Math.round(cabinetShelfGap)} мм
+                      </p>
+                    )}
+                  </>
+                )
+              })()}
               {hasSplit &&
                 layout.zones.map((z) => {
                   const cur = zoneOf(zoneUi, z.id)
