@@ -2318,7 +2318,8 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                 layout.zones.map((z) => {
                   const cur = zoneOf(zoneUi, z.id)
                   const rows = displayedMovable(cur.movableShelves, cur.shelfCount, z.innerH, params.thickness)
-                  const zoneShelfGap = cur.movableShelves.length === 0 && cur.shelfCount > 0 
+                  const allMiddle = cur.shelfCount > 0 && rows.every(r => r.from === 'middle')
+                  const zoneShelfGap = allMiddle
                     ? evenShelfGap(z.innerH, cur.shelfCount, params.thickness)
                     : 0
                   return (
