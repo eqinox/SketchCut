@@ -16,7 +16,7 @@ export type {
 } from './types'
 export type { CabinetInstance } from '@/types'
 
-export { clothesRailLengthMm, parseInteriorFittings, appendHangingFascias } from './fronts'
+export { clothesRailLengthMm, parseInteriorFittings, parseDimFontScale, DEFAULT_DIM_FONT_SCALE, DIM_FONT_SCALE_MIN, DIM_FONT_SCALE_MAX, appendHangingFascias } from './fronts'
 export type { InteriorFittings } from './fronts'
 export { CABINET_TYPES, getCabinetType, generateCabinet, scaleCabinetResult, cabinetDisplayName } from './catalog'
 export { measureCarcass, evenShelfBottoms, evenShelfGap, KITCHEN_BASE_JOINERY, KITCHEN_WALL_JOINERY } from './joinery'
@@ -41,6 +41,7 @@ export {
   canAddMoreFixedShelves,
   defaultFixedOffsetMm,
   defaultPartitionOffsetMm,
+  partitionGapOpenings,
   DEFAULT_CLOTHES_RAIL_FROM_TOP_MM,
   CLOTHES_RAIL_SECTION_MM,
   MAX_CLOTHES_RAILS,

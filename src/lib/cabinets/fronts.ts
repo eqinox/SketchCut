@@ -52,6 +52,7 @@ import {
 } from './materials'
 import { DEFAULT_SHELF_FRONT_INSET, FASCIA_SETBACK_MM, edges, panelHoleFits, panelHoleNote, type GeneratedPanel, type HardwareItem, type PanelHole } from './types'
 import type { HardwareSettings } from '@/lib/settings'
+import { exactMm, formatMm } from '../utils'
 import {
   appendSlidingDoors,
   parseDoorStyle,
@@ -120,6 +121,19 @@ export interface InteriorFittings {
    * not nested, no cut/edge labor. Combined with the project-wide `hardware.externalDoors` flag.
    */
   externalDoors: boolean
+  /** Scale for millimetre labels on the cabinet drawing. 1 = current default size. */
+  dimFontScale: number
+}
+
+export const DEFAULT_DIM_FONT_SCALE = 1
+export const DIM_FONT_SCALE_MIN = 0.5
+export const DIM_FONT_SCALE_MAX = 2
+
+export function parseDimFontScale(raw: unknown): number {
+  const n = typeof raw === 'number' ? raw : Number(raw)
+  if (!Number.isFinite(n)) return DEFAULT_DIM_FONT_SCALE
+  const clamped = Math.min(DIM_FONT_SCALE_MAX, Math.max(DIM_FONT_SCALE_MIN, n))
+  return Math.round(clamped * 100) / 100
 }
 
 export const EMPTY_INTERIOR_FITTINGS: InteriorFittings = {
@@ -141,6 +155,7 @@ export const EMPTY_INTERIOR_FITTINGS: InteriorFittings = {
   doorSpan: 'full',
   zones: {},
   externalDoors: false,
+  dimFontScale: DEFAULT_DIM_FONT_SCALE,
 }
 
 export function parseInteriorFittings(raw: Record<string, unknown>, slideDepth: number): InteriorFittings {
@@ -167,6 +182,7 @@ export function parseInteriorFittings(raw: Record<string, unknown>, slideDepth: 
     doorSpan: parseDoorSpan(raw.doorSpan),
     zones: parseZoneMap(raw.zones),
     externalDoors: raw.externalDoors === true,
+    dimFontScale: parseDimFontScale(raw.dimFontScale),
   }
 }
 
@@ -209,17 +225,17 @@ export function appendClothesRail(
   notes: string[],
   hardwareSettings: HardwareSettings,
 ): void {
-  const lengthMm = Math.round(input.innerLengthMm ?? clothesRailLengthMm(input.width, input.thickness))
+  const lengthMm = input.innerLengthMm ?? clothesRailLengthMm(input.width, input.thickness)
   if (!(lengthMm > 0)) return
-  const metres = Math.round((lengthMm / 1000) * 1000) / 1000
+  const metres = exactMm(lengthMm / 1000)
   const price = metres * hardwareSettings.clothesRailEurPerM
   const where = input.zoneLabel ? `${input.zoneLabel}: ` : ''
-  notes.push(`${where}Лост за дрехи ${lengthMm} мм (${metres} м) · ${hardwareSettings.clothesRailEurPerM} €/м.`)
+  notes.push(`${where}Лост за дрехи ${formatMm(lengthMm)} мм (${metres} м) · ${hardwareSettings.clothesRailEurPerM} €/м.`)
   hardware.push(
     pricedLine(
       { id: CLOTHES_RAIL.id, name: CLOTHES_RAIL.name, unitPriceEur: price },
       1,
-      `${input.zoneLabel ? `${input.zoneLabel} · ` : ''}${lengthMm} мм · ${hardwareSettings.clothesRailEurPerM} €/м`,
+      `${input.zoneLabel ? `${input.zoneLabel} · ` : ''}${formatMm(lengthMm)} мм · ${hardwareSettings.clothesRailEurPerM} €/м`,
     ),
   )
 }
@@ -254,7 +270,7 @@ export function appendShelves(
   notes.push(
     placements.length > 0
       ? `${where}${count} ${count === 1 ? 'рафт' : 'рафта'}: ${placements.map((s) => movableShelfMeasureLabel(s)).join('; ')}.`
-      : `${where}${count} ${count === 1 ? 'рафт' : 'рафта'} с еднакви празнини по ${Math.round(gap)} мм.`,
+      : `${where}${count} ${count === 1 ? 'рафт' : 'рафта'} с еднакви празнини по ${formatMm(gap)} мм.`,
   )
   notes.push(
     input.depthNote ??
@@ -392,8 +408,8 @@ export function appendPartitions(
   }
   notes.push(
     input.count === 1
-      ? `1 разделителна страница ${Math.round(input.sideD)} × ${Math.round(input.sideH)} мм — вътрешна страница, сяда на дъното и разделя шкафа.${input.positionsNote ? ` ${input.positionsNote}` : ''}`
-      : `${input.count} разделителни страници ${Math.round(input.sideD)} × ${Math.round(input.sideH)} мм — сядат на дъното и разделят шкафа на ${input.count + 1} части.${input.positionsNote ? ` ${input.positionsNote}` : ''}`,
+      ? `1 разделителна страница ${formatMm(input.sideD)} × ${formatMm(input.sideH)} мм — вътрешна страница, сяда на дъното и разделя шкафа.${input.positionsNote ? ` ${input.positionsNote}` : ''}`
+      : `${input.count} разделителни страници ${formatMm(input.sideD)} × ${formatMm(input.sideH)} мм — сядат на дъното и разделят шкафа на ${input.count + 1} части.${input.positionsNote ? ` ${input.positionsNote}` : ''}`,
   )
   notes.push(`Винтове 5×60: ${screws} бр. (${joinNote} × ${input.count === 1 ? '1 страница' : `${input.count} страници`}).`)
   hardware.push(
@@ -476,10 +492,10 @@ export function appendDoorsAndDrawers(
     const screws4x16 = softClose ? n * SCREWS_4X16_PER_DRAWER_SOFT : 0
     const screws35x16 = softClose ? n * SCREWS_35X16_PER_DRAWER_SOFT : 0
 
-    const heightsLabel = drawerHeights.map((h) => `${Math.round(h)}`).join(' + ')
+    const heightsLabel = drawerHeights.map((h) => `${formatMm(h)}`).join(' + ')
     notes.push(
       n === 1
-        ? `${where}Чекмедже отгоре ${Math.round(drawerHeights[0])} мм.`
+        ? `${where}Чекмедже отгоре ${formatMm(drawerHeights[0])} мм.`
         : `${where}${n} чекмеджета отгоре надолу: ${heightsLabel} мм. Фуга 3 мм между челата.`,
     )
 
@@ -491,7 +507,7 @@ export function appendDoorsAndDrawers(
       combinedGroupId = input.groupKey ?? `combined-${input.zoneLabel ?? 'front'}`
       doorFromCombined = includeDoorInCombine && !!door
 
-      const partsLabel = pieces.map((c) => Math.round(c.height)).join(' + ')
+      const partsLabel = pieces.map((c) => formatMm(c.height)).join(' + ')
       const bufferNote =
         pieces.length > 1
           ? ` + ${COMBINED_FRONT_SAW_BUFFER * (pieces.length - 1)} мм буфер`
@@ -504,14 +520,14 @@ export function appendDoorsAndDrawers(
       const afterSplit = [
         ...drawerHeights.map((_, i) =>
           drawerHeights.length === 1
-            ? `чело ${Math.round(drawerCuts[i].height)} мм`
-            : `чело ${i + 1} ${Math.round(drawerCuts[i].height)} мм`,
+            ? `чело ${formatMm(drawerCuts[i].height)} мм`
+            : `чело ${i + 1} ${formatMm(drawerCuts[i].height)} мм`,
         ),
-        ...(doorFromCombined && door ? [`врата ${Math.round(door.height)} мм`] : []),
+        ...(doorFromCombined && door ? [`врата ${formatMm(door.height)} мм`] : []),
       ].join(', ')
 
       notes.push(
-        `${doorFromCombined ? 'Чела и врата' : 'Чела'} от една плоча: Първо рязане ${Math.round(width)} × ${Math.round(combinedHeight)} мм (${partsLabel}${bufferNote}).`,
+        `${doorFromCombined ? 'Чела и врата' : 'Чела'} от една плоча: Първо рязане ${formatMm(width)} × ${formatMm(combinedHeight)} мм (${partsLabel}${bufferNote}).`,
       )
       notes.push(`След кантиране се разрязва на ${afterSplit}.`)
 
@@ -535,7 +551,7 @@ export function appendDoorsAndDrawers(
           name:
             drawerHeights.length === 1
               ? '  ↳ Чело (след разрязване)'
-              : `  ↳ Чело ${i + 1} (${Math.round(frontH)} мм)`,
+              : `  ↳ Чело ${i + 1} (${formatMm(frontH)} мм)`,
           width: cut.width,
           height: cut.height,
           quantity: 1,
@@ -567,10 +583,10 @@ export function appendDoorsAndDrawers(
       drawerHeights.forEach((frontH, i) => {
         const cut = drawerFrontCutSize(input.width, frontH)
         const name =
-          (n === 1 ? '  ↳ Чело (след разрязване)' : `  ↳ Чело ${i + 1} (${Math.round(frontH)} мм)`) +
+          (n === 1 ? '  ↳ Чело (след разрязване)' : `  ↳ Чело ${i + 1} (${formatMm(frontH)} мм)`) +
           zoneInName
         notes.push(
-          `${where}${n === 1 ? 'Чело' : `Чело ${i + 1}`}: рязане ${Math.round(cut.width)} × ${Math.round(cut.height)} мм — от комбинираната плоча.`,
+          `${where}${n === 1 ? 'Чело' : `Чело ${i + 1}`}: рязане ${formatMm(cut.width)} × ${formatMm(cut.height)} мм — от комбинираната плоча.`,
         )
         panels.push({
           role: 'drawer-front',
@@ -593,7 +609,7 @@ export function appendDoorsAndDrawers(
           (n === 1 ? 'Чело на чекмедже' : `Чело ${i + 1}`) + zoneInName
         if (boughtFronts) {
           notes.push(
-            `${name}: поръчай ${Math.round(drawerFront.width)} × ${Math.round(drawerFront.height)} мм (${doorCutRuleNote({ subtractEdge: false })}). Поръчва се отделно — не влиза в разкроя.`,
+            `${name}: поръчай ${formatMm(drawerFront.width)} × ${formatMm(drawerFront.height)} мм (${doorCutRuleNote({ subtractEdge: false })}). Поръчва се отделно — не влиза в разкроя.`,
           )
           panels.push({
             role: 'drawer-front',
@@ -609,7 +625,7 @@ export function appendDoorsAndDrawers(
           })
         } else {
           notes.push(
-            `${name}: рязане ${Math.round(drawerFront.width)} × ${Math.round(drawerFront.height)} мм (кант 2 мм от 4 страни).`,
+            `${name}: рязане ${formatMm(drawerFront.width)} × ${formatMm(drawerFront.height)} мм (кант 2 мм от 4 страни).`,
           )
           panels.push({
             role: 'drawer-front',
@@ -640,29 +656,29 @@ export function appendDoorsAndDrawers(
       if (!wroteBoxIntro) {
         const gapTotal = box.sideGapEach * 2
         notes.push(
-          `Чекмедже: вътрешна ширина ${Math.round(box.innerCarcassW)} мм − ${gapTotal} мм луфт (${box.sideGapEach} мм от страна) = ${Math.round(box.drawerOuterW)} мм общо.`,
+          `Чекмедже: вътрешна ширина ${formatMm(box.innerCarcassW)} мм − ${gapTotal} мм луфт (${box.sideGapEach} мм от страна) = ${formatMm(box.drawerOuterW)} мм общо.`,
         )
         wroteBoxIntro = true
       }
       const manySizes = heightCounts.length > 1
       notes.push(
-        `Царги${manySizes ? ` за чело ${Math.round(frontH)} мм` : ''}: вътрешни ${Math.round(box.inner.width)} × ${Math.round(box.inner.height)} мм (${2 * qty} бр.), външни ${Math.round(box.outer.width)} × ${Math.round(box.outer.height)} мм (${2 * qty} бр.${softClose ? `, водачът минус ${SOFT_SLIDE_OUTER_RAIL_SHORTEN} мм, вътрешните с ${SOFT_INNER_RAIL_HEIGHT_DROP} мм по-ниски` : ', колкото водача'}). Височината на външните е челото минус ${DRAWER_RAIL_BELOW_FRONT} мм, закръглена на 10 мм.`,
+        `Царги${manySizes ? ` за чело ${formatMm(frontH)} мм` : ''}: вътрешни ${formatMm(box.inner.width)} × ${formatMm(box.inner.height)} мм (${2 * qty} бр.), външни ${formatMm(box.outer.width)} × ${formatMm(box.outer.height)} мм (${2 * qty} бр.${softClose ? `, водачът минус ${SOFT_SLIDE_OUTER_RAIL_SHORTEN} мм, вътрешните с ${SOFT_INNER_RAIL_HEIGHT_DROP} мм по-ниски` : ', колкото водача'}). Височината на външните е челото минус ${DRAWER_RAIL_BELOW_FRONT} мм, закръглена на 10 мм.`,
       )
       panels.push({
         role: 'drawer-back',
-        name: manySizes ? `Царга вътрешна (${Math.round(frontH)} мм)` : 'Царга вътрешна',
+        name: manySizes ? `Царга вътрешна (${formatMm(frontH)} мм)` : 'Царга вътрешна',
         width: box.inner.width,
         height: box.inner.height,
         quantity: 2 * qty,
         canRotate: false,
         edges: edges({ top: true }),
         note: softClose
-          ? `Предна и задна на кутията. ${Math.round(box.drawerOuterW)} − 2×${input.thickness} = ${Math.round(box.inner.width)} мм. С ${SOFT_INNER_RAIL_HEIGHT_DROP} мм по-ниски от външните заради канала за гърба. Кант: горната дълга страна.`
-          : `Предна и задна на кутията. ${Math.round(box.drawerOuterW)} − 2×${input.thickness} = ${Math.round(box.inner.width)} мм. Кант: горната дълга страна.`,
+          ? `Предна и задна на кутията. ${formatMm(box.drawerOuterW)} − 2×${input.thickness} = ${formatMm(box.inner.width)} мм. С ${SOFT_INNER_RAIL_HEIGHT_DROP} мм по-ниски от външните заради канала за гърба. Кант: горната дълга страна.`
+          : `Предна и задна на кутията. ${formatMm(box.drawerOuterW)} − 2×${input.thickness} = ${formatMm(box.inner.width)} мм. Кант: горната дълга страна.`,
       })
       panels.push({
         role: 'drawer-side',
-        name: manySizes ? `Царга външна (${Math.round(frontH)} мм)` : 'Царга външна',
+        name: manySizes ? `Царга външна (${formatMm(frontH)} мм)` : 'Царга външна',
         width: box.outer.width,
         height: box.outer.height,
         quantity: 2 * qty,
@@ -717,8 +733,8 @@ export function appendDoorsAndDrawers(
 
     notes.push(
       boughtDoors
-        ? `${where}${doorCount === 1 ? 'Една врата' : 'Две врати'}: готов размер ${Math.round(door.width)} × ${Math.round(door.height)} мм (${doorCutRuleNote({ withDrawerGaps: hasDrawers, subtractEdge: false })}). Поръчва се отделно — не влиза в разкроя.`
-        : `${where}${doorCount === 1 ? 'Една врата' : 'Две врати'}: рязане ${Math.round(door.width)} × ${Math.round(door.height)} мм (${doorCutRuleNote({ withDrawerGaps: hasDrawers })}).`,
+        ? `${where}${doorCount === 1 ? 'Една врата' : 'Две врати'}: готов размер ${formatMm(door.width)} × ${formatMm(door.height)} мм (${doorCutRuleNote({ withDrawerGaps: hasDrawers, subtractEdge: false })}). Поръчва се отделно — не влиза в разкроя.`
+        : `${where}${doorCount === 1 ? 'Една врата' : 'Две врати'}: рязане ${formatMm(door.width)} × ${formatMm(door.height)} мм (${doorCutRuleNote({ withDrawerGaps: hasDrawers })}).`,
     )
     notes.push(
       `Панти: ${totalHinges} бр. (по ${HINGES_PER_SMALL_DOOR} на врата) · винтчета 4×16: ${hinge4x16} бр. и 4×20: ${hinge4x20} бр. (по ${SCREWS_4X16_PER_HINGE}+${SCREWS_4X20_PER_HINGE} на панта).`,
@@ -827,7 +843,7 @@ function zoneFullWidthFrontCuts(z: LaidOutZone, cabinetWidth: number): CombinedF
   const out: CombinedFrontPiece[] = []
   for (const h of drawers) {
     const c = drawerFrontCutSize(cabinetWidth, h)
-    out.push({ ...c, role: 'drawer-front', label: `чело ${Math.round(h)} мм (${z.label})` })
+    out.push({ ...c, role: 'drawer-front', label: `чело ${formatMm(h)} мм (${z.label})` })
   }
   if (z.doorCount === 1) {
     const door = drawers.length
@@ -847,11 +863,11 @@ function pushCombinedFirstCut(
   if (pieces.length < 2) return
   const combinedHeight = combinedFrontCutHeight(pieces.map((c) => c.height))
   const width = pieces[0]?.width ?? 0
-  const partsLabel = pieces.map((c) => Math.round(c.height)).join(' + ')
+  const partsLabel = pieces.map((c) => formatMm(c.height)).join(' + ')
   const bufferNote = ` + ${COMBINED_FRONT_SAW_BUFFER * (pieces.length - 1)} мм буфер`
   const qtyNote = opts.quantity > 1 ? ` ×${opts.quantity}` : ''
   notes.push(
-    `${opts.labels} от една плоча: Първо рязане ${Math.round(width)} × ${Math.round(combinedHeight)} мм${qtyNote} (${partsLabel}${bufferNote}).`,
+    `${opts.labels} от една плоча: Първо рязане ${formatMm(width)} × ${formatMm(combinedHeight)} мм${qtyNote} (${partsLabel}${bufferNote}).`,
   )
   notes.push(`След кантиране се разрязва на ${pieces.map((p) => p.label).join(', ')}.`)
   panels.push({
@@ -927,10 +943,10 @@ export function appendZonedInterior(
   const zoneNote = zoned ? 'zoned' : undefined
   const columnInnerWs = layout.columns.map((c) => c.innerW)
   const slidingShelfNote = sliding
-    ? `Рафтът е ${Math.round(shelfD)} мм дълбок — с ${SLIDING_SHELF_FROM_PARTITION_MM} мм по-плитък от разделителната страница.`
+    ? `Рафтът е ${formatMm(shelfD)} мм дълбок — с ${SLIDING_SHELF_FROM_PARTITION_MM} мм по-плитък от разделителната страница.`
     : undefined
   const slidingFixedNote = sliding
-    ? `Дълбочина ${Math.round(shelfD)} мм — с ${SLIDING_SHELF_FROM_PARTITION_MM} мм по-плитък от разделителната страница.`
+    ? `Дълбочина ${formatMm(shelfD)} мм — с ${SLIDING_SHELF_FROM_PARTITION_MM} мм по-плитък от разделителната страница.`
     : undefined
 
   if (layout.partitions.length > 0) {
@@ -940,7 +956,7 @@ export function appendZonedInterior(
         count: layout.partitions.length,
         sideD: partitionD,
         sideH: input.sideH ?? input.innerH,
-        positionsNote: `Позиция: ${pos}.${sliding ? ` Дълбочина ${Math.round(partitionD)} мм — ${SLIDING_PARTITION_SETBACK_MM} мм по-плитка от корпуса, за плъзгащите врати.` : ''}`,
+        positionsNote: `Позиция: ${pos}.${sliding ? ` Дълбочина ${formatMm(partitionD)} мм — ${SLIDING_PARTITION_SETBACK_MM} мм по-плитка от корпуса, за плъзгащите врати.` : ''}`,
         coveringBottom: input.coveringBottom,
         innerTop: input.innerTop,
       },
@@ -1188,7 +1204,7 @@ export function appendHangingFascias(
   const R = input.railWidth
   const byWidth = new Map<number, number>()
   for (const col of input.columns) {
-    const w = Math.round(col.innerW > 0 ? col.innerW : input.fallbackInnerW)
+    const w = exactMm(col.innerW > 0 ? col.innerW : input.fallbackInnerW)
     byWidth.set(w, (byWidth.get(w) ?? 0) + 1)
   }
   for (const [w, qty] of byWidth) {

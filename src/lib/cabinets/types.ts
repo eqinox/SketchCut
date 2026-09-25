@@ -2,6 +2,7 @@ import type { BoardKind, EdgeBandingSides } from '@/types'
 import type { CabinetPartColors } from './colors'
 import type { AssemblyStep } from '@/lib/assembly-time'
 import type { CabinetZoneId, DoorSpan, FixedShelfSpec, MovableShelfSpec, ClothesRailSpec, PartitionSpec, ZoneFittings } from './zones'
+import { formatMm } from '../utils'
 
 /** Actual working hours counted per day (breaks are not billed). */
 export const WORK_HOURS_PER_DAY = 5
@@ -135,8 +136,8 @@ export type PanelHole =
 
 export function panelHoleNote(hole: PanelHole): string {
   return hole.kind === 'round'
-    ? `Отвор Ø${Math.round(hole.diameter)} мм в средата (въздуховод).`
-    : `Отвор ${Math.round(hole.width)} × ${Math.round(hole.height)} мм в средата (абсорбатор).`
+    ? `Отвор Ø${formatMm(hole.diameter)} мм в средата (въздуховод).`
+    : `Отвор ${formatMm(hole.width)} × ${formatMm(hole.height)} мм в средата (абсорбатор).`
 }
 
 export function panelHoleFits(
@@ -229,6 +230,7 @@ export interface KitchenBaseParams {
   doorSpan: DoorSpan
   zones: Partial<Record<CabinetZoneId, ZoneFittings>>
   colors: CabinetPartColors
+  dimFontScale: number
   [key: string]: unknown
 }
 

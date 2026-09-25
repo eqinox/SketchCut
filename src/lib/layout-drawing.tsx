@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import type { PackedSheet, PlacedPart } from '@/types'
 import { resolvePartPosition, type SnapGuide } from '@/lib/layout-edit'
+import { formatMm } from './utils'
 
 export const WASTE_HATCH_SPACING = 150
 export const WASTE_HATCH_STROKE = 7
@@ -20,7 +21,7 @@ export function getWasteLabelFontSize(width: number, height: number): number | n
 }
 
 export function formatDim(w: number, h: number): string {
-  return `${Math.round(w)}×${Math.round(h)}`
+  return `${formatMm(w)}×${formatMm(h)}`
 }
 
 export type EdgeLabel = {
@@ -94,8 +95,8 @@ export function getRectEdgeLabels(
   width: number,
   height: number,
 ): EdgeLabel[] {
-  const wText = `${Math.round(width)}`
-  const hText = `${Math.round(height)}`
+  const wText = formatMm(width)
+  const hText = formatMm(height)
 
   let wFont = maxFontAlongSide(width, height, wText)
   let hFont = maxFontAlongSide(height, width, hText)

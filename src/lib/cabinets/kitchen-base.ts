@@ -32,6 +32,7 @@ import {
   type AssemblyTimeSettings,
 } from '@/lib/assembly-time'
 import { DEFAULT_ASSEMBLY_TIME_SETTINGS } from '@/lib/assembly-time'
+import { exactMm } from '../utils'
 
 export const KITCHEN_BASE_TYPE_ID = 'kitchen-base'
 
@@ -59,6 +60,7 @@ export const DEFAULT_KITCHEN_BASE_PARAMS: KitchenBaseParams = {
   doorSpan: 'full',
   zones: {},
   externalDoors: false,
+  dimFontScale: 1,
   colors: { ...DEFAULT_PART_COLORS },
 }
 
@@ -174,7 +176,7 @@ export function generateKitchenBase(
   const railsByWidth = new Map<number, number>()
   if (p.topStyle === 'rails') {
     for (const col of columns) {
-      const w = Math.round(col.innerW > 0 ? col.innerW : m.railLength)
+      const w = exactMm(col.innerW > 0 ? col.innerW : m.railLength)
       railsByWidth.set(w, (railsByWidth.get(w) ?? 0) + 2)
     }
     for (const [w, qty] of railsByWidth) {

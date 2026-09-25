@@ -38,6 +38,7 @@ import {
   panelsAreaM2,
   groupBuyoutDoors,
 } from './estimate'
+import { formatMm } from '../utils'
 
 export interface PriceBreakdownLine {
   label: string
@@ -71,7 +72,7 @@ function billablePanels(panels: GeneratedPanel[]): GeneratedPanel[] {
 }
 
 function mmSize(width: number, height: number): string {
-  return `${Math.round(width)} × ${Math.round(height)} мм`
+  return `${formatMm(width)} × ${formatMm(height)} мм`
 }
 
 function formatM(meters: number): string {

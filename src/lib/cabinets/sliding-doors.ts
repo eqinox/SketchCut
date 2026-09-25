@@ -3,6 +3,7 @@ import { DOOR_EDGE_MM } from './materials'
 import { edges, type GeneratedPanel, type HardwareItem } from './types'
 import type { HardwareSettings } from '@/lib/settings'
 import type { PartitionSpec } from './zones'
+import { formatMm } from '../utils'
 
 /** Inner partitions sit this far back so sliding doors can pass in front. */
 export const SLIDING_PARTITION_SETBACK_MM = 90
@@ -69,7 +70,7 @@ export function centerSlidingPartition(width: number, thickness: number): Partit
   const innerW = Math.max(T, width - 2 * T)
   return {
     from: 'left',
-    offsetMm: Math.round((innerW + T) / 2),
+    offsetMm: (innerW + T) / 2,
     fromFace: 'right',
     toFace: 'right',
   }
@@ -195,7 +196,7 @@ export function appendSlidingDoors(
     const rightL = slidingEdgeLabel(leaf.edges.right)
     if (bought) {
       notes.push(
-        `${leaf.name}: поръчай габарит ${Math.round(leaf.gabaritW)} × ${Math.round(leaf.gabaritH)} мм (ляво ${leftL}, дясно ${rightL}).`,
+        `${leaf.name}: поръчай габарит ${formatMm(leaf.gabaritW)} × ${formatMm(leaf.gabaritH)} мм (ляво ${leftL}, дясно ${rightL}).`,
       )
       panels.push({
         role: 'sliding-door',
@@ -207,12 +208,12 @@ export function appendSlidingDoors(
         edges: edges({}),
         excludeFromCutting: true,
         highlightColor: 'order',
-        note: `Външна плъзгаща врата. Готов габарит ${Math.round(leaf.gabaritW)} × ${Math.round(leaf.gabaritH)} мм. Не се реже и не се кантира при нас. Поръчай отделно.`,
+        note: `Външна плъзгаща врата. Готов габарит ${formatMm(leaf.gabaritW)} × ${formatMm(leaf.gabaritH)} мм. Не се реже и не се кантира при нас. Поръчай отделно.`,
       })
       continue
     }
     notes.push(
-      `${leaf.name}: габарит ${Math.round(leaf.gabaritW)} × ${Math.round(leaf.gabaritH)} мм · рязане ${Math.round(leaf.cutW)} × ${Math.round(leaf.cutH)} мм (ляво ${leftL} ${slidingProfileMm(leaf.edges.left)} мм, дясно ${rightL} ${slidingProfileMm(leaf.edges.right)} мм, кант 2 мм горе и долу).`,
+      `${leaf.name}: габарит ${formatMm(leaf.gabaritW)} × ${formatMm(leaf.gabaritH)} мм · рязане ${formatMm(leaf.cutW)} × ${formatMm(leaf.cutH)} мм (ляво ${leftL} ${slidingProfileMm(leaf.edges.left)} мм, дясно ${rightL} ${slidingProfileMm(leaf.edges.right)} мм, кант 2 мм горе и долу).`,
     )
     if (leaf.edges.left === 'handle') handleMm += leaf.cutH
     else capMm += leaf.cutH
@@ -226,7 +227,7 @@ export function appendSlidingDoors(
       quantity: 1,
       canRotate: false,
       edges: edges({ top: true, bottom: true }),
-      note: `Плъзгаща врата. Рязане без вертикалните профили. След кант дръжка/тапа: ${Math.round(leaf.gabaritW)} мм. Кант 2 мм: горна и долна.`,
+      note: `Плъзгаща врата. Рязане без вертикалните профили. След кант дръжка/тапа: ${formatMm(leaf.gabaritW)} мм. Кант 2 мм: горна и долна.`,
     })
   }
 
@@ -235,12 +236,12 @@ export function appendSlidingDoors(
   const pushProfile = (id: string, name: string, mm: number, eurPerM: number) => {
     if (!(mm > 0)) return
     const metres = Math.round((mm / 1000) * 1000) / 1000
-    notes.push(`${name}: ${Math.round(mm)} мм (${metres} м)${eurPerM > 0 ? ` · ${eurPerM} €/м` : ''}.`)
+    notes.push(`${name}: ${formatMm(mm)} мм (${metres} м)${eurPerM > 0 ? ` · ${eurPerM} €/м` : ''}.`)
     hardware.push(
       pricedLine(
         { id, name, unitPriceEur: eurPerM },
         metres,
-        `${Math.round(mm)} мм`,
+        `${formatMm(mm)} мм`,
       ),
     )
   }

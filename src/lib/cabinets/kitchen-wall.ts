@@ -21,6 +21,7 @@ import {
 } from './types'
 import type { HardwareSettings } from '@/lib/settings'
 import { DEFAULT_HARDWARE_SETTINGS, omitsCuttingEdgingLabor } from '@/lib/settings'
+import { formatMm } from '../utils'
 import {
   collectCabinetAssembly,
   type AssemblyTimeSettings,
@@ -79,6 +80,7 @@ export const DEFAULT_KITCHEN_WALL_PARAMS: KitchenWallParams = {
   doorSpan: 'full',
   zones: {},
   externalDoors: false,
+  dimFontScale: 1,
   colors: { ...DEFAULT_PART_COLORS },
 }
 
@@ -155,7 +157,7 @@ export function generateKitchenWall(
     if (bottomHole) {
       notes.push(
         p.hoodShape === 'rect'
-          ? `Абсорбатор: ${panelHoleNote(bottomHole)} На рафтовете над него — кръгъл отвор Ø${Math.round(p.hoodDiameter)} мм за въздуховода.`
+          ? `Абсорбатор: ${panelHoleNote(bottomHole)} На рафтовете над него — кръгъл отвор Ø${formatMm(p.hoodDiameter)} мм за въздуховода.`
           : `Абсорбатор: ${panelHoleNote(bottomHole)} Същият кръгъл отвор минава и през рафтовете над него.`,
       )
     } else {
@@ -164,7 +166,7 @@ export function generateKitchenWall(
       )
     }
     if (p.shelfCount + (p.fixedShelves?.length ?? 0) > 0 && !shelfHole) {
-      notes.push('Отвор Ø' + Math.round(p.hoodDiameter) + ' мм не събира в рафтовете.')
+      notes.push('Отвор Ø' + formatMm(p.hoodDiameter) + ' мм не събира в рафтовете.')
     }
   }
 

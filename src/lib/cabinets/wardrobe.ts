@@ -5,7 +5,7 @@ import {
   type NightstandParams,
 } from './nightstand'
 import { DEFAULT_PANEL_THICKNESS } from './types'
-import { centerSlidingPartition, defaultSlidingEdges, parseSlidingEdges } from './sliding-doors'
+import { defaultSlidingEdges, parseSlidingEdges } from './sliding-doors'
 import type { CabinetGeneratorResult, CabinetTypeDefinition } from './types'
 
 export const WARDROBE_TYPE_ID = 'wardrobe'
@@ -26,7 +26,7 @@ export const DEFAULT_WARDROBE_PARAMS: WardrobeParams = {
   doorStyle: 'sliding',
   slidingEdges: defaultSlidingEdges(2),
   doorSpan: 'full',
-  partitions: [centerSlidingPartition(2000, DEFAULT_PANEL_THICKNESS)],
+  partitions: [],
 }
 
 export function parseWardrobeParams(raw: Record<string, unknown>): WardrobeParams {

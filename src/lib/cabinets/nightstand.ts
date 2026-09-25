@@ -126,6 +126,7 @@ export const DEFAULT_NIGHTSTAND_PARAMS: NightstandParams = {
   doorSpan: 'full',
   zones: {},
   externalDoors: false,
+  dimFontScale: 1,
   colors: { ...DEFAULT_PART_COLORS },
 }
 

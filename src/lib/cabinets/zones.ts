@@ -8,6 +8,13 @@ import {
   remainingFrontHeight,
   type DoorCount,
 } from './materials'
+import { exactMm, formatMm, parseMm } from '../utils'
+
+function parseOffsetMm(raw: unknown): number | null {
+  const n = typeof raw === 'number' && Number.isFinite(raw) ? raw : parseMm(raw)
+  if (n == null || !Number.isFinite(n) || n <= 0) return null
+  return n
+}
 
 export const MAX_FIXED_SHELVES = 2
 /** Up to 3 dividers → 4 columns (лява / средни / дясна). */
@@ -18,7 +25,7 @@ export const MAX_FIXED_SHELF_SPECS = MAX_FIXED_SHELVES * (MAX_PARTITIONS + 1)
 export const MIN_ZONE_CLEAR_MM = 40
 
 export type FixedShelfFrom = 'bottom' | 'top'
-export type PartitionFrom = 'left' | 'right'
+export type PartitionFrom = 'left' | 'right' | 'middle'
 /** Which face of a board: горна or долна. */
 export type PanelFace = 'top' | 'bottom'
 /** Left or right face of a vertical panel. */
@@ -53,8 +60,14 @@ export interface PartitionSpec {
   /**
    * Measure from an already added divider (0-based index in the user list).
    * `null` / omitted: from the carcass left or right side (`from`).
+   * Ignored when `from` is `middle`.
    */
   fromPartition?: number | null
+  /**
+   * When `from` is `middle`, which remaining opening (0 = leftmost) among
+   * already placed dividers. Each new middle page sits in the chosen bay.
+   */
+  gapIndex?: number
 }
 
 /** Pin-shelf origin: from a board, or centered in the remaining opening. */
@@ -115,9 +128,9 @@ export function parseClothesRails(raw: unknown, hasClothesRail?: boolean): Cloth
       if (from === 'middle') {
         out.push({ from: 'middle', offsetMm: 0 })
       } else {
-        const n = typeof src.offsetMm === 'number' ? src.offsetMm : Number.parseInt(String(src.offsetMm ?? ''), 10)
-        if (!Number.isFinite(n) || n <= 0) continue
-        out.push({ from, offsetMm: Math.round(n) })
+        const n = parseOffsetMm(src.offsetMm)
+        if (n == null) continue
+        out.push({ from, offsetMm: n })
       }
       if (out.length >= MAX_CLOTHES_RAILS) break
     }
@@ -152,7 +165,7 @@ export function clothesRailMeasureLabel(
 ): string {
   if (rail.from === 'middle') return 'По средата на отвора'
   const origin = rail.from === 'top' ? topCaption : bottomCaption
-  return `${rail.offsetMm} мм от ${origin} до лоста`
+  return `${formatMm(rail.offsetMm)} мм от ${origin} до лоста`
 }
 
 export interface ZoneFittings {
@@ -235,7 +248,7 @@ export function fixedShelfMeasureLabel(
   const fromPanel = spec.from === 'bottom' ? bottomBoardName : topBoardName
   const fromWord = fromFace === 'top' ? 'горната' : 'долната'
   const toWord = toFace === 'top' ? 'горната' : 'долната'
-  return `${spec.offsetMm} мм от ${fromWord} страна на ${fromPanel} до ${toWord} страна на рафта`
+  return `${formatMm(spec.offsetMm)} мм от ${fromWord} страна на ${fromPanel} до ${toWord} страна на рафта`
 }
 
 export function movableShelfMeasureLabel(
@@ -245,21 +258,18 @@ export function movableShelfMeasureLabel(
 ): string {
   if (spec.from === 'middle') {
     return spec.offsetMm > 0
-      ? `по средата на отвора · ${spec.offsetMm} мм от долната страна на отвора до долната страна на рафта`
+      ? `по средата на отвора · ${formatMm(spec.offsetMm)} мм от долната страна на отвора до долната страна на рафта`
       : 'по средата на оставащия отвор — равни празнини над и под рафта'
   }
   const from: FixedShelfFrom = spec.from === 'top' ? 'top' : 'bottom'
   return fixedShelfMeasureLabel({ ...spec, from }, topBoardName, bottomBoardName)
 }
 
-function remainingOpenings(
-  innerH: number,
-  occupied: { yBottom: number; yTop: number }[],
-): { start: number; end: number }[] {
+function remainingSpans(length: number, occupied: { a: number; b: number }[]): { start: number; end: number }[] {
   const merged: { a: number; b: number }[] = []
-  for (const band of [...occupied].sort((x, y) => x.yBottom - y.yBottom)) {
-    const a = band.yBottom
-    const b = band.yTop
+  for (const band of [...occupied].sort((x, y) => x.a - y.a)) {
+    const a = band.a
+    const b = band.b
     if (!(b > a)) continue
     const last = merged[merged.length - 1]
     if (!last || a > last.b) merged.push({ a, b })
@@ -271,8 +281,18 @@ function remainingOpenings(
     if (m.a > cursor) gaps.push({ start: cursor, end: m.a })
     cursor = Math.max(cursor, m.b)
   }
-  if (cursor < innerH) gaps.push({ start: cursor, end: innerH })
+  if (cursor < length) gaps.push({ start: cursor, end: length })
   return gaps
+}
+
+function remainingOpenings(
+  innerH: number,
+  occupied: { yBottom: number; yTop: number }[],
+): { start: number; end: number }[] {
+  return remainingSpans(
+    innerH,
+    occupied.map((o) => ({ a: o.yBottom, b: o.yTop })),
+  )
 }
 
 function largestOpening(gaps: { start: number; end: number }[]): { start: number; end: number } {
@@ -351,7 +371,7 @@ export function resolveMovableShelves(
         from: 'bottom' as const,
         fromFace: 'top' as const,
         toFace: 'bottom' as const,
-        offsetMm: Math.round(yBottom),
+        offsetMm: yBottom,
         yBottom,
         yTop: yBottom + T,
         startY: 0,
@@ -390,7 +410,7 @@ export function resolveMovableShelves(
       from: 'middle' as const,
       fromFace: 'top' as const,
       toFace: 'bottom' as const,
-      offsetMm: Math.max(1, Math.round(yBottom - gap.start)),
+      offsetMm: Math.max(MIN_ZONE_CLEAR_MM, yBottom - gap.start),
       gapIndex: gi,
       yBottom,
       yTop: yBottom + T,
@@ -462,12 +482,12 @@ export function parseMovableShelves(raw: unknown): MovableShelfSpec[] {
       continue
     }
     const from: FixedShelfFrom = src.from === 'top' ? 'top' : 'bottom'
-    const n = typeof src.offsetMm === 'number' ? src.offsetMm : Number.parseInt(String(src.offsetMm ?? ''), 10)
-    if (!Number.isFinite(n) || n <= 0) continue
+    const n = parseOffsetMm(src.offsetMm)
+    if (n == null) continue
     const faces = defaultShelfFaces(from)
     out.push({
       from,
-      offsetMm: Math.round(n),
+      offsetMm: n,
       fromFace: parseFace(src.fromFace, faces.fromFace),
       toFace: parseFace(src.toFace, faces.toFace),
     })
@@ -494,9 +514,9 @@ export interface ResolvedPartition extends PartitionSpec {
 
 /** Inner faces: from the inside of the carcass to the facing face of the divider. */
 export function defaultPartitionFaces(from: PartitionFrom): { fromFace: SideFace; toFace: SideFace } {
-  return from === 'left'
-    ? { fromFace: 'right', toFace: 'left' }
-    : { fromFace: 'left', toFace: 'right' }
+  return from === 'right'
+    ? { fromFace: 'left', toFace: 'right' }
+    : { fromFace: 'right', toFace: 'left' }
 }
 
 function parseSideFace(raw: unknown, fallback: SideFace): SideFace {
@@ -561,6 +581,7 @@ export function canAddMoreFixedShelves(
 }
 
 export function partitionOriginCaption(spec: Pick<PartitionSpec, 'from' | 'fromPartition'>): string {
+  if (spec.from === 'middle') return 'средата на отвора'
   if (typeof spec.fromPartition === 'number' && spec.fromPartition >= 0) {
     const dir = spec.from === 'left' ? 'надясно' : 'наляво'
     return `страница ${spec.fromPartition + 1} (${dir})`
@@ -601,13 +622,16 @@ export function measurePartition(
 }
 
 export function partitionMeasureLabel(spec: PartitionSpec): string {
+  if (spec.from === 'middle') {
+    return 'по средата на отвора — равни разстояния отляво и отдясно'
+  }
   const faces = defaultPartitionFaces(spec.from)
   const fromFace = spec.fromFace ?? faces.fromFace
   const toFace = spec.toFace ?? faces.toFace
   const fromPanel = partitionOriginCaption(spec)
   const fromWord = fromFace === 'left' ? 'лявата' : 'дясната'
   const toWord = toFace === 'left' ? 'лявата' : 'дясната'
-  return `${spec.offsetMm} мм от ${fromWord} страна на ${fromPanel} до ${toWord} страна на разделителната страница`
+  return `${formatMm(spec.offsetMm)} мм от ${fromWord} страна на ${fromPanel} до ${toWord} страна на разделителната страница`
 }
 
 export interface ResolvedZone {
@@ -699,12 +723,12 @@ export function parseFixedShelves(raw: unknown): FixedShelfSpec[] {
     if (!item || typeof item !== 'object' || Array.isArray(item)) continue
     const src = item as Record<string, unknown>
     const from: FixedShelfFrom = src.from === 'top' ? 'top' : 'bottom'
-    const n = typeof src.offsetMm === 'number' ? src.offsetMm : Number.parseInt(String(src.offsetMm ?? ''), 10)
-    if (!Number.isFinite(n) || n <= 0) continue
+    const n = parseOffsetMm(src.offsetMm)
+    if (n == null) continue
     const faces = defaultShelfFaces(from)
     out.push({
       from,
-      offsetMm: Math.round(n),
+      offsetMm: n,
       fromFace: parseFace(src.fromFace, faces.fromFace),
       toFace: parseFace(src.toFace, faces.toFace),
       columnIndex: parseColumnIndex(src.columnIndex),
@@ -720,13 +744,27 @@ export function parsePartitions(raw: unknown): PartitionSpec[] {
   for (const item of raw) {
     if (!item || typeof item !== 'object' || Array.isArray(item)) continue
     const src = item as Record<string, unknown>
+    if (src.from === 'middle') {
+      const gapRaw = src.gapIndex
+      const gapN = typeof gapRaw === 'number' ? gapRaw : Number.parseInt(String(gapRaw ?? ''), 10)
+      out.push({
+        from: 'middle',
+        offsetMm: 0,
+        fromFace: 'right',
+        toFace: 'left',
+        fromPartition: null,
+        ...(Number.isFinite(gapN) && gapN >= 0 ? { gapIndex: Math.round(gapN) } : {}),
+      })
+      if (out.length >= MAX_PARTITIONS) break
+      continue
+    }
     const from: PartitionFrom = src.from === 'right' ? 'right' : 'left'
-    const n = typeof src.offsetMm === 'number' ? src.offsetMm : Number.parseInt(String(src.offsetMm ?? ''), 10)
-    if (!Number.isFinite(n) || n <= 0) continue
+    const n = parseOffsetMm(src.offsetMm)
+    if (n == null) continue
     const faces = defaultPartitionFaces(from)
     out.push({
       from,
-      offsetMm: Math.round(n),
+      offsetMm: n,
       fromFace: parseSideFace(src.fromFace, faces.fromFace),
       toFace: parseSideFace(src.toFace, faces.toFace),
       fromPartition: parseFromPartition(src.fromPartition),
@@ -764,8 +802,8 @@ export function parseZoneMap(raw: unknown): Partial<Record<CabinetZoneId, ZoneFi
 export function defaultFixedOffsetMm(innerH: number, thickness: number, already: number): number {
   const gaps = already + 2
   const clear = innerH - (already + 1) * thickness
-  const piece = Math.round(clear / gaps)
-  return Math.max(MIN_ZONE_CLEAR_MM, piece)
+  const piece = clear / gaps
+  return Math.max(MIN_ZONE_CLEAR_MM, exactMm(piece))
 }
 
 function validateShelfGroup(group: ResolvedFixedShelf[], innerH: number): string | null {
@@ -832,8 +870,26 @@ export function resolveFixedShelves(
 export function defaultPartitionOffsetMm(innerW: number, thickness: number, already: number): number {
   const gaps = already + 2
   const clear = innerW - (already + 1) * thickness
-  const piece = Math.round(clear / gaps)
-  return Math.max(MIN_ZONE_CLEAR_MM, piece)
+  const piece = clear / gaps
+  return Math.max(MIN_ZONE_CLEAR_MM, exactMm(piece))
+}
+
+/** Remaining bays around already placed dividers (for a page in the middle). */
+export function partitionGapOpenings(
+  placed: { xLeft: number; xRight: number }[],
+  innerW: number,
+): { index: number; start: number; end: number; label: string }[] {
+  const gaps = remainingSpans(
+    innerW,
+    placed.map((p) => ({ a: p.xLeft, b: p.xRight })),
+  )
+  if (gaps.length === 0) gaps.push({ start: 0, end: innerW })
+  return gaps.map((g, i) => ({
+    index: i,
+    start: g.start,
+    end: g.end,
+    label: columnLabel(i, gaps.length),
+  }))
 }
 
 export function resolvePartitions(
@@ -854,6 +910,53 @@ export function resolvePartitions(
     let progress = false
     for (const { spec, specIndex } of pending) {
       if (byIndex.has(specIndex)) continue
+      if (spec.from === 'middle') {
+        let ready = true
+        for (let i = 0; i < specIndex; i++) {
+          if (!byIndex.has(i)) {
+            ready = false
+            break
+          }
+        }
+        if (!ready) continue
+        const placed = [...byIndex.values()]
+        const openings = remainingSpans(
+          innerW,
+          placed.map((p) => ({ a: p.xLeft, b: p.xRight })),
+        )
+        if (openings.length === 0) openings.push({ start: 0, end: innerW })
+        let gi = 0
+        if (typeof spec.gapIndex === 'number' && Number.isFinite(spec.gapIndex)) {
+          gi = Math.min(openings.length - 1, Math.max(0, Math.round(spec.gapIndex)))
+        } else {
+          gi = openings.reduce(
+            (best, g, i) => (g.end - g.start > openings[best].end - openings[best].start ? i : best),
+            0,
+          )
+        }
+        const gap = openings[gi] ?? { start: 0, end: innerW }
+        const clear = gap.end - gap.start
+        if (clear < T + MIN_ZONE_CLEAR_MM * 2) {
+          return { partitions: [], error: 'Няма място за разделителна страница по средата.' }
+        }
+        const xLeft = gap.start + (clear - T) / 2
+        byIndex.set(specIndex, {
+          ...spec,
+          specIndex,
+          from: 'middle',
+          fromFace: spec.fromFace ?? 'right',
+          toFace: spec.toFace ?? 'left',
+          fromPartition: null,
+          gapIndex: gi,
+          offsetMm: 0,
+          xLeft,
+          xRight: xLeft + T,
+          startX: gap.start,
+          endX: xLeft,
+        })
+        progress = true
+        continue
+      }
       const ref = spec.fromPartition
       if (typeof ref === 'number') {
         if (ref === specIndex) {

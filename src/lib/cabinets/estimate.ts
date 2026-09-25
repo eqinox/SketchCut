@@ -14,6 +14,7 @@ import {
   usedBoardCostEur,
 } from './materials'
 import { WORK_HOURS_PER_DAY, type GeneratedPanel, type HardwareItem, type LaborEstimate } from './types'
+import { exactMm } from '../utils'
 
 export { hardwareCostEur } from './hardware'
 
@@ -174,8 +175,8 @@ export function groupBuyoutDoors(panels: GeneratedPanel[]): BuyoutDoorGroup[] {
   const map = new Map<string, BuyoutDoorGroup>()
   for (const p of panels) {
     if (!isBuyoutDoorPanel(p)) continue
-    const width = Math.round(p.width)
-    const height = Math.round(p.height)
+    const width = exactMm(p.width)
+    const height = exactMm(p.height)
     const key = `${p.name}|${width}|${height}`
     const prev = map.get(key)
     if (prev) prev.quantity += p.quantity
