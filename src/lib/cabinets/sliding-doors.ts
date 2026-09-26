@@ -4,23 +4,41 @@ import { edges, type GeneratedPanel, type HardwareItem } from './types'
 import type { HardwareSettings } from '@/lib/settings'
 import type { PartitionSpec } from './zones'
 import { formatMm } from '../utils'
+import {
+  DEFAULT_SLIDING_LOWER_TRACK_EUR,
+  DEFAULT_SLIDING_MVP005_KIT_EUR,
+  DEFAULT_SLIDING_SOFT_CLOSE_EUR,
+  DEFAULT_SLIDING_UPPER_TRACK_EUR,
+  SLIDING_LOWER_TRACK_DEPTH_MM,
+  SLIDING_LOWER_TRACK_HEIGHT_MM,
+  SLIDING_LOWER_TRACK_INSET_MM,
+  SLIDING_TRACK_COLOR_LABELS,
+  SLIDING_TRACK_LENGTH_MM,
+  SLIDING_UPPER_TRACK_CLEARANCE_MM,
+  SLIDING_UPPER_TRACK_DEPTH_MM,
+  SLIDING_UPPER_TRACK_HEIGHT_MM,
+  pickSlidingSku,
+  slidingSkuLabel,
+  type SlidingTrackColor,
+} from '@/lib/sliding-hardware'
 
-/** Inner partitions sit this far back so sliding doors can pass in front. */
-export const SLIDING_PARTITION_SETBACK_MM = 90
+/** Inner partitions sit this far back so sliding doors can pass in front (upper rail 80 + 10 spare). */
+export const SLIDING_PARTITION_SETBACK_MM = SLIDING_UPPER_TRACK_DEPTH_MM + SLIDING_UPPER_TRACK_CLEARANCE_MM
 /** Shelves are this much shallower than the inner partition. */
 export const SLIDING_SHELF_FROM_PARTITION_MM = 10
 /** Extra width so two doors overlap instead of meeting on the partition. */
 export const SLIDING_DOOR_OVERLAP_MM = 10
-/** Bottom track / strip on the sliding doors, mm. */
-export const SLIDING_BOTTOM_TRACK_MM = 10
+/** Lower rail height (two channels). */
+export const SLIDING_BOTTOM_TRACK_MM = SLIDING_LOWER_TRACK_HEIGHT_MM
+export { SLIDING_LOWER_TRACK_DEPTH_MM, SLIDING_LOWER_TRACK_INSET_MM, SLIDING_UPPER_TRACK_DEPTH_MM, SLIDING_UPPER_TRACK_HEIGHT_MM }
 /** Extra gap so drawer fronts do not rub the bottom track. */
 export const SLIDING_DRAWER_CLEARANCE_MM = 10
 /** Lowest drawer front sits this far above the inner floor when there are sliding doors. */
 export const SLIDING_DRAWER_FROM_BOTTOM_MM = SLIDING_BOTTOM_TRACK_MM + SLIDING_DRAWER_CLEARANCE_MM
-/** Vertical handle profile (кант дръжка), mm added after the cut. */
+/** Vertical handle profile D1L, mm added after the cut. */
 export const SLIDING_HANDLE_PROFILE_MM = 20
-/** Vertical end cap (тапа / лайсна без дръжка), mm added after the cut. */
-export const SLIDING_CAP_PROFILE_MM = 20
+/** D2 aluminium cap does not add width — it sits on the 18 mm board edge. */
+export const SLIDING_CAP_PROFILE_MM = 0
 
 export type DoorStyle = 'hinged' | 'sliding'
 export type SlidingEdgeKind = 'handle' | 'cap'
@@ -57,7 +75,26 @@ export function parseSlidingEdges(raw: unknown, count: number): SlidingDoorEdges
 }
 
 export function slidingEdgeLabel(kind: SlidingEdgeKind): string {
-  return kind === 'handle' ? 'кант дръжка' : 'тапа'
+  return kind === 'handle' ? 'кант дръжка D1L' : 'профил D2'
+}
+
+export function bothSideSlidingEdges(): SlidingDoorEdges[] {
+  return [
+    { left: 'handle', right: 'handle' },
+    { left: 'handle', right: 'handle' },
+  ]
+}
+
+/** Handle on the outer edge of each door, D2 on the inner edge. */
+export function oneSideSlidingEdges(): SlidingDoorEdges[] {
+  return [
+    { left: 'handle', right: 'cap' },
+    { left: 'cap', right: 'handle' },
+  ]
+}
+
+export function slidingHandlesOnBothSides(edges: SlidingDoorEdges[]): boolean {
+  return edges.length >= 2 && edges.every((row) => row.left === 'handle' && row.right === 'handle')
 }
 
 export function slidingProfileMm(kind: SlidingEdgeKind): number {
@@ -166,6 +203,12 @@ export function appendSlidingDoors(
     partitions: { xLeft: number }[]
     edges: SlidingDoorEdges[]
     externalDoors?: boolean
+    upperTrackColor?: SlidingTrackColor
+    lowerTrackColor?: SlidingTrackColor
+    handleSkuId?: string
+    capSkuId?: string
+    softCloseLeft?: number
+    softCloseRight?: number
   },
   panels: GeneratedPanel[],
   hardware: HardwareItem[],
@@ -175,22 +218,34 @@ export function appendSlidingDoors(
   const leaves = layoutSlidingDoors(input)
   if (leaves.length === 0) return
   const bought = input.externalDoors === true
+  const upperColor = input.upperTrackColor ?? 'black'
+  const lowerColor = input.lowerTrackColor ?? 'black'
+  const upperEur = hardwareSettings.slidingUpperTrackEur?.[upperColor] ?? DEFAULT_SLIDING_UPPER_TRACK_EUR[upperColor]
+  const lowerEur = hardwareSettings.slidingLowerTrackEur?.[lowerColor] ?? DEFAULT_SLIDING_LOWER_TRACK_EUR[lowerColor]
+  const kitEur = hardwareSettings.slidingMvp005KitEur ?? DEFAULT_SLIDING_MVP005_KIT_EUR
+  const damperEur = hardwareSettings.slidingSoftCloseEur ?? DEFAULT_SLIDING_SOFT_CLOSE_EUR
+  const softLeft = Math.max(0, input.softCloseLeft ?? 1)
+  const softRight = Math.max(0, input.softCloseRight ?? 1)
 
   notes.push(
-    `2 плъзгащи врати между страниците. Разделителните страници са с ${SLIDING_PARTITION_SETBACK_MM} мм по-плитки, рафтовете с още ${SLIDING_SHELF_FROM_PARTITION_MM} мм.`,
+    `2 плъзгащи врати между страниците. Горната релса е ${SLIDING_UPPER_TRACK_DEPTH_MM} мм дълбока и ${SLIDING_UPPER_TRACK_HEIGHT_MM} мм висока, наравно с канта на плота. Вътрешните страници са с ${SLIDING_PARTITION_SETBACK_MM} мм по-плитки (${SLIDING_UPPER_TRACK_DEPTH_MM} мм релса + ${SLIDING_UPPER_TRACK_CLEARANCE_MM} мм запас), рафтовете с още ${SLIDING_SHELF_FROM_PARTITION_MM} мм.`,
   )
   notes.push(
-    `Вратите се препокриват с ${SLIDING_DOOR_OVERLAP_MM} мм. Габаритът включва кант дръжка/тапа; рязането е без профилите.`,
+    `Долната релса е ${SLIDING_LOWER_TRACK_DEPTH_MM} мм дълбока и ${SLIDING_BOTTOM_TRACK_MM} мм висока (два канала), ${SLIDING_LOWER_TRACK_INSET_MM} мм навътре от канта на дъното, за да пасне с горната.`,
   )
   notes.push(
-    `Долната лайсна е ${SLIDING_BOTTOM_TRACK_MM} мм. Чекмеджета отдолу започват на ${SLIDING_DRAWER_FROM_BOTTOM_MM} мм от дъното (${SLIDING_BOTTOM_TRACK_MM} мм лайсна + ${SLIDING_DRAWER_CLEARANCE_MM} мм да не търкат).`,
+    `Релсите се продават по ${formatMm(SLIDING_TRACK_LENGTH_MM)} мм — влиза цялата цена на пръта, дори да се отреже.`,
+  )
+  notes.push(
+    `Вратите се препокриват с ${SLIDING_DOOR_OVERLAP_MM} мм. Кант дръжка D1L добавя ${SLIDING_HANDLE_PROFILE_MM} мм към широчината; профил D2 не добавя. Рязането е без вертикалните профили и без 2 мм кант горе и долу.`,
+  )
+  notes.push(
+    `Чекмеджета отдолу започват на ${SLIDING_DRAWER_FROM_BOTTOM_MM} мм от дъното (${SLIDING_BOTTOM_TRACK_MM} мм релса + ${SLIDING_DRAWER_CLEARANCE_MM} мм да не търкат).`,
   )
   if (bought) {
     notes.push('Плъзгащите врати са външни: поръчват се по габарит, не влизат в разкроя и не се кантират при нас.')
   }
 
-  let handleMm = 0
-  let capMm = 0
   for (const leaf of leaves) {
     const leftL = slidingEdgeLabel(leaf.edges.left)
     const rightL = slidingEdgeLabel(leaf.edges.right)
@@ -215,10 +270,6 @@ export function appendSlidingDoors(
     notes.push(
       `${leaf.name}: габарит ${formatMm(leaf.gabaritW)} × ${formatMm(leaf.gabaritH)} мм · рязане ${formatMm(leaf.cutW)} × ${formatMm(leaf.cutH)} мм (ляво ${leftL} ${slidingProfileMm(leaf.edges.left)} мм, дясно ${rightL} ${slidingProfileMm(leaf.edges.right)} мм, кант 2 мм горе и долу).`,
     )
-    if (leaf.edges.left === 'handle') handleMm += leaf.cutH
-    else capMm += leaf.cutH
-    if (leaf.edges.right === 'handle') handleMm += leaf.cutH
-    else capMm += leaf.cutH
     panels.push({
       role: 'sliding-door',
       name: leaf.name,
@@ -227,24 +278,109 @@ export function appendSlidingDoors(
       quantity: 1,
       canRotate: false,
       edges: edges({ top: true, bottom: true }),
-      note: `Плъзгаща врата. Рязане без вертикалните профили. След кант дръжка/тапа: ${formatMm(leaf.gabaritW)} мм. Кант 2 мм: горна и долна.`,
+      note: `Плъзгаща врата. Рязане без вертикалните профили. След D1L/D2: ${formatMm(leaf.gabaritW)} мм. Кант 2 мм: горна и долна.`,
     })
+  }
+
+  hardware.push(
+    pricedLine(
+      {
+        id: `sliding-upper-track-${upperColor}`,
+        name: `Горна релса MVP-005 3 м (${SLIDING_TRACK_COLOR_LABELS[upperColor]})`,
+        unitPriceEur: upperEur,
+      },
+      1,
+      `${formatMm(SLIDING_TRACK_LENGTH_MM)} мм прът`,
+    ),
+  )
+  hardware.push(
+    pricedLine(
+      {
+        id: `sliding-lower-track-${lowerColor}`,
+        name: `Долна релса MVP-005 3 м (${SLIDING_TRACK_COLOR_LABELS[lowerColor]})`,
+        unitPriceEur: lowerEur,
+      },
+      1,
+      `${formatMm(SLIDING_TRACK_LENGTH_MM)} мм прът`,
+    ),
+  )
+  hardware.push(
+    pricedLine(
+      {
+        id: 'sliding-mvp005-kit',
+        name: 'Механизъм MVP-005 (2 горни + 2 долни)',
+        unitPriceEur: kitEur,
+      },
+      leaves.length,
+      'комплект за 1 плъзгаща врата',
+    ),
+  )
+  const dampers = softLeft + softRight
+  if (dampers > 0) {
+    hardware.push(
+      pricedLine(
+        {
+          id: 'sliding-soft-close',
+          name: 'Плавно прибиране MVP-005',
+          unitPriceEur: damperEur,
+        },
+        dampers,
+        `${softLeft} ляво + ${softRight} дясно`,
+      ),
+    )
   }
 
   if (bought) return
 
-  const pushProfile = (id: string, name: string, mm: number, eurPerM: number) => {
-    if (!(mm > 0)) return
-    const metres = Math.round((mm / 1000) * 1000) / 1000
-    notes.push(`${name}: ${formatMm(mm)} мм (${metres} м)${eurPerM > 0 ? ` · ${eurPerM} €/м` : ''}.`)
+  const cutH = leaves[0]?.cutH ?? 0
+  const handleCount = leaves.reduce(
+    (n, leaf) => n + (leaf.edges.left === 'handle' ? 1 : 0) + (leaf.edges.right === 'handle' ? 1 : 0),
+    0,
+  )
+  const capCount = leaves.reduce(
+    (n, leaf) => n + (leaf.edges.left === 'cap' ? 1 : 0) + (leaf.edges.right === 'cap' ? 1 : 0),
+    0,
+  )
+  const handleSku = handleCount > 0
+    ? pickSlidingSku(hardwareSettings.slidingHandleSkus ?? [], cutH, input.handleSkuId)
+    : null
+  const capSku = capCount > 0
+    ? pickSlidingSku(hardwareSettings.slidingCapSkus ?? [], cutH, input.capSkuId)
+    : null
+  if (handleSku && handleCount > 0) {
+    if (handleSku.lengthMm < cutH) {
+      notes.push(
+        `Кант дръжка D1L ${handleSku.code} е ${formatMm(handleSku.lengthMm)} мм, а рязането е ${formatMm(cutH)} мм — избери по-дълъг профил.`,
+      )
+    }
     hardware.push(
       pricedLine(
-        { id, name, unitPriceEur: eurPerM },
-        metres,
-        `${formatMm(mm)} мм`,
+        {
+          id: `sliding-handle-${handleSku.id}`,
+          name: `Кант дръжка D1L ${handleSku.code} (${handleSku.color})`,
+          unitPriceEur: handleSku.priceEur,
+        },
+        handleCount,
+        slidingSkuLabel(handleSku),
       ),
     )
   }
-  pushProfile('sliding-handle', 'Кант дръжка', handleMm, hardwareSettings.slidingHandleEurPerM ?? 0)
-  pushProfile('sliding-cap', 'Тапа за плъзгаща врата', capMm, hardwareSettings.slidingCapEurPerM ?? 0)
+  if (capSku && capCount > 0) {
+    if (capSku.lengthMm < cutH) {
+      notes.push(
+        `Профил D2 ${capSku.code} е ${formatMm(capSku.lengthMm)} мм, а рязането е ${formatMm(cutH)} мм — избери по-дълъг профил.`,
+      )
+    }
+    hardware.push(
+      pricedLine(
+        {
+          id: `sliding-cap-${capSku.id}`,
+          name: `Алуминиев профил D2 ${capSku.code} (${capSku.color})`,
+          unitPriceEur: capSku.priceEur,
+        },
+        capCount,
+        slidingSkuLabel(capSku),
+      ),
+    )
+  }
 }

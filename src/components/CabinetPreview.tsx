@@ -26,6 +26,10 @@ import {
   layoutSlidingDoors,
   SLIDING_BOTTOM_TRACK_MM,
   SLIDING_DRAWER_FROM_BOTTOM_MM,
+  SLIDING_UPPER_TRACK_DEPTH_MM,
+  SLIDING_UPPER_TRACK_HEIGHT_MM,
+  SLIDING_LOWER_TRACK_DEPTH_MM,
+  SLIDING_LOWER_TRACK_INSET_MM,
   type KitchenBaseParams,
   type KitchenWallParams,
   type NightstandParams,
@@ -2622,6 +2626,55 @@ function PlinthBoxFront3DView({
         fontScale={fontScale}
       />
 
+      {m.sliding && (
+        <>
+          <Board
+            x={T}
+            y={leftInnerY}
+            z={zSide}
+            w={m.innerW}
+            h={SLIDING_UPPER_TRACK_HEIGHT_MM}
+            d={SLIDING_UPPER_TRACK_DEPTH_MM}
+            color="#8a9199"
+            cam={view}
+            faces={BETWEEN_FACES}
+          />
+          <Board
+            x={T}
+            y={bottomY - SLIDING_BOTTOM_TRACK_MM}
+            z={zSide + SLIDING_LOWER_TRACK_INSET_MM}
+            w={m.innerW}
+            h={SLIDING_BOTTOM_TRACK_MM}
+            d={SLIDING_LOWER_TRACK_DEPTH_MM}
+            color="#6b7280"
+            cam={view}
+            faces={BETWEEN_FACES}
+          />
+          <Board
+            x={T}
+            y={bottomY - SLIDING_BOTTOM_TRACK_MM}
+            z={zSide + SLIDING_LOWER_TRACK_INSET_MM + 10}
+            w={m.innerW}
+            h={1}
+            d={18}
+            color="#374151"
+            cam={view}
+            faces={BETWEEN_FACES}
+          />
+          <Board
+            x={T}
+            y={bottomY - SLIDING_BOTTOM_TRACK_MM}
+            z={zSide + SLIDING_LOWER_TRACK_INSET_MM + 34}
+            w={m.innerW}
+            h={1}
+            d={18}
+            color="#374151"
+            cam={view}
+            faces={BETWEEN_FACES}
+          />
+        </>
+      )}
+
       <Board
         x={W - T}
         y={sideY}
@@ -2676,18 +2729,57 @@ function PlinthBoxFront3DView({
         />
       ) : null}
 
-      {m.sliding && (
-        <Board
-          x={T}
-          y={bottomY - SLIDING_BOTTOM_TRACK_MM}
-          z={0}
-          w={m.innerW}
-          h={SLIDING_BOTTOM_TRACK_MM}
-          d={T}
-          color="#8b7355"
-          cam={view}
-          faces={{ front: true, top: true, right: true }}
-        />
+      {m.sliding && showDimLines && (
+        <>
+          <DimLine
+            x1={view.proj(T + m.innerW * 0.72, leftInnerY + 12, zSide).x}
+            y1={view.proj(T + m.innerW * 0.72, leftInnerY + 12, zSide).y}
+            x2={view.proj(T + m.innerW * 0.72, leftInnerY + 12, zSide + SLIDING_UPPER_TRACK_DEPTH_MM).x}
+            y2={view.proj(T + m.innerW * 0.72, leftInnerY + 12, zSide + SLIDING_UPPER_TRACK_DEPTH_MM).y}
+          />
+          <DimText
+            x={view.proj(T + m.innerW * 0.72, leftInnerY + 12, zSide + SLIDING_UPPER_TRACK_DEPTH_MM / 2).x}
+            y={view.proj(T + m.innerW * 0.72, leftInnerY + 12, zSide + SLIDING_UPPER_TRACK_DEPTH_MM / 2).y - small * 0.35}
+            label={mm(SLIDING_UPPER_TRACK_DEPTH_MM)}
+            fontSize={small}
+          />
+          <DimLine
+            x1={view.proj(T + m.innerW * 0.72, bottomY - 18, zSide + SLIDING_LOWER_TRACK_INSET_MM).x}
+            y1={view.proj(T + m.innerW * 0.72, bottomY - 18, zSide + SLIDING_LOWER_TRACK_INSET_MM).y}
+            x2={view.proj(T + m.innerW * 0.72, bottomY - 18, zSide + SLIDING_LOWER_TRACK_INSET_MM + SLIDING_LOWER_TRACK_DEPTH_MM).x}
+            y2={view.proj(T + m.innerW * 0.72, bottomY - 18, zSide + SLIDING_LOWER_TRACK_INSET_MM + SLIDING_LOWER_TRACK_DEPTH_MM).y}
+          />
+          <DimText
+            x={
+              view.proj(
+                T + m.innerW * 0.72,
+                bottomY - 18,
+                zSide + SLIDING_LOWER_TRACK_INSET_MM + SLIDING_LOWER_TRACK_DEPTH_MM / 2,
+              ).x
+            }
+            y={
+              view.proj(
+                T + m.innerW * 0.72,
+                bottomY - 18,
+                zSide + SLIDING_LOWER_TRACK_INSET_MM + SLIDING_LOWER_TRACK_DEPTH_MM / 2,
+              ).y - small * 0.35
+            }
+            label={mm(SLIDING_LOWER_TRACK_DEPTH_MM)}
+            fontSize={small}
+          />
+          <DimLine
+            x1={view.proj(T + m.innerW * 0.55, bottomY - 8, zSide).x}
+            y1={view.proj(T + m.innerW * 0.55, bottomY - 8, zSide).y}
+            x2={view.proj(T + m.innerW * 0.55, bottomY - 8, zSide + SLIDING_LOWER_TRACK_INSET_MM).x}
+            y2={view.proj(T + m.innerW * 0.55, bottomY - 8, zSide + SLIDING_LOWER_TRACK_INSET_MM).y}
+          />
+          <DimText
+            x={view.proj(T + m.innerW * 0.55, bottomY - 8, zSide + SLIDING_LOWER_TRACK_INSET_MM / 2).x}
+            y={view.proj(T + m.innerW * 0.55, bottomY - 8, zSide + SLIDING_LOWER_TRACK_INSET_MM / 2).y - small * 0.35}
+            label={mm(SLIDING_LOWER_TRACK_INSET_MM)}
+            fontSize={small}
+          />
+        </>
       )}
 
       {showFronts && m.sliding && p.doorCount === 2 &&
@@ -2702,7 +2794,7 @@ function PlinthBoxFront3DView({
             key={`slide-door-${leaf.side}`}
             x={T + leaf.x}
             y={bottomY - leaf.gabaritH}
-            z={i === 0 ? T + 8 : 0}
+            z={i === 0 ? zSide + SLIDING_LOWER_TRACK_INSET_MM + 32 : zSide + SLIDING_LOWER_TRACK_INSET_MM}
             w={leaf.gabaritW}
             h={leaf.gabaritH}
             d={T}

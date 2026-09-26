@@ -1,6 +1,24 @@
+import {
+  DEFAULT_SLIDING_CAP_SKUS,
+  DEFAULT_SLIDING_HANDLE_SKUS,
+  DEFAULT_SLIDING_LINKS,
+  DEFAULT_SLIDING_LOWER_TRACK_EUR,
+  DEFAULT_SLIDING_MVP005_KIT_EUR,
+  DEFAULT_SLIDING_SOFT_CLOSE_EUR,
+  DEFAULT_SLIDING_UPPER_TRACK_EUR,
+  parseSlidingLinks,
+  parseSlidingSkuList,
+  parseSlidingTrackPrices,
+  type SlidingHardwareLinks,
+  type SlidingProfileSku,
+  type SlidingTrackColor,
+} from './sliding-hardware'
+
 export type SlideKind = 'roller' | 'soft-full' | 'soft-partial'
 
 export type PriceByLength = Record<string, number>
+
+export type { SlidingHardwareLinks, SlidingProfileSku, SlidingTrackColor }
 
 export interface HardwareSettings {
   hingeSoftCloseEur: number
@@ -14,10 +32,23 @@ export interface HardwareSettings {
   shelfPinEur: number
   /** Ordinary cabinet handle, EUR each. */
   handleNormalEur: number
-  /** Sliding-door handle profile (кант дръжка), EUR per metre. */
+  /** @deprecated Whole-bar D1L SKUs in slidingHandleSkus. Kept for old records. */
   slidingHandleEurPerM: number
-  /** Sliding-door end cap (тапа), EUR per metre. */
+  /** @deprecated Whole-bar D2 SKUs in slidingCapSkus. Kept for old records. */
   slidingCapEurPerM: number
+  /** Upper 3 m track, EUR per bar, by color. */
+  slidingUpperTrackEur: Record<SlidingTrackColor, number>
+  /** Lower 3 m track, EUR per bar, by color. */
+  slidingLowerTrackEur: Record<SlidingTrackColor, number>
+  /** MVP-005 roller kit (2 upper + 2 lower) for one sliding door. */
+  slidingMvp005KitEur: number
+  /** Soft-close damper for MVP-005, EUR each. */
+  slidingSoftCloseEur: number
+  /** D1L handle profiles — charge the whole bar. */
+  slidingHandleSkus: SlidingProfileSku[]
+  /** D2 cap profiles for 18 mm — charge the whole bar. */
+  slidingCapSkus: SlidingProfileSku[]
+  slidingLinks: SlidingHardwareLinks
   /** Clothes hanging rail, EUR per metre. */
   clothesRailEurPerM: number
 
@@ -103,6 +134,13 @@ export const DEFAULT_HARDWARE_SETTINGS: HardwareSettings = {
   handleNormalEur: 1,
   slidingHandleEurPerM: 0,
   slidingCapEurPerM: 0,
+  slidingUpperTrackEur: { ...DEFAULT_SLIDING_UPPER_TRACK_EUR },
+  slidingLowerTrackEur: { ...DEFAULT_SLIDING_LOWER_TRACK_EUR },
+  slidingMvp005KitEur: DEFAULT_SLIDING_MVP005_KIT_EUR,
+  slidingSoftCloseEur: DEFAULT_SLIDING_SOFT_CLOSE_EUR,
+  slidingHandleSkus: DEFAULT_SLIDING_HANDLE_SKUS.map((sku) => ({ ...sku })),
+  slidingCapSkus: DEFAULT_SLIDING_CAP_SKUS.map((sku) => ({ ...sku })),
+  slidingLinks: { ...DEFAULT_SLIDING_LINKS },
   clothesRailEurPerM: 1,
   edgeMm2Eur: 0.7,
   edgeMm05Eur: 0.35,
@@ -162,6 +200,13 @@ export function parseHardwareSettings(raw: unknown): HardwareSettings {
     handleNormalEur: num(src, 'handleNormalEur', d.handleNormalEur),
     slidingHandleEurPerM: num(src, 'slidingHandleEurPerM', d.slidingHandleEurPerM),
     slidingCapEurPerM: num(src, 'slidingCapEurPerM', d.slidingCapEurPerM),
+    slidingUpperTrackEur: parseSlidingTrackPrices(src.slidingUpperTrackEur, d.slidingUpperTrackEur),
+    slidingLowerTrackEur: parseSlidingTrackPrices(src.slidingLowerTrackEur, d.slidingLowerTrackEur),
+    slidingMvp005KitEur: num(src, 'slidingMvp005KitEur', d.slidingMvp005KitEur),
+    slidingSoftCloseEur: num(src, 'slidingSoftCloseEur', d.slidingSoftCloseEur),
+    slidingHandleSkus: parseSlidingSkuList(src.slidingHandleSkus, d.slidingHandleSkus),
+    slidingCapSkus: parseSlidingSkuList(src.slidingCapSkus, d.slidingCapSkus),
+    slidingLinks: parseSlidingLinks(src.slidingLinks),
     clothesRailEurPerM: num(src, 'clothesRailEurPerM', d.clothesRailEurPerM),
     edgeMm2Eur: num(src, 'edgeMm2Eur', d.edgeMm2Eur),
     edgeMm05Eur: num(src, 'edgeMm05Eur', d.edgeMm05Eur),

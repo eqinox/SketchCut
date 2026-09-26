@@ -77,12 +77,16 @@ import {
   DIM_FONT_SCALE_MIN,
   DIM_FONT_SCALE_MAX,
   defaultSlidingEdges,
+  bothSideSlidingEdges,
+  oneSideSlidingEdges,
+  slidingHandlesOnBothSides,
   centerSlidingPartition,
   layoutSlidingDoors,
   slidingEdgeLabel,
   slidingProfileMm,
   SLIDING_DRAWER_FROM_BOTTOM_MM,
   SLIDING_BOTTOM_TRACK_MM,
+  SLIDING_HANDLE_PROFILE_MM,
   isBuyoutDoorPanel,
   type CabinetInstance,
   type CabinetPartColors,
@@ -126,6 +130,13 @@ import type { HardwareSettings } from '@/lib/settings'
 import { DEFAULT_HARDWARE_SETTINGS } from '@/lib/settings'
 import type { AssemblyTimeSettings } from '@/lib/assembly-time'
 import { DEFAULT_ASSEMBLY_TIME_SETTINGS } from '@/lib/assembly-time'
+import {
+  SLIDING_TRACK_COLOR_IDS,
+  SLIDING_TRACK_COLOR_LABELS,
+  pickSlidingSku,
+  slidingSkuLabel,
+  type SlidingTrackColor,
+} from '@/lib/sliding-hardware'
 import { CabinetSizeBadge } from '@/components/CabinetSizeBadge'
 import type { Sheet } from '@/types'
 import { cn, exactMm, formatMeters, formatMm, parseMm } from '@/lib/utils'
@@ -446,6 +457,28 @@ type FixedShelfUi = {
 
 const FULL_CABINET_LABEL = 'На целия шкаф'
 
+function SlidingDetails({ title, children }: { title: string; children: ReactNode }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="mt-3">
+      <button
+        type="button"
+        className="flex w-full items-center gap-1.5 rounded-sm py-0.5 text-left text-sm font-medium leading-none hover:opacity-80"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+      >
+        {open ? (
+          <ChevronDown className="h-4 w-4 shrink-0 text-[var(--color-muted-foreground)]" />
+        ) : (
+          <ChevronRight className="h-4 w-4 shrink-0 text-[var(--color-muted-foreground)]" />
+        )}
+        <span>{title}</span>
+      </button>
+      {open ? <div className="mt-2 space-y-2">{children}</div> : null}
+    </div>
+  )
+}
+
 function FormSection({
   title,
   summary,
@@ -662,6 +695,24 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
   const [slidingEdges, setSlidingEdges] = useState<SlidingDoorEdges[]>(
     parseSlidingEdges((initialFittings as { slidingEdges?: unknown }).slidingEdges, 2),
   )
+  const [slidingUpperTrackColor, setSlidingUpperTrackColor] = useState<SlidingTrackColor>(
+    (initialFittings.slidingUpperTrackColor as SlidingTrackColor | undefined) ?? 'black',
+  )
+  const [slidingLowerTrackColor, setSlidingLowerTrackColor] = useState<SlidingTrackColor>(
+    (initialFittings.slidingLowerTrackColor as SlidingTrackColor | undefined) ?? 'black',
+  )
+  const [slidingHandleSkuId, setSlidingHandleSkuId] = useState(
+    typeof initialFittings.slidingHandleSkuId === 'string' ? initialFittings.slidingHandleSkuId : '',
+  )
+  const [slidingCapSkuId, setSlidingCapSkuId] = useState(
+    typeof initialFittings.slidingCapSkuId === 'string' ? initialFittings.slidingCapSkuId : '',
+  )
+  const [slidingSoftCloseLeft, setSlidingSoftCloseLeft] = useState(
+    String(initialFittings.slidingSoftCloseLeft ?? 1),
+  )
+  const [slidingSoftCloseRight, setSlidingSoftCloseRight] = useState(
+    String(initialFittings.slidingSoftCloseRight ?? 1),
+  )
   const [drawerFrontHeights, setDrawerFrontHeights] = useState<string[]>(
     initialFittings.drawerFrontHeights.map(String),
   )
@@ -733,6 +784,12 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
       doorCount,
       doorStyle: typeId === 'wardrobe' ? 'sliding' : doorStyle,
       slidingEdges,
+      slidingUpperTrackColor,
+      slidingLowerTrackColor,
+      slidingHandleSkuId,
+      slidingCapSkuId,
+      slidingSoftCloseLeft: Math.max(0, parseInt(slidingSoftCloseLeft, 10) || 0),
+      slidingSoftCloseRight: Math.max(0, parseInt(slidingSoftCloseRight, 10) || 0),
       drawerFrontHeights: drawerFrontHeights.map((s) => parseInt(s, 10) || 0).filter((n) => n > 0),
       cutFromOneBoard,
       includeHandles,
@@ -837,7 +894,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
       colors,
       ...fittings,
     })
-  }, [typeId, width, height, depth, depthIncludesDoor, thickness, legHeight, shelfCount, movableShelves, hasBack, clothesRails, doorCount, doorStyle, slidingEdges, drawerFrontHeights, cutFromOneBoard, includeHandles, slideKind, slideLength, useLegs, plinthCount, plinthHeight, colors, topStyle, hasHood, hoodShape, hoodDiameter, hoodRectW, hoodRectD, fixedShelves, partitions, doorSpan, zoneUi, externalDoors, dimFontScale])
+  }, [typeId, width, height, depth, depthIncludesDoor, thickness, legHeight, shelfCount, movableShelves, hasBack, clothesRails, doorCount, doorStyle, slidingEdges, slidingUpperTrackColor, slidingLowerTrackColor, slidingHandleSkuId, slidingCapSkuId, slidingSoftCloseLeft, slidingSoftCloseRight, drawerFrontHeights, cutFromOneBoard, includeHandles, slideKind, slideLength, useLegs, plinthCount, plinthHeight, colors, topStyle, hasHood, hoodShape, hoodDiameter, hoodRectW, hoodRectD, fixedShelves, partitions, doorSpan, zoneUi, externalDoors, dimFontScale])
 
   const qty = Math.max(1, parseInt(quantity, 10) || 1)
   const result = useMemo(() => {
@@ -2931,7 +2988,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
             <>
               <p className="mt-0.5 text-xs text-[var(--color-muted-foreground)]">
                 {typeId === 'wardrobe'
-                  ? 'Две плъзгащи врати покриват целия гардероб и се препокриват с 10 мм. Кант дръжка или тапа се слага след рязането.'
+                  ? 'Две плъзгащи врати покриват целия гардероб и се препокриват с 10 мм. Кант дръжка D1L или профил D2 се слага след рязането.'
                   : 'Наложени врати върху корпуса или плъзгащи между страниците.'}
               </p>
               {typeId === 'section' && (
@@ -2996,73 +3053,325 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                   </Button>
                 </div>
               )}
-              {doorCount === 2 &&
-                !effectiveExternalDoors &&
-                (['left', 'right'] as const).map((side, i) => {
-                  const edges = slidingEdges[i] ?? { left: 'handle' as const, right: 'handle' as const }
-                  const title = side === 'left' ? 'Лява врата' : 'Дясна врата'
-                  const setEdge = (which: 'left' | 'right', kind: SlidingEdgeKind) => {
-                    setSlidingEdges((rows) => {
-                      const next = defaultSlidingEdges(2).map((d, j) => rows[j] ?? d)
-                      next[i] = { ...next[i], [which]: kind }
-                      return next
-                    })
-                  }
-                  return (
-                    <div key={side} className="mt-3 space-y-1">
-                      <p className="text-xs font-medium">{title}</p>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-xs text-[var(--color-muted-foreground)]">ляво</span>
-                        {(['handle', 'cap'] as const).map((kind) => (
-                          <Button
-                            key={`l-${kind}`}
-                            type="button"
-                            size="sm"
-                            variant={edges.left === kind ? 'default' : 'outline'}
-                            onClick={() => setEdge('left', kind)}
-                          >
-                            {slidingEdgeLabel(kind)}
-                          </Button>
-                        ))}
-                        <span className="text-xs text-[var(--color-muted-foreground)]">дясно</span>
-                        {(['handle', 'cap'] as const).map((kind) => (
-                          <Button
-                            key={`r-${kind}`}
-                            type="button"
-                            size="sm"
-                            variant={edges.right === kind ? 'default' : 'outline'}
-                            onClick={() => setEdge('right', kind)}
-                          >
-                            {slidingEdgeLabel(kind)}
-                          </Button>
-                        ))}
+              {doorCount === 2 && (
+                <>
+                  <div className="mt-3 space-y-1">
+                    <p className="text-xs font-medium">Кант дръжка</p>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={slidingHandlesOnBothSides(slidingEdges) ? 'default' : 'outline'}
+                        onClick={() => setSlidingEdges(bothSideSlidingEdges())}
+                      >
+                        От двете страни
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={!slidingHandlesOnBothSides(slidingEdges) ? 'default' : 'outline'}
+                        onClick={() => setSlidingEdges(oneSideSlidingEdges())}
+                      >
+                        Само от едната
+                      </Button>
+                    </div>
+                    <p className="text-xs text-[var(--color-muted-foreground)]">
+                      D1L е дръжката за отваряне. От другата страна се слага профил D2 — той не увеличава широчината.
+                    </p>
+                  </div>
+                  {!effectiveExternalDoors &&
+                    (['left', 'right'] as const).map((side, i) => {
+                      const edges = slidingEdges[i] ?? { left: 'handle' as const, right: 'handle' as const }
+                      const title = side === 'left' ? 'Лява врата' : 'Дясна врата'
+                      const setEdge = (which: 'left' | 'right', kind: SlidingEdgeKind) => {
+                        setSlidingEdges((rows) => {
+                          const next = defaultSlidingEdges(2).map((d, j) => rows[j] ?? d)
+                          next[i] = { ...next[i], [which]: kind }
+                          return next
+                        })
+                      }
+                      return (
+                        <div key={side} className="mt-3 space-y-1">
+                          <p className="text-xs font-medium">{title}</p>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-xs text-[var(--color-muted-foreground)]">ляво</span>
+                            {(['handle', 'cap'] as const).map((kind) => (
+                              <Button
+                                key={`l-${kind}`}
+                                type="button"
+                                size="sm"
+                                variant={edges.left === kind ? 'default' : 'outline'}
+                                onClick={() => setEdge('left', kind)}
+                              >
+                                {slidingEdgeLabel(kind)}
+                              </Button>
+                            ))}
+                            <span className="text-xs text-[var(--color-muted-foreground)]">дясно</span>
+                            {(['handle', 'cap'] as const).map((kind) => (
+                              <Button
+                                key={`r-${kind}`}
+                                type="button"
+                                size="sm"
+                                variant={edges.right === kind ? 'default' : 'outline'}
+                                onClick={() => setEdge('right', kind)}
+                              >
+                                {slidingEdgeLabel(kind)}
+                              </Button>
+                            ))}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  <div className="mt-3 space-y-1">
+                    <p className="text-xs font-medium">Горна релса 3 м</p>
+                    <div className="flex flex-wrap gap-2">
+                      {SLIDING_TRACK_COLOR_IDS.map((id) => (
+                        <Button
+                          key={`u-${id}`}
+                          type="button"
+                          size="sm"
+                          variant={slidingUpperTrackColor === id ? 'default' : 'outline'}
+                          onClick={() => setSlidingUpperTrackColor(id)}
+                        >
+                          {SLIDING_TRACK_COLOR_LABELS[id]}
+                        </Button>
+                      ))}
+                    </div>
+                    <p className="text-xs text-[var(--color-muted-foreground)]">
+                      {formatEur(settings.hardware.slidingUpperTrackEur[slidingUpperTrackColor])} за целия прът
+                    </p>
+                  </div>
+                  <div className="mt-3 space-y-1">
+                    <p className="text-xs font-medium">Долна релса 3 м</p>
+                    <div className="flex flex-wrap gap-2">
+                      {SLIDING_TRACK_COLOR_IDS.map((id) => (
+                        <Button
+                          key={`l-${id}`}
+                          type="button"
+                          size="sm"
+                          variant={slidingLowerTrackColor === id ? 'default' : 'outline'}
+                          onClick={() => setSlidingLowerTrackColor(id)}
+                        >
+                          {SLIDING_TRACK_COLOR_LABELS[id]}
+                        </Button>
+                      ))}
+                    </div>
+                    <p className="text-xs text-[var(--color-muted-foreground)]">
+                      {formatEur(settings.hardware.slidingLowerTrackEur[slidingLowerTrackColor])} за целия прът
+                    </p>
+                  </div>
+                  {!effectiveExternalDoors && (
+                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                      <div>
+                        <Label htmlFor="sliding-handle-sku">Кант дръжка D1L</Label>
+                        <select
+                          id="sliding-handle-sku"
+                          className="mt-1 h-9 w-full rounded-md border border-[var(--color-border)] bg-transparent px-2 text-sm"
+                          value={slidingHandleSkuId}
+                          onChange={(e) => setSlidingHandleSkuId(e.target.value)}
+                        >
+                          <option value="">Автоматично</option>
+                          {(settings.hardware.slidingHandleSkus ?? []).map((sku) => (
+                            <option key={sku.id} value={sku.id}>
+                              {slidingSkuLabel(sku)}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <Label htmlFor="sliding-cap-sku">Профил D2 18 мм</Label>
+                        <select
+                          id="sliding-cap-sku"
+                          className="mt-1 h-9 w-full rounded-md border border-[var(--color-border)] bg-transparent px-2 text-sm"
+                          value={slidingCapSkuId}
+                          onChange={(e) => setSlidingCapSkuId(e.target.value)}
+                        >
+                          <option value="">Автоматично</option>
+                          {(settings.hardware.slidingCapSkus ?? []).map((sku) => (
+                            <option key={sku.id} value={sku.id}>
+                              {slidingSkuLabel(sku)}
+                            </option>
+                          ))}
+                        </select>
                       </div>
                     </div>
-                  )
-                })}
-              <p className="mt-2 text-xs text-[var(--color-muted-foreground)]">
-                {doorCount !== 2 || !nsMeasure
-                  ? 'Без плъзгащи врати.'
-                  : layoutSlidingDoors({
-                      innerW: nsMeasure.innerW,
-                      innerH: nsMeasure.innerH,
-                      thickness: params.thickness,
-                      partitions: layout.partitions,
-                      edges: slidingEdges,
-                    })
-                      .map((leaf) =>
-                        effectiveExternalDoors
-                          ? `${leaf.name}: поръчай габарит ${formatMm(leaf.gabaritW)} × ${formatMm(leaf.gabaritH)} мм.`
-                          : `${leaf.name}: габарит ${formatMm(leaf.gabaritW)} × ${formatMm(leaf.gabaritH)} мм · рязане ${formatMm(leaf.cutW)} × ${formatMm(leaf.cutH)} мм (ляво ${slidingEdgeLabel(leaf.edges.left)} ${slidingProfileMm(leaf.edges.left)} мм, дясно ${slidingEdgeLabel(leaf.edges.right)} ${slidingProfileMm(leaf.edges.right)} мм).`,
-                      )
-                      .join(' ')}
-              </p>
-              {doorCount === 2 && (
-                <DoorSourcePicker
-                  external={effectiveExternalDoors}
-                  projectForced={projectExternalDoors}
-                  onChange={setExternalDoors}
-                />
+                  )}
+                  <div className="mt-3 space-y-1">
+                    <p className="text-xs font-medium">Плавно прибиране</p>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={slidingSoftCloseLeft === '0' && slidingSoftCloseRight === '0' ? 'default' : 'outline'}
+                        onClick={() => {
+                          setSlidingSoftCloseLeft('0')
+                          setSlidingSoftCloseRight('0')
+                        }}
+                      >
+                        Без
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={slidingSoftCloseLeft === '1' && slidingSoftCloseRight === '1' ? 'default' : 'outline'}
+                        onClick={() => {
+                          setSlidingSoftCloseLeft('1')
+                          setSlidingSoftCloseRight('1')
+                        }}
+                      >
+                        1+1
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={slidingSoftCloseLeft === '2' && slidingSoftCloseRight === '2' ? 'default' : 'outline'}
+                        onClick={() => {
+                          setSlidingSoftCloseLeft('2')
+                          setSlidingSoftCloseRight('2')
+                        }}
+                      >
+                        2+2
+                      </Button>
+                    </div>
+                    <div className="mt-2 grid gap-3 sm:grid-cols-2">
+                      <div>
+                        <Label htmlFor="soft-close-left">Отляво</Label>
+                        <Input
+                          id="soft-close-left"
+                          type="number"
+                          min="0"
+                          step="1"
+                          value={slidingSoftCloseLeft}
+                          onChange={(e) => setSlidingSoftCloseLeft(e.target.value)}
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="soft-close-right">Отдясно</Label>
+                        <Input
+                          id="soft-close-right"
+                          type="number"
+                          min="0"
+                          step="1"
+                          value={slidingSoftCloseRight}
+                          onChange={(e) => setSlidingSoftCloseRight(e.target.value)}
+                        />
+                      </div>
+                    </div>
+                    <p className="text-xs text-[var(--color-muted-foreground)]">
+                      {formatEur(settings.hardware.slidingSoftCloseEur)} / бр. · механизъм MVP-005{' '}
+                      {formatEur(settings.hardware.slidingMvp005KitEur)} на врата
+                    </p>
+                  </div>
+                  {nsMeasure && (
+                    <SlidingDetails title="Формула за рязане D1L / D2">
+                      {(() => {
+                        const leaves = layoutSlidingDoors({
+                          innerW: nsMeasure.innerW,
+                          innerH: nsMeasure.innerH,
+                          thickness: params.thickness,
+                          partitions: layout.partitions,
+                          edges: slidingEdges,
+                        })
+                        const left = leaves[0]
+                        const right = leaves[1]
+                        const cell = (leaf: typeof left | undefined, edge: 'left' | 'right') => {
+                          if (!leaf) return '—'
+                          const kind = leaf.edges[edge]
+                          return `${slidingEdgeLabel(kind)} · ${formatMm(slidingProfileMm(kind))} мм`
+                        }
+                        const size = (leaf: typeof left | undefined, w: number | undefined, h: number | undefined) =>
+                          leaf && w && h ? `${formatMm(w)} × ${formatMm(h)} мм` : '—'
+                        const cutH = left?.cutH ?? 0
+                        const handleSku = pickSlidingSku(
+                          settings.hardware.slidingHandleSkus ?? [],
+                          cutH,
+                          slidingHandleSkuId,
+                        )
+                        const capSku = pickSlidingSku(settings.hardware.slidingCapSkus ?? [], cutH, slidingCapSkuId)
+                        return (
+                          <>
+                            <div className="overflow-x-auto rounded-md border border-[var(--color-border)]">
+                              <table className="w-full text-xs">
+                                <thead className="bg-[var(--color-muted)]/40">
+                                  <tr>
+                                    <th className="px-2 py-1.5 text-left font-medium"> </th>
+                                    <th className="px-2 py-1.5 text-left font-medium">Лява врата</th>
+                                    <th className="px-2 py-1.5 text-left font-medium">Дясна врата</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  <tr className="border-t border-[var(--color-border)]">
+                                    <td className="px-2 py-1.5 text-[var(--color-muted-foreground)]">Габарит</td>
+                                    <td className="px-2 py-1.5">{size(left, left?.gabaritW, left?.gabaritH)}</td>
+                                    <td className="px-2 py-1.5">{size(right, right?.gabaritW, right?.gabaritH)}</td>
+                                  </tr>
+                                  <tr className="border-t border-[var(--color-border)]">
+                                    <td className="px-2 py-1.5 text-[var(--color-muted-foreground)]">Рязане</td>
+                                    <td className="px-2 py-1.5">{size(left, left?.cutW, left?.cutH)}</td>
+                                    <td className="px-2 py-1.5">{size(right, right?.cutW, right?.cutH)}</td>
+                                  </tr>
+                                  <tr className="border-t border-[var(--color-border)]">
+                                    <td className="px-2 py-1.5 text-[var(--color-muted-foreground)]">Ляв профил</td>
+                                    <td className="px-2 py-1.5">{cell(left, 'left')}</td>
+                                    <td className="px-2 py-1.5">{cell(right, 'left')}</td>
+                                  </tr>
+                                  <tr className="border-t border-[var(--color-border)]">
+                                    <td className="px-2 py-1.5 text-[var(--color-muted-foreground)]">Десен профил</td>
+                                    <td className="px-2 py-1.5">{cell(left, 'right')}</td>
+                                    <td className="px-2 py-1.5">{cell(right, 'right')}</td>
+                                  </tr>
+                                </tbody>
+                              </table>
+                            </div>
+                            <p className="text-xs text-[var(--color-muted-foreground)]">
+                              Рязане по широчина = габарит − ляв профил − десен профил. D1L добавя {formatMm(SLIDING_HANDLE_PROFILE_MM)} мм;
+                              D2 не добавя. Височина на рязане = габарит − 4 мм (кант 2 мм горе и долу).
+                            </p>
+                            {handleSku ? (
+                              <p className="text-xs text-[var(--color-muted-foreground)]">
+                                D1L в сметката: {slidingSkuLabel(handleSku)} — цял прът.
+                              </p>
+                            ) : null}
+                            {capSku ? (
+                              <p className="text-xs text-[var(--color-muted-foreground)]">
+                                D2 в сметката: {slidingSkuLabel(capSku)} — цял прът.
+                              </p>
+                            ) : null}
+                          </>
+                        )
+                      })()}
+                    </SlidingDetails>
+                  )}
+                  <SlidingDetails title="Линкове към механизмите">
+                    <ul className="space-y-1 text-xs">
+                      {(
+                        [
+                          ['Кант дръжка D1L', settings.hardware.slidingLinks.d1Handle],
+                          ['Профил D2 18 мм', settings.hardware.slidingLinks.d2Profile],
+                          ['Система MVP-005 (релси)', settings.hardware.slidingLinks.mvp005System],
+                          ['Механизъм MVP-005', settings.hardware.slidingLinks.mvp005Mechanism],
+                          ['Плавно прибиране', settings.hardware.slidingLinks.softClose],
+                        ] as const
+                      ).map(([label, href]) => (
+                        <li key={label}>
+                          <a
+                            href={href}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-[var(--color-primary)] underline-offset-2 hover:underline"
+                          >
+                            {label}
+                          </a>
+                        </li>
+                      ))}
+                    </ul>
+                  </SlidingDetails>
+                  <DoorSourcePicker
+                    external={effectiveExternalDoors}
+                    projectForced={projectExternalDoors}
+                    onChange={setExternalDoors}
+                  />
+                </>
               )}
             </>
           ) : (

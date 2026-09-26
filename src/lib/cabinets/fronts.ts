@@ -63,6 +63,12 @@ import {
   type SlidingDoorEdges,
 } from './sliding-doors'
 import {
+  parseSlidingSkuId,
+  parseSlidingTrackColor,
+  parseSoftCloseCount,
+  type SlidingTrackColor,
+} from '@/lib/sliding-hardware'
+import {
   layoutInterior,
   layoutCounts,
   parseDoorSpan,
@@ -97,8 +103,15 @@ export interface InteriorFittings {
   doorCount: DoorCount
   /** Overlay hinged doors, or sliding doors that run in front of the partitions. */
   doorStyle: DoorStyle
-  /** Per sliding leaf: handle profile vs cap strip on each vertical edge. */
+  /** Per sliding leaf: D1L handle vs D2 cap on each vertical edge. */
   slidingEdges: SlidingDoorEdges[]
+  slidingUpperTrackColor: SlidingTrackColor
+  slidingLowerTrackColor: SlidingTrackColor
+  /** Empty = shortest bar that covers the cut height. */
+  slidingHandleSkuId: string
+  slidingCapSkuId: string
+  slidingSoftCloseLeft: number
+  slidingSoftCloseRight: number
   drawerFrontHeights: number[]
   cutFromOneBoard: boolean
   /** When true (default), 1 handle per door and per drawer is added to the price. */
@@ -143,6 +156,12 @@ export const EMPTY_INTERIOR_FITTINGS: InteriorFittings = {
   doorCount: 0,
   doorStyle: 'hinged',
   slidingEdges: [],
+  slidingUpperTrackColor: 'black',
+  slidingLowerTrackColor: 'black',
+  slidingHandleSkuId: '',
+  slidingCapSkuId: '',
+  slidingSoftCloseLeft: 1,
+  slidingSoftCloseRight: 1,
   drawerFrontHeights: [],
   cutFromOneBoard: false,
   includeHandles: true,
@@ -170,6 +189,12 @@ export function parseInteriorFittings(raw: Record<string, unknown>, slideDepth: 
     doorCount,
     doorStyle: parseDoorStyle(raw.doorStyle),
     slidingEdges: parseSlidingEdges(raw.slidingEdges, doorCount === 2 ? 2 : 0),
+    slidingUpperTrackColor: parseSlidingTrackColor(raw.slidingUpperTrackColor),
+    slidingLowerTrackColor: parseSlidingTrackColor(raw.slidingLowerTrackColor),
+    slidingHandleSkuId: parseSlidingSkuId(raw.slidingHandleSkuId),
+    slidingCapSkuId: parseSlidingSkuId(raw.slidingCapSkuId),
+    slidingSoftCloseLeft: parseSoftCloseCount(raw.slidingSoftCloseLeft),
+    slidingSoftCloseRight: parseSoftCloseCount(raw.slidingSoftCloseRight),
     drawerFrontHeights: parseDrawerFrontHeights(raw.drawerFrontHeights, raw.drawerFrontHeight),
     cutFromOneBoard: typeof raw.cutFromOneBoard === 'boolean' ? raw.cutFromOneBoard : false,
     includeHandles: raw.includeHandles !== false,
@@ -1036,6 +1061,12 @@ export function appendZonedInterior(
         partitions: layout.partitions,
         edges: f.slidingEdges,
         externalDoors: boughtDoors,
+        upperTrackColor: f.slidingUpperTrackColor,
+        lowerTrackColor: f.slidingLowerTrackColor,
+        handleSkuId: f.slidingHandleSkuId,
+        capSkuId: f.slidingCapSkuId,
+        softCloseLeft: f.slidingSoftCloseLeft,
+        softCloseRight: f.slidingSoftCloseRight,
       },
       panels,
       hardware,

@@ -325,6 +325,13 @@ export interface AssemblyTimeSettings {
   /** Extra router time applies when finished door height is over this (mm). */
   tallDoorMinHeightMm: number
 
+  /** Upper 3 m sliding track, minutes. */
+  installUpperTrackMinutes: number
+  /** Lower 3 m sliding track, minutes. */
+  installLowerTrackMinutes: number
+  /** D1L/D2 profiles + soft-close on one sliding door, minutes. */
+  installSlidingDoorHardwareMinutes: number
+
   /** Drawing one partition on the bottom (or on the top) — minutes per page. */
   partitionMarkMinutes: number
   /** Drawing one fixed shelf on the carcass — minutes. Assembly is separate. */
@@ -395,6 +402,9 @@ export const DEFAULT_ASSEMBLY_TIME_SETTINGS: AssemblyTimeSettings = {
   installDoorTallMinutes: 9,
   tallDoorRouterMinutes: 10,
   tallDoorMinHeightMm: TALL_DOOR_MIN_HEIGHT_MM,
+  installUpperTrackMinutes: 30,
+  installLowerTrackMinutes: 25,
+  installSlidingDoorHardwareMinutes: 30,
   partitionMarkMinutes: 2,
   fixedShelfMarkMinutes: 2,
   partitionDetailMarkSmallMinutes: 0.5,
@@ -554,6 +564,13 @@ export function parseAssemblyTimeSettings(raw: unknown): AssemblyTimeSettings {
     installDoorTallMinutes: numPositive(src, 'installDoorTallMinutes', d.installDoorTallMinutes),
     tallDoorRouterMinutes: numPositive(src, 'tallDoorRouterMinutes', d.tallDoorRouterMinutes),
     tallDoorMinHeightMm: numMm(src, 'tallDoorMinHeightMm', d.tallDoorMinHeightMm),
+    installUpperTrackMinutes: numPositive(src, 'installUpperTrackMinutes', d.installUpperTrackMinutes),
+    installLowerTrackMinutes: numPositive(src, 'installLowerTrackMinutes', d.installLowerTrackMinutes),
+    installSlidingDoorHardwareMinutes: numPositive(
+      src,
+      'installSlidingDoorHardwareMinutes',
+      d.installSlidingDoorHardwareMinutes,
+    ),
     partitionMarkMinutes: numPositive(src, 'partitionMarkMinutes', d.partitionMarkMinutes),
     fixedShelfMarkMinutes: numPositive(src, 'fixedShelfMarkMinutes', d.fixedShelfMarkMinutes),
     partitionDetailMarkSmallMinutes: numPositive(
@@ -865,6 +882,8 @@ export function collectCabinetAssembly(input: {
   softCloseDrawers?: boolean
   /** Bought doors and drawer fronts: skip remnants and router; keep hinge hang and fitting the front. */
   externalDoors?: boolean
+  /** Sliding wardrobe: tracks + per-door D1L/D2 and soft-close. */
+  slidingDoorCount?: number
   /** Edge banding already finished — skip knocking/sanding after glue. */
   skipEdgeFinishing?: boolean
 }): { steps: AssemblyStep[]; minutes: number } {
@@ -1372,6 +1391,41 @@ export function collectCabinetAssembly(input: {
       unitOne: 'врата',
       unitMany: 'врати',
       hint: `готова врата над ${threshold} мм`,
+    })
+  }
+
+  const slidingN = Math.max(0, input.slidingDoorCount ?? 0)
+  if (slidingN > 0) {
+    const upperMin = s.installUpperTrackMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.installUpperTrackMinutes
+    const lowerMin = s.installLowerTrackMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.installLowerTrackMinutes
+    const doorHwMin =
+      s.installSlidingDoorHardwareMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.installSlidingDoorHardwareMinutes
+    pushStep(steps, {
+      id: 'sliding-upper-track',
+      label: 'Слагане на горна релса',
+      minutes: upperMin,
+      quantity: 1,
+      unitOne: 'релса',
+      unitMany: 'релси',
+      hint: '3 м прът, отрязан по широчината',
+    })
+    pushStep(steps, {
+      id: 'sliding-lower-track',
+      label: 'Слагане на долна релса',
+      minutes: lowerMin,
+      quantity: 1,
+      unitOne: 'релса',
+      unitMany: 'релси',
+      hint: '3 м прът, 20 мм навътре от канта на дъното',
+    })
+    pushStep(steps, {
+      id: 'sliding-door-hardware',
+      label: 'Кант дръжки и плавно прибиране',
+      minutes: doorHwMin * slidingN,
+      quantity: slidingN,
+      unitOne: 'врата',
+      unitMany: 'врати',
+      hint: 'D1L/D2 профили + механизъм MVP-005 и плавно прибиране',
     })
   }
 

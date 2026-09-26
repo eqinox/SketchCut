@@ -23,6 +23,14 @@ import {
   type PriceByLength,
 } from '@/lib/settings'
 import {
+  DEFAULT_SLIDING_LINKS,
+  SLIDING_TRACK_COLOR_IDS,
+  SLIDING_TRACK_COLOR_LABELS,
+  type SlidingHardwareLinks,
+  type SlidingProfileSku,
+  type SlidingTrackColor,
+} from '@/lib/sliding-hardware'
+import {
   DEFAULT_ASSEMBLY_TIME_SETTINGS,
   cabinetSizeAxisDefinitionText,
   cabinetSizeScoringHelp,
@@ -129,9 +137,20 @@ export function SettingsDialog({
   const [screw5x60, setScrew5x60] = useState('')
   const [shelfPin, setShelfPin] = useState('')
   const [handleNormal, setHandleNormal] = useState('')
-  const [slidingHandlePrice, setSlidingHandlePrice] = useState('')
-  const [slidingCapPrice, setSlidingCapPrice] = useState('')
   const [clothesRailPrice, setClothesRailPrice] = useState('')
+  const [slidingUpperTrack, setSlidingUpperTrack] = useState<Record<SlidingTrackColor, string>>(
+    Object.fromEntries(SLIDING_TRACK_COLOR_IDS.map((id) => [id, ''])) as Record<SlidingTrackColor, string>,
+  )
+  const [slidingLowerTrack, setSlidingLowerTrack] = useState<Record<SlidingTrackColor, string>>(
+    Object.fromEntries(SLIDING_TRACK_COLOR_IDS.map((id) => [id, ''])) as Record<SlidingTrackColor, string>,
+  )
+  const [slidingMvp005Kit, setSlidingMvp005Kit] = useState('')
+  const [slidingSoftClose, setSlidingSoftClose] = useState('')
+  const [slidingHandleSkus, setSlidingHandleSkus] = useState<SlidingProfileSku[]>([])
+  const [slidingHandlePrices, setSlidingHandlePrices] = useState<Record<string, string>>({})
+  const [slidingCapSkus, setSlidingCapSkus] = useState<SlidingProfileSku[]>([])
+  const [slidingCapPrices, setSlidingCapPrices] = useState<Record<string, string>>({})
+  const [slidingLinks, setSlidingLinks] = useState<SlidingHardwareLinks>({ ...DEFAULT_SLIDING_LINKS })
   const [edgeMm2, setEdgeMm2] = useState('')
   const [edgeMm05, setEdgeMm05] = useState('')
   const [billWholeSheets, setBillWholeSheets] = useState(true)
@@ -192,6 +211,9 @@ export function SettingsDialog({
   const [installDoorTall, setInstallDoorTall] = useState('')
   const [tallDoorRouter, setTallDoorRouter] = useState('')
   const [tallDoorMinHeight, setTallDoorMinHeight] = useState('')
+  const [installUpperTrack, setInstallUpperTrack] = useState('')
+  const [installLowerTrack, setInstallLowerTrack] = useState('')
+  const [installSlidingDoorHardware, setInstallSlidingDoorHardware] = useState('')
   const [sizeWidthSmall, setSizeWidthSmall] = useState('')
   const [sizeWidthMedium, setSizeWidthMedium] = useState('')
   const [sizeHeightSmall, setSizeHeightSmall] = useState('')
@@ -214,9 +236,26 @@ export function SettingsDialog({
     setScrew5x60(String(s.screw5x60_500PackEur))
     setShelfPin(String(s.shelfPinEur))
     setHandleNormal(String(s.handleNormalEur))
-    setSlidingHandlePrice(String(s.slidingHandleEurPerM))
-    setSlidingCapPrice(String(s.slidingCapEurPerM))
     setClothesRailPrice(String(s.clothesRailEurPerM))
+    setSlidingUpperTrack(
+      Object.fromEntries(SLIDING_TRACK_COLOR_IDS.map((id) => [id, String(s.slidingUpperTrackEur[id])])) as Record<
+        SlidingTrackColor,
+        string
+      >,
+    )
+    setSlidingLowerTrack(
+      Object.fromEntries(SLIDING_TRACK_COLOR_IDS.map((id) => [id, String(s.slidingLowerTrackEur[id])])) as Record<
+        SlidingTrackColor,
+        string
+      >,
+    )
+    setSlidingMvp005Kit(String(s.slidingMvp005KitEur))
+    setSlidingSoftClose(String(s.slidingSoftCloseEur))
+    setSlidingHandleSkus(s.slidingHandleSkus.map((sku) => ({ ...sku })))
+    setSlidingHandlePrices(Object.fromEntries(s.slidingHandleSkus.map((sku) => [sku.id, String(sku.priceEur)])))
+    setSlidingCapSkus(s.slidingCapSkus.map((sku) => ({ ...sku })))
+    setSlidingCapPrices(Object.fromEntries(s.slidingCapSkus.map((sku) => [sku.id, String(sku.priceEur)])))
+    setSlidingLinks({ ...s.slidingLinks })
     setEdgeMm2(String(s.edgeMm2Eur))
     setEdgeMm05(String(s.edgeMm05Eur))
     setBillWholeSheets(s.billWholeSheets)
@@ -278,6 +317,11 @@ export function SettingsDialog({
     setInstallDoorTall(String(s.installDoorTallMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.installDoorTallMinutes))
     setTallDoorRouter(String(s.tallDoorRouterMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.tallDoorRouterMinutes))
     setTallDoorMinHeight(String(s.tallDoorMinHeightMm ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.tallDoorMinHeightMm))
+    setInstallUpperTrack(String(s.installUpperTrackMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.installUpperTrackMinutes))
+    setInstallLowerTrack(String(s.installLowerTrackMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.installLowerTrackMinutes))
+    setInstallSlidingDoorHardware(
+      String(s.installSlidingDoorHardwareMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.installSlidingDoorHardwareMinutes),
+    )
     setSizeWidthSmall(String(s.widthSmallMaxMm ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.widthSmallMaxMm))
     setSizeWidthMedium(String(s.widthMediumMaxMm ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.widthMediumMaxMm))
     setSizeHeightSmall(String(s.heightSmallMaxMm ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.heightSmallMaxMm))
@@ -316,8 +360,31 @@ export function SettingsDialog({
       screw5x60_500PackEur: parseFloat(screw5x60) || DEFAULT_HARDWARE_SETTINGS.screw5x60_500PackEur,
       shelfPinEur: parseFloat(shelfPin) || DEFAULT_HARDWARE_SETTINGS.shelfPinEur,
       handleNormalEur: parseFloat(handleNormal) || DEFAULT_HARDWARE_SETTINGS.handleNormalEur,
-      slidingHandleEurPerM: parseFloat(slidingHandlePrice) || DEFAULT_HARDWARE_SETTINGS.slidingHandleEurPerM,
-      slidingCapEurPerM: parseFloat(slidingCapPrice) || DEFAULT_HARDWARE_SETTINGS.slidingCapEurPerM,
+      slidingHandleEurPerM: DEFAULT_HARDWARE_SETTINGS.slidingHandleEurPerM,
+      slidingCapEurPerM: DEFAULT_HARDWARE_SETTINGS.slidingCapEurPerM,
+      slidingUpperTrackEur: Object.fromEntries(
+        SLIDING_TRACK_COLOR_IDS.map((id) => [
+          id,
+          parseFloat(slidingUpperTrack[id]) || DEFAULT_HARDWARE_SETTINGS.slidingUpperTrackEur[id],
+        ]),
+      ) as Record<SlidingTrackColor, number>,
+      slidingLowerTrackEur: Object.fromEntries(
+        SLIDING_TRACK_COLOR_IDS.map((id) => [
+          id,
+          parseFloat(slidingLowerTrack[id]) || DEFAULT_HARDWARE_SETTINGS.slidingLowerTrackEur[id],
+        ]),
+      ) as Record<SlidingTrackColor, number>,
+      slidingMvp005KitEur: parseFloat(slidingMvp005Kit) || DEFAULT_HARDWARE_SETTINGS.slidingMvp005KitEur,
+      slidingSoftCloseEur: parseFloat(slidingSoftClose) || DEFAULT_HARDWARE_SETTINGS.slidingSoftCloseEur,
+      slidingHandleSkus: slidingHandleSkus.map((sku) => ({
+        ...sku,
+        priceEur: parseFloat(slidingHandlePrices[sku.id]) || sku.priceEur,
+      })),
+      slidingCapSkus: slidingCapSkus.map((sku) => ({
+        ...sku,
+        priceEur: parseFloat(slidingCapPrices[sku.id]) || sku.priceEur,
+      })),
+      slidingLinks: { ...slidingLinks },
       clothesRailEurPerM: parseFloat(clothesRailPrice) || DEFAULT_HARDWARE_SETTINGS.clothesRailEurPerM,
       edgeMm2Eur: parseFloat(edgeMm2) || DEFAULT_HARDWARE_SETTINGS.edgeMm2Eur,
       edgeMm05Eur: parseFloat(edgeMm05) || DEFAULT_HARDWARE_SETTINGS.edgeMm05Eur,
@@ -401,6 +468,10 @@ export function SettingsDialog({
       installDoorTallMinutes: parseFloat(installDoorTall) || DEFAULT_ASSEMBLY_TIME_SETTINGS.installDoorTallMinutes,
       tallDoorRouterMinutes: parseFloat(tallDoorRouter) || DEFAULT_ASSEMBLY_TIME_SETTINGS.tallDoorRouterMinutes,
       tallDoorMinHeightMm: parsePositiveMm(tallDoorMinHeight, DEFAULT_ASSEMBLY_TIME_SETTINGS.tallDoorMinHeightMm),
+      installUpperTrackMinutes: parseFloat(installUpperTrack) || DEFAULT_ASSEMBLY_TIME_SETTINGS.installUpperTrackMinutes,
+      installLowerTrackMinutes: parseFloat(installLowerTrack) || DEFAULT_ASSEMBLY_TIME_SETTINGS.installLowerTrackMinutes,
+      installSlidingDoorHardwareMinutes:
+        parseFloat(installSlidingDoorHardware) || DEFAULT_ASSEMBLY_TIME_SETTINGS.installSlidingDoorHardwareMinutes,
       partitionMarkMinutes: parseFloat(partitionMark) || DEFAULT_ASSEMBLY_TIME_SETTINGS.partitionMarkMinutes,
       fixedShelfMarkMinutes: parseFloat(fixedShelfMark) || DEFAULT_ASSEMBLY_TIME_SETTINGS.fixedShelfMarkMinutes,
       partitionDetailMarkSmallMinutes:
@@ -659,27 +730,165 @@ export function SettingsDialog({
               <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
                 По 1 дръжка на врата и на чекмедже.
               </p>
-              <Label htmlFor="sliding-handle" className="mt-3 block">Кант дръжка (€/м)</Label>
-              <Input
-                id="sliding-handle"
-                type="number"
-                step="0.01"
-                min="0"
-                value={slidingHandlePrice}
-                onChange={(e) => setSlidingHandlePrice(e.target.value)}
-              />
-              <Label htmlFor="sliding-cap" className="mt-3 block">Тапа за плъзгаща врата (€/м)</Label>
-              <Input
-                id="sliding-cap"
-                type="number"
-                step="0.01"
-                min="0"
-                value={slidingCapPrice}
-                onChange={(e) => setSlidingCapPrice(e.target.value)}
-              />
-              <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
-                Вертикалните профили на плъзгащите врати. Дължината е височината на рязането.
+            </div>
+            <div className="rounded-md border border-[var(--color-border)] p-4 sm:col-span-2">
+              <h3 className="mb-1 font-medium">Плъзгащи врати (гардероб)</h3>
+              <p className="mb-3 text-xs text-[var(--color-muted-foreground)]">
+                Релсите и профилите се продават на цели пръти — в сметката влиза цялата цена, дори да се отреже.
               </p>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <p className="mb-2 text-sm font-medium">Горна релса 3 м (€)</p>
+                  <div className="space-y-2">
+                    {SLIDING_TRACK_COLOR_IDS.map((id) => (
+                      <div key={`u-${id}`} className="grid grid-cols-[7rem_1fr] items-center gap-2">
+                        <Label htmlFor={`upper-track-${id}`}>{SLIDING_TRACK_COLOR_LABELS[id]}</Label>
+                        <Input
+                          id={`upper-track-${id}`}
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={slidingUpperTrack[id]}
+                          onChange={(e) => setSlidingUpperTrack((prev) => ({ ...prev, [id]: e.target.value }))}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <p className="mb-2 text-sm font-medium">Долна релса 3 м (€)</p>
+                  <div className="space-y-2">
+                    {SLIDING_TRACK_COLOR_IDS.map((id) => (
+                      <div key={`l-${id}`} className="grid grid-cols-[7rem_1fr] items-center gap-2">
+                        <Label htmlFor={`lower-track-${id}`}>{SLIDING_TRACK_COLOR_LABELS[id]}</Label>
+                        <Input
+                          id={`lower-track-${id}`}
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={slidingLowerTrack[id]}
+                          onChange={(e) => setSlidingLowerTrack((prev) => ({ ...prev, [id]: e.target.value }))}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <div>
+                  <Label htmlFor="mvp005-kit">Механизъм MVP-005 (€ / врата)</Label>
+                  <Input
+                    id="mvp005-kit"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={slidingMvp005Kit}
+                    onChange={(e) => setSlidingMvp005Kit(e.target.value)}
+                  />
+                  <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
+                    2 горни + 2 долни ролки. На гардероб с 2 врати — 2 комплекта.
+                  </p>
+                </div>
+                <div>
+                  <Label htmlFor="sliding-soft-close">Плавно прибиране (€ / бр.)</Label>
+                  <Input
+                    id="sliding-soft-close"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={slidingSoftClose}
+                    onChange={(e) => setSlidingSoftClose(e.target.value)}
+                  />
+                </div>
+              </div>
+              <div className="mt-4 overflow-x-auto">
+                <p className="mb-2 text-sm font-medium">Кант дръжка D1L (€ / прът)</p>
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-left text-[var(--color-muted-foreground)]">
+                      <th className="py-1 pr-2 font-medium">Код</th>
+                      <th className="py-1 pr-2 font-medium">Цвят</th>
+                      <th className="py-1 pr-2 font-medium">Дължина</th>
+                      <th className="py-1 font-medium">Цена €</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {slidingHandleSkus.map((sku) => (
+                      <tr key={sku.id} className="border-t border-[var(--color-border)]">
+                        <td className="py-1 pr-2">{sku.code}</td>
+                        <td className="py-1 pr-2">{sku.color}</td>
+                        <td className="py-1 pr-2">{sku.lengthMm} мм</td>
+                        <td className="py-1">
+                          <Input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={slidingHandlePrices[sku.id] ?? String(sku.priceEur)}
+                            onChange={(e) =>
+                              setSlidingHandlePrices((prev) => ({ ...prev, [sku.id]: e.target.value }))
+                            }
+                          />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="mt-4 overflow-x-auto">
+                <p className="mb-2 text-sm font-medium">Профил D2 18 мм (€ / прът)</p>
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-left text-[var(--color-muted-foreground)]">
+                      <th className="py-1 pr-2 font-medium">Код</th>
+                      <th className="py-1 pr-2 font-medium">Цвят</th>
+                      <th className="py-1 pr-2 font-medium">Дължина</th>
+                      <th className="py-1 font-medium">Цена €</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {slidingCapSkus.map((sku) => (
+                      <tr key={sku.id} className="border-t border-[var(--color-border)]">
+                        <td className="py-1 pr-2">{sku.code}</td>
+                        <td className="py-1 pr-2">{sku.color}</td>
+                        <td className="py-1 pr-2">{sku.lengthMm} мм</td>
+                        <td className="py-1">
+                          <Input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={slidingCapPrices[sku.id] ?? String(sku.priceEur)}
+                            onChange={(e) =>
+                              setSlidingCapPrices((prev) => ({ ...prev, [sku.id]: e.target.value }))
+                            }
+                          />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="mt-4 space-y-2">
+                <p className="text-sm font-medium">Линкове</p>
+                {(
+                  [
+                    ['d1Handle', 'Кант дръжка D1L'],
+                    ['d2Profile', 'Профил D2 18 мм'],
+                    ['mvp005System', 'Система MVP-005 (релси)'],
+                    ['mvp005Mechanism', 'Механизъм MVP-005'],
+                    ['softClose', 'Плавно прибиране'],
+                  ] as const
+                ).map(([key, label]) => (
+                  <div key={key}>
+                    <Label htmlFor={`sliding-link-${key}`}>{label}</Label>
+                    <Input
+                      id={`sliding-link-${key}`}
+                      type="url"
+                      value={slidingLinks[key]}
+                      onChange={(e) => setSlidingLinks((prev) => ({ ...prev, [key]: e.target.value }))}
+                    />
+                  </div>
+                ))}
+              </div>
             </div>
             <div className="rounded-md border border-[var(--color-border)] p-4">
               <h3 className="mb-3 font-medium">Кант (€/м)</h3>
@@ -1423,6 +1632,48 @@ export function SettingsDialog({
                     <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
                       Готовата врата с кант. Оправяне на канта с фреза и по-дългите стъпки.
                     </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-md border border-[var(--color-border)] p-4">
+                <h3 className="mb-3 font-medium">Плъзгащи врати</h3>
+                <p className="mb-3 text-xs text-[var(--color-muted-foreground)]">
+                  Горна и долна релса по веднъж на гардероб. Кант дръжки + плавно прибиране — на врата.
+                </p>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <Label htmlFor="install-upper-track">Горна релса (минути)</Label>
+                    <Input
+                      id="install-upper-track"
+                      type="number"
+                      step="0.5"
+                      min="0"
+                      value={installUpperTrack}
+                      onChange={(e) => setInstallUpperTrack(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="install-lower-track">Долна релса (минути)</Label>
+                    <Input
+                      id="install-lower-track"
+                      type="number"
+                      step="0.5"
+                      min="0"
+                      value={installLowerTrack}
+                      onChange={(e) => setInstallLowerTrack(e.target.value)}
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <Label htmlFor="install-sliding-door-hw">Кант дръжки и плавно прибиране (минути / врата)</Label>
+                    <Input
+                      id="install-sliding-door-hw"
+                      type="number"
+                      step="0.5"
+                      min="0"
+                      value={installSlidingDoorHardware}
+                      onChange={(e) => setInstallSlidingDoorHardware(e.target.value)}
+                    />
                   </div>
                 </div>
               </div>

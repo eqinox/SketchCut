@@ -114,6 +114,12 @@ export const DEFAULT_NIGHTSTAND_PARAMS: NightstandParams = {
   doorCount: 0,
   doorStyle: 'hinged',
   slidingEdges: [],
+  slidingUpperTrackColor: 'black',
+  slidingLowerTrackColor: 'black',
+  slidingHandleSkuId: '',
+  slidingCapSkuId: '',
+  slidingSoftCloseLeft: 1,
+  slidingSoftCloseRight: 1,
   drawerFrontHeights: [],
   cutFromOneBoard: false,
   includeHandles: true,
@@ -517,6 +523,7 @@ export function generatePlinthCabinet(
     partitionCount: interior.partitionCount,
     softCloseDrawers: isSoftCloseSlide(p.slideKind),
     externalDoors: p.externalDoors === true || hardwareSettings.externalDoors,
+    slidingDoorCount: m.sliding && interior.doorCount === 2 ? 2 : 0,
     skipEdgeFinishing: omitsCuttingEdgingLabor(hardwareSettings),
   })
 
