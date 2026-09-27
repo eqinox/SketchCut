@@ -83,6 +83,8 @@ import {
   consecutiveZoneFrontRuns,
   canCombineZoneFrontRun,
   zoneFrontStackKind,
+  frontStackOpeningHeight,
+  zoneStackOpeningHeight,
   type CabinetZoneId,
   type DoorSpan,
   type FixedShelfSpec,
@@ -134,6 +136,16 @@ export interface InteriorFittings {
    * not nested, no cut/edge labor. Combined with the project-wide `hardware.externalDoors` flag.
    */
   externalDoors: boolean
+  /**
+   * Inner drawer fronts sit between the sides (3+3 mm side gaps).
+   * Outer (default) overlay the side edge banding (1.5+1.5 mm).
+   */
+  innerDrawerFronts: boolean
+  /**
+   * Inner doors sit between the sides (3+3 mm side gaps).
+   * Outer (default) overlay the side edge banding (1.5+1.5 mm).
+   */
+  innerDoors: boolean
   /** Scale for millimetre labels on the cabinet drawing. 1 = current default size. */
   dimFontScale: number
 }
@@ -174,6 +186,8 @@ export const EMPTY_INTERIOR_FITTINGS: InteriorFittings = {
   doorSpan: 'full',
   zones: {},
   externalDoors: false,
+  innerDrawerFronts: false,
+  innerDoors: false,
   dimFontScale: DEFAULT_DIM_FONT_SCALE,
 }
 
@@ -207,6 +221,8 @@ export function parseInteriorFittings(raw: Record<string, unknown>, slideDepth: 
     doorSpan: parseDoorSpan(raw.doorSpan),
     zones: parseZoneMap(raw.zones),
     externalDoors: raw.externalDoors === true,
+    innerDrawerFronts: raw.innerDrawerFronts === true,
+    innerDoors: raw.innerDoors === true,
     dimFontScale: parseDimFontScale(raw.dimFontScale),
   }
 }
@@ -473,6 +489,14 @@ export function appendDoorsAndDrawers(
     externalCombined?: { groupId: string }
     /** Bought overlay door or drawer front: finished size (gaps only), not nested, no banding. */
     externalDoors?: boolean
+    /** Inner drawer fronts sit between the sides (3+3 mm gaps). Outer overlay the sides. */
+    innerDrawerFronts?: boolean
+    /** Inner doors sit between the sides (3+3 mm gaps). Outer overlay the sides. */
+    innerDoors?: boolean
+    /** Clear width between the boards that bound this opening (for inner fronts). */
+    innerWidth?: number
+    /** Clear height of the cavity (underside of the top / shelf above). */
+    innerHeight?: number
   },
   panels: GeneratedPanel[],
   hardware: HardwareItem[],
@@ -485,9 +509,29 @@ export function appendDoorsAndDrawers(
   const hasDoors = doorCount !== 0
   const boughtFronts = input.externalDoors === true
   const boughtDoors = hasDoors && boughtFronts
-  const doorOpts = boughtDoors ? { subtractEdge: false as const } : undefined
-  const drawerOpts = boughtFronts ? { subtractEdge: false as const } : undefined
-  const includeDoorInCombine = doorCount === 1 && !boughtFronts
+  const insetDrawers = input.innerDrawerFronts === true
+  const insetDoors = input.innerDoors === true
+  const innerOpeningW =
+    input.innerWidth != null && input.innerWidth > 0
+      ? input.innerWidth
+      : Math.max(0, input.width - 2 * input.thickness)
+  const openingH = frontStackOpeningHeight(input.frontHeight, input.innerHeight ?? input.frontHeight, {
+    insetDrawers,
+    insetDoors,
+    hasDrawers,
+    hasDoors,
+  })
+  const drawerOpeningW = insetDrawers ? innerOpeningW : input.width
+  const doorOpeningW = insetDoors ? innerOpeningW : input.width
+  const drawerOpts = {
+    ...(boughtFronts ? { subtractEdge: false as const } : {}),
+    ...(insetDrawers ? { inset: true as const } : {}),
+  }
+  const doorOpts = {
+    ...(boughtDoors ? { subtractEdge: false as const } : {}),
+    ...(insetDoors ? { inset: true as const } : {}),
+  }
+  const includeDoorInCombine = doorCount === 1 && !boughtFronts && insetDrawers === insetDoors
   const fromExternal = !!input.externalCombined
   const combineBoard =
     !fromExternal &&
@@ -501,8 +545,8 @@ export function appendDoorsAndDrawers(
   const door =
     doorCount === 1 || doorCount === 2
       ? hasDrawers
-        ? doorWithDrawersCutSize(input.width, input.frontHeight, drawerHeights, doorCount, doorOpts)
-        : doorCutSize(input.width, input.frontHeight, doorCount, doorOpts)
+        ? doorWithDrawersCutSize(doorOpeningW, openingH, drawerHeights, doorCount, doorOpts)
+        : doorCutSize(doorOpeningW, openingH, doorCount, doorOpts)
       : null
   const where = input.zoneLabel ? `${input.zoneLabel}: ` : ''
   const zoneInName = input.zoneLabel ? ` (${input.zoneLabel})` : ''
@@ -525,7 +569,7 @@ export function appendDoorsAndDrawers(
     )
 
     if (combineBoard) {
-      const drawerCuts = drawerHeights.map((h) => drawerFrontCutSize(input.width, h))
+      const drawerCuts = drawerHeights.map((h) => drawerFrontCutSize(drawerOpeningW, h, drawerOpts))
       const pieces = includeDoorInCombine && door ? [...drawerCuts, door] : drawerCuts
       const combinedHeight = combinedFrontCutHeight(pieces.map((c) => c.height))
       const width = drawerCuts[0]?.width ?? pieces[0]?.width ?? 0
@@ -606,7 +650,7 @@ export function appendDoorsAndDrawers(
       }
     } else if (fromExternal && combinedGroupId) {
       drawerHeights.forEach((frontH, i) => {
-        const cut = drawerFrontCutSize(input.width, frontH)
+        const cut = drawerFrontCutSize(drawerOpeningW, frontH, drawerOpts)
         const name =
           (n === 1 ? '  ↳ Чело (след разрязване)' : `  ↳ Чело ${i + 1} (${formatMm(frontH)} мм)`) +
           zoneInName
@@ -629,12 +673,16 @@ export function appendDoorsAndDrawers(
       })
     } else {
       drawerHeights.forEach((frontH, i) => {
-        const drawerFront = drawerFrontCutSize(input.width, frontH, drawerOpts)
+        const drawerFront = drawerFrontCutSize(drawerOpeningW, frontH, drawerOpts)
         const name =
           (n === 1 ? 'Чело на чекмедже' : `Чело ${i + 1}`) + zoneInName
+        const fitNote = doorCutRuleNote({
+          subtractEdge: boughtFronts ? false : undefined,
+          insetFront: insetDrawers,
+        })
         if (boughtFronts) {
           notes.push(
-            `${name}: поръчай ${formatMm(drawerFront.width)} × ${formatMm(drawerFront.height)} мм (${doorCutRuleNote({ subtractEdge: false })}). Поръчва се отделно — не влиза в разкроя.`,
+            `${name}: поръчай ${formatMm(drawerFront.width)} × ${formatMm(drawerFront.height)} мм (${fitNote}). Поръчва се отделно — не влиза в разкроя.`,
           )
           panels.push({
             role: 'drawer-front',
@@ -646,11 +694,13 @@ export function appendDoorsAndDrawers(
             edges: edges({}),
             excludeFromCutting: true,
             highlightColor: 'order',
-            note: 'Външно чело. Готов размер (само фуги). Не се реже и не се кантира при нас. Поръчай отделно.',
+            note: insetDrawers
+              ? 'Вътрешно чело (между страниците). Готов размер (фуга 3+3 мм). Не се реже и не се кантира при нас. Поръчай отделно.'
+              : 'Външно чело (покрива канта на страниците). Готов размер (само фуги). Не се реже и не се кантира при нас. Поръчай отделно.',
           })
         } else {
           notes.push(
-            `${name}: рязане ${formatMm(drawerFront.width)} × ${formatMm(drawerFront.height)} мм (кант 2 мм от 4 страни).`,
+            `${name}: рязане ${formatMm(drawerFront.width)} × ${formatMm(drawerFront.height)} мм (${fitNote}).`,
           )
           panels.push({
             role: 'drawer-front',
@@ -660,7 +710,9 @@ export function appendDoorsAndDrawers(
             quantity: 1,
             canRotate: false,
             edges: edges({ top: true, bottom: true, left: true, right: true }),
-            note: 'Кант 2 мм от 4 страни. Размерът е за рязане (без канта).',
+            note: insetDrawers
+              ? 'Вътрешно чело — влиза между страниците. Фуга 3 мм отляво и 3 мм отдясно. Кант 2 мм от 4 страни. Размерът е за рязане (без канта).'
+              : 'Външно чело — покрива канта на страниците. Кант 2 мм от 4 страни. Размерът е за рязане (без канта).',
           })
         }
       })
@@ -676,7 +728,14 @@ export function appendDoorsAndDrawers(
 
     let wroteBoxIntro = false
     for (const [frontH, qty] of heightCounts) {
-      const box = drawerBoxRails(input.width, input.thickness, frontH, input.slideLength, softClose)
+      const box = drawerBoxRails(
+        input.width,
+        input.thickness,
+        frontH,
+        input.slideLength,
+        softClose,
+        innerOpeningW,
+      )
       if (!box) continue
       if (!wroteBoxIntro) {
         const gapTotal = box.sideGapEach * 2
@@ -758,8 +817,8 @@ export function appendDoorsAndDrawers(
 
     notes.push(
       boughtDoors
-        ? `${where}${doorCount === 1 ? 'Една врата' : 'Две врати'}: готов размер ${formatMm(door.width)} × ${formatMm(door.height)} мм (${doorCutRuleNote({ withDrawerGaps: hasDrawers, subtractEdge: false })}). Поръчва се отделно — не влиза в разкроя.`
-        : `${where}${doorCount === 1 ? 'Една врата' : 'Две врати'}: рязане ${formatMm(door.width)} × ${formatMm(door.height)} мм (${doorCutRuleNote({ withDrawerGaps: hasDrawers })}).`,
+        ? `${where}${doorCount === 1 ? 'Една врата' : 'Две врати'}: готов размер ${formatMm(door.width)} × ${formatMm(door.height)} мм (${doorCutRuleNote({ withDrawerGaps: hasDrawers, subtractEdge: false, insetFront: insetDoors })}). Поръчва се отделно — не влиза в разкроя.`
+        : `${where}${doorCount === 1 ? 'Една врата' : 'Две врати'}: рязане ${formatMm(door.width)} × ${formatMm(door.height)} мм (${doorCutRuleNote({ withDrawerGaps: hasDrawers, insetFront: insetDoors })}).`,
     )
     notes.push(
       `Панти: ${totalHinges} бр. (по ${HINGES_PER_SMALL_DOOR} на врата) · винтчета 4×16: ${hinge4x16} бр. и 4×20: ${hinge4x20} бр. (по ${SCREWS_4X16_PER_HINGE}+${SCREWS_4X20_PER_HINGE} на панта).`,
@@ -798,7 +857,9 @@ export function appendDoorsAndDrawers(
         edges: edges({}),
         excludeFromCutting: true,
         highlightColor: 'order',
-        note: 'Външна врата. Готов размер (само фуги). Не се реже и не се кантира при нас. Поръчай отделно.',
+        note: insetDoors
+          ? 'Вътрешна врата (между страниците). Готов размер (фуга 3+3 мм). Не се реже и не се кантира при нас. Поръчай отделно.'
+          : 'Външна врата (покрива канта на страниците). Готов размер (само фуги). Не се реже и не се кантира при нас. Поръчай отделно.',
       })
     } else if (!doorFromCombined) {
       panels.push({
@@ -809,7 +870,9 @@ export function appendDoorsAndDrawers(
         quantity: doorCount,
         canRotate: false,
         edges: edges({ top: true, bottom: true, left: true, right: true }),
-        note: `Кант 2 мм от 4 страни. ${doorWord}. Размерът е за рязане (без канта).`,
+        note: insetDoors
+          ? `Вътрешна врата — влиза между страниците. Фуга 3 мм отляво и 3 мм отдясно. Кант 2 мм от 4 страни. ${doorWord}. Размерът е за рязане (без канта).`
+          : `Външна врата — покрива канта на страниците. Кант 2 мм от 4 страни. ${doorWord}. Размерът е за рязане (без канта).`,
       })
     } else if (fromExternal && combinedGroupId && !combineBoard) {
       panels.push({
@@ -863,17 +926,29 @@ type CombinedFrontPiece = {
   label: string
 }
 
-function zoneFullWidthFrontCuts(z: LaidOutZone, cabinetWidth: number): CombinedFrontPiece[] {
+function zoneFullWidthFrontCuts(
+  z: LaidOutZone,
+  overlayWidth: number,
+  opts?: { insetDrawers?: boolean; insetDoors?: boolean },
+): CombinedFrontPiece[] {
   const drawers = z.drawerFrontHeights.filter((h) => h > 0)
   const out: CombinedFrontPiece[] = []
+  const innerW = z.innerW > 0 ? z.innerW : overlayWidth
+  const insetDrawers = opts?.insetDrawers === true
+  const insetDoors = opts?.insetDoors === true
+  const drawerW = insetDrawers ? innerW : overlayWidth
+  const drawerOpts = insetDrawers ? { inset: true as const } : undefined
   for (const h of drawers) {
-    const c = drawerFrontCutSize(cabinetWidth, h)
+    const c = drawerFrontCutSize(drawerW, h, drawerOpts)
     out.push({ ...c, role: 'drawer-front', label: `чело ${formatMm(h)} мм (${z.label})` })
   }
-  if (z.doorCount === 1) {
+  if (z.doorCount === 1 && insetDrawers === insetDoors) {
+    const doorW = insetDoors ? innerW : overlayWidth
+    const doorOpts = insetDoors ? { inset: true as const } : undefined
+    const openingH = zoneStackOpeningHeight(z, insetDrawers, insetDoors)
     const door = drawers.length
-      ? doorWithDrawersCutSize(cabinetWidth, z.frontHeight, drawers, 1)
-      : doorCutSize(cabinetWidth, z.frontHeight, 1)
+      ? doorWithDrawersCutSize(doorW, openingH, drawers, 1, doorOpts)
+      : doorCutSize(doorW, openingH, 1, doorOpts)
     out.push({ ...door, role: 'door', label: `врата (${z.label})` })
   }
   return out
@@ -1091,16 +1166,32 @@ export function appendZonedInterior(
       const topFirst = [...run].reverse()
       const labels = topFirst.map((z) => z.label).join(' + ')
       if (kind === 'full') {
+        const mixedInset =
+          f.innerDrawerFronts !== f.innerDoors &&
+          topFirst.some((z) => z.doorCount > 0) &&
+          topFirst.some((z) => z.drawerFrontHeights.length > 0)
+        if (mixedInset) continue
         pushCombinedFirstCut(
-          topFirst.flatMap((z) => zoneFullWidthFrontCuts(z, z.frontWidth > 0 ? z.frontWidth : input.width)),
+          topFirst.flatMap((z) =>
+            zoneFullWidthFrontCuts(z, z.frontWidth > 0 ? z.frontWidth : input.width, {
+              insetDrawers: f.innerDrawerFronts,
+              insetDoors: f.innerDoors,
+            }),
+          ),
           { groupId, labels, quantity: 1 },
           panels,
           notes,
         )
       } else if (kind === 'half') {
         const pieces: CombinedFrontPiece[] = topFirst.map((z) => {
-          const w = z.frontWidth > 0 ? z.frontWidth : input.width
-          const c = doorCutSize(w, z.frontHeight, 2)
+          const overlayW = z.frontWidth > 0 ? z.frontWidth : input.width
+          const w = f.innerDoors && z.innerW > 0 ? z.innerW : overlayW
+          const c = doorCutSize(
+            w,
+            zoneStackOpeningHeight(z, f.innerDrawerFronts, f.innerDoors),
+            2,
+            f.innerDoors ? { inset: true } : undefined,
+          )
           return { ...c, role: 'door', label: `врата (${z.label})` }
         })
         pushCombinedFirstCut(pieces, { groupId, labels, quantity: 2 }, panels, notes)
@@ -1124,6 +1215,10 @@ export function appendZonedInterior(
         zoneLabel: zoned ? 'Цял шкаф' : undefined,
         groupKey: 'full-fronts',
         externalDoors: boughtDoors,
+        innerDrawerFronts: f.innerDrawerFronts,
+        innerDoors: f.innerDoors,
+        innerWidth: input.innerW,
+        innerHeight: input.innerH,
       },
       panels,
       hardware,
@@ -1146,6 +1241,10 @@ export function appendZonedInterior(
         slideLength: f.slideLength,
         zoneLabel: zoned ? 'Цял шкаф' : undefined,
         groupKey: 'full-fronts',
+        innerDrawerFronts: f.innerDrawerFronts,
+        innerDoors: f.innerDoors,
+        innerWidth: input.innerW,
+        innerHeight: input.innerH,
       },
       panels,
       hardware,
@@ -1173,6 +1272,10 @@ export function appendZonedInterior(
           groupKey: zoned ? `zone-${z.id}` : zoneNote,
           externalCombined: crossGroup.has(z.id) ? { groupId: crossGroup.get(z.id)! } : undefined,
           externalDoors: boughtDoors,
+          innerDrawerFronts: f.innerDrawerFronts,
+          innerDoors: f.innerDoors,
+          innerWidth: z.innerW > 0 ? z.innerW : input.innerW,
+          innerHeight: z.innerH,
         },
         panels,
         hardware,
@@ -1198,6 +1301,10 @@ export function appendZonedInterior(
           slideLength: f.slideLength,
           zoneLabel: zoned ? z.label : undefined,
           groupKey: zoned ? `zone-${z.id}` : zoneNote,
+          innerDrawerFronts: f.innerDrawerFronts,
+          innerDoors: f.innerDoors,
+          innerWidth: z.innerW > 0 ? z.innerW : input.innerW,
+          innerHeight: z.innerH,
         },
         panels,
         hardware,

@@ -38,6 +38,13 @@ export const DOOR_CLEARANCE_BOTTOM = 0
 export const DOOR_GAP_X = 3
 /** Left / right share of DOOR_GAP_X, mm. */
 export const DOOR_SIDE_GAP_EACH = 1.5
+/**
+ * Inner drawer front: sits between the sides (does not cover their edge banding).
+ * Total side фуга, mm.
+ */
+export const INNER_DRAWER_GAP_X = 6
+/** Left / right share of INNER_DRAWER_GAP_X, mm. */
+export const INNER_DRAWER_SIDE_GAP_EACH = 3
 /** Gap between stacked fronts (drawer–drawer or drawer–door), mm. */
 export const DRAWER_DOOR_GAP = 3
 /** Default finished drawer-front height when adding a drawer, mm. */
@@ -215,31 +222,59 @@ export type DoorCutOpts = {
    * Default true: also subtract 2+2 mm for workshop edge banding.
    */
   subtractEdge?: boolean
+  /** Inner front: opening is between the sides; 3+3 mm gaps instead of overlay 1.5+1.5. */
+  inset?: boolean
+}
+
+export type DrawerFrontCutOpts = DoorCutOpts
+
+export function drawerFrontGapX(inset: boolean): number {
+  return inset ? INNER_DRAWER_GAP_X : DOOR_GAP_X
+}
+
+export function drawerFrontSideGapEach(inset: boolean): number {
+  return inset ? INNER_DRAWER_SIDE_GAP_EACH : DOOR_SIDE_GAP_EACH
 }
 
 function doorEdgeDeduction(opts?: DoorCutOpts): number {
   return opts?.subtractEdge === false ? 0 : DOOR_EDGE_BOTH
 }
 
+/** Finished/cut width of one door from the opening it sits in. */
+export function doorCutWidth(openingWidth: number, doorCount: 1 | 2, opts?: DoorCutOpts): number {
+  const edge = doorEdgeDeduction(opts)
+  if (opts?.inset) {
+    const between = doorCount === 2 ? DRAWER_DOOR_GAP : 0
+    return (openingWidth - INNER_DRAWER_GAP_X - between) / doorCount - edge
+  }
+  return openingWidth / doorCount - DOOR_GAP_X - edge
+}
+
 /** Cut size (before 2 mm banding on all four edges), or finished size when `subtractEdge` is false. */
 export function doorCutSize(
-  cabinetWidth: number,
+  openingWidth: number,
   cabinetHeight: number,
   doorCount: 1 | 2,
   opts?: DoorCutOpts,
 ): { width: number; height: number } {
   const edge = doorEdgeDeduction(opts)
   return {
-    width: cabinetWidth / doorCount - DOOR_GAP_X - edge,
+    width: doorCutWidth(openingWidth, doorCount, opts),
     height: cabinetHeight - DOOR_CLEARANCE_TOP - DOOR_CLEARANCE_BOTTOM - edge,
   }
 }
 
 /** Short Bulgarian note of the overlay + banding rule, for prices and dialogs. */
-export function doorCutRuleNote(opts?: { withDrawerGaps?: boolean; subtractEdge?: boolean }): string {
+export function doorCutRuleNote(opts?: {
+  withDrawerGaps?: boolean
+  subtractEdge?: boolean
+  insetFront?: boolean
+}): string {
   const stacked = opts?.withDrawerGaps
     ? `${DRAWER_DOOR_GAP} мм между челата, `
     : ''
+  const gap = drawerFrontGapX(opts?.insetFront === true)
+  const each = drawerFrontSideGapEach(opts?.insetFront === true)
   const edgeBit =
     opts?.subtractEdge === false
       ? 'готов размер (само фуги, без махане на кант)'
@@ -247,19 +282,19 @@ export function doorCutRuleNote(opts?: { withDrawerGaps?: boolean; subtractEdge?
   return (
     `фуга ${DOOR_CLEARANCE_TOP} мм отгоре` +
     (DOOR_CLEARANCE_BOTTOM > 0 ? `, ${DOOR_CLEARANCE_BOTTOM} мм отдолу` : ', долу на 0') +
-    `, ${stacked}странично ${DOOR_GAP_X} мм общо (${DOOR_SIDE_GAP_EACH} мм отляво и отдясно), ${edgeBit}`
+    `, ${stacked}странично ${gap} мм общо (${each} мм отляво и отдясно), ${edgeBit}`
   )
 }
 
 /** Cut size (before 2 mm banding), or finished size when `subtractEdge` is false. */
 export function drawerFrontCutSize(
-  cabinetWidth: number,
+  openingWidth: number,
   frontHeight: number,
-  opts?: DoorCutOpts,
+  opts?: DrawerFrontCutOpts,
 ): { width: number; height: number } {
   const edge = doorEdgeDeduction(opts)
   return {
-    width: cabinetWidth - DOOR_GAP_X - edge,
+    width: openingWidth - drawerFrontGapX(opts?.inset === true) - edge,
     height: frontHeight - edge,
   }
 }
@@ -356,7 +391,7 @@ export function combinedFrontCutHeight(cutHeights: number[]): number {
 
 /** Calculate door size when combined with drawer(s) above (before edging) */
 export function doorWithDrawersCutSize(
-  cabinetWidth: number,
+  openingWidth: number,
   cabinetHeight: number,
   drawerFrontHeights: number[],
   doorCount: 1 | 2,
@@ -364,7 +399,7 @@ export function doorWithDrawersCutSize(
 ): { width: number; height: number } {
   const edge = doorEdgeDeduction(opts)
   return {
-    width: cabinetWidth / doorCount - DOOR_GAP_X - edge,
+    width: doorCutWidth(openingWidth, doorCount, opts),
     height: remainingFrontHeight(cabinetHeight, drawerFrontHeights, true) - edge,
   }
 }
@@ -406,12 +441,16 @@ export function drawerBoxRails(
   drawerFrontHeight: number,
   slideLength: number,
   softClose: boolean,
+  innerOpeningW?: number,
 ): DrawerBoxRails | null {
   const outerHeight = roundDrawerRailHeight(drawerFrontHeight - DRAWER_RAIL_BELOW_FRONT)
   const innerHeight = softClose ? outerHeight - SOFT_INNER_RAIL_HEIGHT_DROP : outerHeight
   if (outerHeight <= 0 || innerHeight <= 0 || thickness <= 0 || slideLength <= 0) return null
 
-  const innerCarcassW = cabinetWidth - 2 * thickness
+  const innerCarcassW =
+    innerOpeningW != null && innerOpeningW > 0
+      ? innerOpeningW
+      : cabinetWidth - 2 * thickness
   const sideGapEach = softClose ? SOFT_SLIDE_SIDE_GAP : ROLLER_SLIDE_SIDE_GAP
   const drawerOuterW = innerCarcassW - 2 * sideGapEach
   const innerWidth = drawerOuterW - 2 * thickness

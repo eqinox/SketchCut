@@ -51,7 +51,6 @@ import {
   parseSlideKind,
   scaleCabinetResult,
   slideUnitPriceEur,
-  drawerBoxRails,
   remainingFrontHeight,
   equalDrawerFrontHeights,
   drawerFrontsAreEven,
@@ -59,6 +58,7 @@ import {
   canCombineAdjacentZoneFronts,
   doorCutSize,
   doorCutRuleNote,
+  drawerFrontCutSize,
   DOOR_CLEARANCE_TOP,
   DOOR_EDGE_BOTH,
   DRAWER_DOOR_GAP,
@@ -85,7 +85,6 @@ import {
   slidingEdgeLabel,
   slidingProfileMm,
   SLIDING_DRAWER_FROM_BOTTOM_MM,
-  SLIDING_BOTTOM_TRACK_MM,
   SLIDING_HANDLE_PROFILE_MM,
   isBuyoutDoorPanel,
   type CabinetInstance,
@@ -99,6 +98,7 @@ import {
   type SlidingDoorEdges,
   type SlidingEdgeKind,
   MAX_PARTITIONS,
+  MIN_CLOTHES_RAIL_TO_SHELF_MM,
   MIN_ZONE_CLEAR_MM,
   defaultFixedOffsetMm,
   defaultPartitionOffsetMm,
@@ -106,7 +106,12 @@ import {
   defaultShelfFaces,
   defaultPartitionFaces,
   evenShelfPlacements,
-  pinShelfOpenings,
+  middleShelfClearances,
+  remainingShelfOpenings,
+  placeableHeightOpenings,
+  zoneHeightOpenings,
+  zoneHeightSplitKind,
+  clothesRailShelfKeepout,
   fixedShelfMeasureLabel,
   movableShelfMeasureLabel,
   clothesRailMeasureLabel,
@@ -115,7 +120,10 @@ import {
   layoutInterior,
   fittingsCountsFromParams,
   allDrawerFrontHeights,
+  uniqueDrawerBoxes,
   validateZoneFronts,
+  zoneStackOpeningHeight,
+  frontStackOpeningHeight,
   columnLabel,
   shelvesForColumn,
   canAddFixedShelfToColumn,
@@ -146,13 +154,15 @@ type MovableShelfUi = {
   fromFace: PanelFace
   toFace: PanelFace
   offsetMm: string
-  /** Which remaining opening a middle shelf sits in (0 = lowest). */
+  /** Remaining opening around exact-distance shelves and clothes rails (0 = lowest). */
   gapIndex?: number
 }
 
 type ClothesRailUi = {
   from: 'top' | 'bottom' | 'middle'
   offsetMm: string
+  /** Remaining opening around pin shelves (0 = lowest). */
+  gapIndex?: number
 }
 
 type ZoneUi = {
@@ -187,6 +197,7 @@ function movableToUi(s: {
     fromFace: s.fromFace ?? faces.fromFace,
     toFace: s.toFace ?? faces.toFace,
     offsetMm: String(s.offsetMm),
+    ...(s.gapIndex != null ? { gapIndex: s.gapIndex } : {}),
   }
 }
 
@@ -195,12 +206,13 @@ function displayedMovable(rows: MovableShelfUi[], count: number, innerH: number,
   return evenShelfPlacements(innerH, count, thickness).map(movableToUi)
 }
 
-function newMovableShelf(innerH: number, thickness: number, already: number): MovableShelfUi {
+function newMovableShelf(innerH: number, thickness: number, already: number, gapIndex?: number): MovableShelfUi {
   const from = already === 0 ? ('bottom' as const) : ('top' as const)
   return {
     from,
     ...defaultShelfFaces(from),
     offsetMm: String(defaultFixedOffsetMm(innerH, thickness, already)),
+    ...(gapIndex != null ? { gapIndex } : {}),
   }
 }
 
@@ -229,13 +241,17 @@ function rowsToSpecs(rows: MovableShelfUi[]) {
       fromFace: s.fromFace,
       toFace: s.toFace,
       offsetMm: mmNum(s.offsetMm),
-      ...(s.from === 'middle' && s.gapIndex != null ? { gapIndex: s.gapIndex } : {}),
+      ...(s.gapIndex != null ? { gapIndex: s.gapIndex } : {}),
     }))
     .filter((s) => s.from === 'middle' || s.offsetMm > 0)
 }
 
-function railToUi(s: { from: 'top' | 'bottom' | 'middle'; offsetMm: number }): ClothesRailUi {
-  return { from: s.from, offsetMm: String(s.from === 'middle' ? 0 : s.offsetMm) }
+function railToUi(s: { from: 'top' | 'bottom' | 'middle'; offsetMm: number; gapIndex?: number }): ClothesRailUi {
+  return {
+    from: s.from,
+    offsetMm: String(s.from === 'middle' ? 0 : s.offsetMm),
+    ...(s.gapIndex != null ? { gapIndex: s.gapIndex } : {}),
+  }
 }
 
 function railsToSpecs(rows: ClothesRailUi[]) {
@@ -243,20 +259,36 @@ function railsToSpecs(rows: ClothesRailUi[]) {
     .map((s) => ({
       from: s.from,
       offsetMm: s.from === 'middle' ? 0 : mmNum(s.offsetMm),
+      ...(s.gapIndex != null ? { gapIndex: s.gapIndex } : {}),
     }))
     .filter((s) => s.from === 'middle' || s.offsetMm > 0)
 }
 
-function newClothesRail(innerH: number, already: number): ClothesRailUi {
-  if (already === 0) return { from: 'top', offsetMm: String(DEFAULT_CLOTHES_RAIL_FROM_TOP_MM) }
+function newClothesRail(innerH: number, already: number, gapIndex?: number): ClothesRailUi {
+  if (already === 0) {
+    return { from: 'top', offsetMm: String(DEFAULT_CLOTHES_RAIL_FROM_TOP_MM), ...(gapIndex != null ? { gapIndex } : {}) }
+  }
   return {
     from: 'bottom',
     offsetMm: String(Math.max(MIN_ZONE_CLEAR_MM, exactMm(innerH / (already + 1)))),
+    ...(gapIndex != null ? { gapIndex } : {}),
   }
 }
 
-function newMiddleRail(): ClothesRailUi {
-  return { from: 'middle', offsetMm: '0' }
+function newMiddleRail(gapIndex?: number): ClothesRailUi {
+  return { from: 'middle', offsetMm: '0', ...(gapIndex != null ? { gapIndex } : {}) }
+}
+
+function railOriginCaptions(
+  zone: { y0: number; y1: number; rails: { openingY0: number; openingY1: number }[] } | undefined,
+  railIndex: number,
+  topBoardCaption: string,
+): { top: string; bottom: string } {
+  const r = zone?.rails[railIndex]
+  return {
+    top: r && zone && r.openingY1 < zone.y1 - 0.5 ? 'долната страна на рафта' : topBoardCaption,
+    bottom: r && zone && r.openingY0 > zone.y0 + 0.5 ? 'горната страна на рафта' : 'долната плоскост',
+  }
 }
 
 function emptyZoneUi(): ZoneUi {
@@ -514,6 +546,64 @@ function FormSection({
   )
 }
 
+function middleClearanceHint(
+  shelfFrom: 'bottom' | 'top' | 'middle',
+  gapIndex: number | undefined,
+  clearances: { gapIndex: number; count: number; gapMm: number }[],
+): string | null {
+  if (shelfFrom !== 'middle' || clearances.length === 0) return null
+  const hit =
+    typeof gapIndex === 'number' && Number.isFinite(gapIndex)
+      ? clearances.find((c) => c.gapIndex === gapIndex)
+      : undefined
+  const c = hit ?? (clearances.length === 1 ? clearances[0] : null)
+  if (!c || !(c.gapMm > 0.05)) return null
+  return c.count === 1
+    ? `${formatMm(c.gapMm)} мм отгоре и отдолу`
+    : `${formatMm(c.gapMm)} мм над, между и под рафтовете`
+}
+
+function MiddleGapNote({
+  clearances,
+}: {
+  clearances: { gapIndex: number; count: number; gapMm: number }[]
+}) {
+  const shown = clearances.filter((c) => c.gapMm > 0.05)
+  if (shown.length === 0) return null
+  const same = shown.every((c) => Math.abs(c.gapMm - shown[0].gapMm) < 0.05)
+  const lines = same
+    ? [
+        {
+          gapMm: shown[0].gapMm,
+          count: shown.reduce((n, c) => n + c.count, 0),
+        },
+      ]
+    : shown
+  return (
+    <>
+      {lines.map((c, i) => (
+        <p key={i} className="mt-2 text-sm">
+          Равни разстояния:{' '}
+          <span className="font-medium tabular-nums">{formatMm(c.gapMm)} мм</span>
+          {c.count === 1 ? ' отгоре и отдолу' : ' над, между и под рафтовете'}
+        </p>
+      ))}
+    </>
+  )
+}
+
+function zoneShelfSummary(
+  count: number,
+  clearances: { gapIndex: number; count: number; gapMm: number }[],
+): string {
+  const n = `${count} ${count === 1 ? 'рафт' : 'рафта'}`
+  const shown = clearances.filter((c) => c.gapMm > 0.05)
+  if (shown.length === 0) return n
+  const same = shown.every((c) => Math.abs(c.gapMm - shown[0].gapMm) < 0.05)
+  if (!same) return n
+  return `${n} · ${formatMm(shown[0].gapMm)} мм`
+}
+
 function ShelfMeasureFields({
   from,
   fromFace,
@@ -689,6 +779,8 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
   })
   const [doorCount, setDoorCount] = useState(initialFittings.doorCount)
   const [externalDoors, setExternalDoors] = useState(initialFittings.externalDoors === true)
+  const [innerDrawerFronts, setInnerDrawerFronts] = useState(initialFittings.innerDrawerFronts === true)
+  const [innerDoors, setInnerDoors] = useState(initialFittings.innerDoors === true)
   const [doorStyle, setDoorStyle] = useState<DoorStyle>(
     editing?.typeId === 'wardrobe' ? 'sliding' : parseDoorStyle(initialFittings.doorStyle),
   )
@@ -796,6 +888,8 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
       slideKind,
       slideLength,
       externalDoors,
+      innerDrawerFronts,
+      innerDoors,
       fixedShelves: fixedShelves
         .map((s) => ({
           from: s.from,
@@ -894,7 +988,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
       colors,
       ...fittings,
     })
-  }, [typeId, width, height, depth, depthIncludesDoor, thickness, legHeight, shelfCount, movableShelves, hasBack, clothesRails, doorCount, doorStyle, slidingEdges, slidingUpperTrackColor, slidingLowerTrackColor, slidingHandleSkuId, slidingCapSkuId, slidingSoftCloseLeft, slidingSoftCloseRight, drawerFrontHeights, cutFromOneBoard, includeHandles, slideKind, slideLength, useLegs, plinthCount, plinthHeight, colors, topStyle, hasHood, hoodShape, hoodDiameter, hoodRectW, hoodRectD, fixedShelves, partitions, doorSpan, zoneUi, externalDoors, dimFontScale])
+  }, [typeId, width, height, depth, depthIncludesDoor, thickness, legHeight, shelfCount, movableShelves, hasBack, clothesRails, doorCount, doorStyle, slidingEdges, slidingUpperTrackColor, slidingLowerTrackColor, slidingHandleSkuId, slidingCapSkuId, slidingSoftCloseLeft, slidingSoftCloseRight, drawerFrontHeights, cutFromOneBoard, includeHandles, slideKind, slideLength, useLegs, plinthCount, plinthHeight, colors, topStyle, hasHood, hoodShape, hoodDiameter, hoodRectW, hoodRectD, fixedShelves, partitions, doorSpan, zoneUi, externalDoors, innerDrawerFronts, innerDoors, dimFontScale])
 
   const qty = Math.max(1, parseInt(quantity, 10) || 1)
   const result = useMemo(() => {
@@ -942,7 +1036,9 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
         : 'горе'
   const innerW = isKitchenCarcass ? params.width - 2 * params.thickness : nsMeasure!.innerW
   const frontH = isKitchenCarcass ? params.height : nsMeasure!.frontHeight
-  const drawerFrontH = isSlidingCabinet ? innerH : frontH
+  const overlayFrontH = isSlidingCabinet ? innerH : frontH
+  const drawerFrontH = innerDrawerFronts ? innerH : overlayFrontH
+  const doorFrontH = innerDoors ? innerH : overlayFrontH
   const drawerBottomGap = isSlidingCabinet ? SLIDING_DRAWER_FROM_BOTTOM_MM : 0
   const layout = layoutInterior({
     innerH,
@@ -973,7 +1069,11 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
         )
       : params.zones,
   })
-  const error = validate(typeId, params, layout, drawerFrontH, drawerBottomGap)
+  const error = validate(typeId, params, layout, overlayFrontH, drawerBottomGap, {
+    drawers: innerDrawerFronts,
+    doors: innerDoors,
+    innerH,
+  })
   const counts = fittingsCountsFromParams(params)
   const projectExternalDoors = settings.hardware.externalDoors
   const effectiveExternalDoors = projectExternalDoors || externalDoors
@@ -992,23 +1092,21 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
     pendingAdd?.kind === 'shelf' && pendingAdd.middle
       ? betweenRowExtras(layout.zones, layout.columns.length)
       : []
-  const cabinetPinOpenings = pinShelfOpenings(
-    rowsToSpecs(displayedMovable(movableShelves, shelfCount, innerH, params.thickness)),
-    innerH,
-    params.thickness,
-  )
+  const cabinetPinOpenings = zoneHeightOpenings(layout.zones[0] ?? { innerH, y0: 0, movable: [], rails: [] })
+  const cabinetPlaceablePinOpenings = placeableHeightOpenings(cabinetPinOpenings, params.thickness)
+  const cabinetPinSplitKind = zoneHeightSplitKind(layout.zones[0] ?? { movable: [], rails: [] })
   const pinGapZoneExtras =
-    pendingAdd?.kind === 'shelf' && pendingAdd.middle && hasSplit
+    pendingAdd?.kind === 'shelf' && hasSplit
       ? layout.zones.flatMap((z) => {
-          const cur = zoneOf(zoneUi, z.id)
-          const rows = displayedMovable(cur.movableShelves, cur.shelfCount, z.innerH, params.thickness)
-          const openings = pinShelfOpenings(rowsToSpecs(rows), z.innerH, params.thickness)
-          if (openings.length < 2) return []
-          return openings.map((o) => ({
+          const openings = zoneHeightOpenings(z)
+          const placeable = placeableHeightOpenings(openings, params.thickness)
+          if (placeable.length < 2) return []
+          const kind = zoneHeightSplitKind(z)
+          return placeable.map((o) => ({
             id: `pin-gap:${z.id}:${o.index}`,
             label:
-              openings.length === 2
-                ? `${z.label} · ${o.index === 0 ? 'под рафта' : 'над рафта'}`
+              placeable.length === 2
+                ? `${z.label} · ${heightPartCaption(o, openings.length, kind)}`
                 : `${z.label} · ${o.label}`,
           }))
         })
@@ -1016,8 +1114,40 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
   const pinSplitZoneIds = new Set(
     pinGapZoneExtras.map((e) => parsePinGapTarget(e.id)?.zoneId).filter((id): id is string => !!id),
   )
+  const cabinetRailOpenings = remainingShelfOpenings(
+    rowsToSpecs(displayedMovable(movableShelves, shelfCount, innerH, params.thickness)),
+    innerH,
+    params.thickness,
+    shelfCount,
+  )
+  const railGapZoneExtras =
+    pendingAdd?.kind === 'rail' && hasSplit
+      ? layout.zones.flatMap((z) => {
+          const cur = zoneOf(zoneUi, z.id)
+          const rows = displayedMovable(cur.movableShelves, cur.shelfCount, z.innerH, params.thickness)
+          const openings = remainingShelfOpenings(
+            rowsToSpecs(rows),
+            z.innerH,
+            params.thickness,
+            cur.shelfCount,
+          )
+          if (openings.length < 2) return []
+          return openings.map((o) => ({
+            id: `rail-gap:${z.id}:${o.index}`,
+            label:
+              openings.length === 2
+                ? `${z.label} · ${o.index === 0 ? 'под рафта' : 'над рафта'}`
+                : `${z.label} · ${o.label}`,
+          }))
+        })
+      : []
+  const railSplitZoneIds = new Set(
+    railGapZoneExtras.map((e) => parseRailGapTarget(e.id)?.zoneId).filter((id): id is string => !!id),
+  )
+  const showCabinetRailParts =
+    pendingAdd?.kind === 'rail' && !hasSplit && cabinetRailOpenings.length > 1
   const showCabinetPinParts =
-    pendingAdd?.kind === 'shelf' && pendingAdd.middle === true && !hasSplit && cabinetPinOpenings.length > 1
+    pendingAdd?.kind === 'shelf' && !hasSplit && cabinetPlaceablePinOpenings.length > 1
   const shelfGap = evenShelfGap(innerH, shelfCount, params.thickness)
   const backPlinth =
     typeId !== 'kitchen-base' && !(params as ReturnType<typeof parseNightstandParams>).useLegs
@@ -1187,14 +1317,21 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
     evenCount: number,
     middle = false,
     gapIndex?: number,
+    gapInnerH?: number,
   ): MovableShelfUi[] => {
     const current = displayedMovable(rows, evenCount, innerHMm, params.thickness)
     if (current.length >= MAX_SHELVES) return current
-    return [...current, middle ? newMiddlePinShelf(gapIndex) : newMovableShelf(innerHMm, params.thickness, current.length)]
+    const measureH = gapInnerH ?? innerHMm
+    return [
+      ...current,
+      middle
+        ? newMiddlePinShelf(gapIndex)
+        : newMovableShelf(measureH, params.thickness, current.length, gapIndex),
+    ]
   }
 
-  const addCabinetPinShelf = (middle = false, gapIndex?: number) => {
-    const next = addPinShelfRows(innerH, movableShelves, shelfCount, middle, gapIndex)
+  const addCabinetPinShelf = (middle = false, gapIndex?: number, gapInnerH?: number) => {
+    const next = addPinShelfRows(innerH, movableShelves, shelfCount, middle, gapIndex, gapInnerH)
     setMovableShelves(next)
     setShelfCount(next.length)
   }
@@ -1214,16 +1351,33 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
       const middle = pendingAdd.middle === true
       const pinGap = parsePinGapTarget(target)
       if (pinGap) {
+        const openings = pinGap.zoneId
+          ? zoneHeightOpenings(layout.zones.find((row) => row.id === pinGap.zoneId) ?? {
+              innerH,
+              y0: 0,
+              movable: [],
+              rails: [],
+            })
+          : cabinetPinOpenings
+        const gap = openings.find((o) => o.index === pinGap.gapIndex)
+        const gapInnerH = gap ? gap.end - gap.start : undefined
         if (pinGap.zoneId) {
           const zone = layout.zones.find((row) => row.id === pinGap.zoneId)
           const zoneH = zone?.innerH ?? innerH
           setZoneUi((z) => {
             const cur = zoneOf(z, pinGap.zoneId!)
-            const nextRows = addPinShelfRows(zoneH, cur.movableShelves, cur.shelfCount, true, pinGap.gapIndex)
+            const nextRows = addPinShelfRows(
+              zoneH,
+              cur.movableShelves,
+              cur.shelfCount,
+              middle,
+              pinGap.gapIndex,
+              gapInnerH,
+            )
             return { ...z, [pinGap.zoneId!]: { ...cur, movableShelves: nextRows, shelfCount: nextRows.length } }
           })
         } else {
-          addCabinetPinShelf(true, pinGap.gapIndex)
+          addCabinetPinShelf(middle, pinGap.gapIndex, gapInnerH)
         }
         setPendingAdd(null)
         return
@@ -1247,9 +1401,14 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
       } else if (zoneId) {
         const zone = layout.zones.find((row) => row.id === zoneId)
         const zoneH = zone?.innerH ?? innerH
+        const openings = zone ? placeableHeightOpenings(zoneHeightOpenings(zone), params.thickness) : []
+        const only = openings[0]
+        const fullHeight = !only || (only.start <= 0.5 && only.end >= zoneH - 0.5)
+        const gi = fullHeight ? undefined : only?.index
+        const gapInnerH = fullHeight || !only ? undefined : only.end - only.start
         setZoneUi((z) => {
           const cur = zoneOf(z, zoneId)
-          const nextRows = addPinShelfRows(zoneH, cur.movableShelves, cur.shelfCount, middle)
+          const nextRows = addPinShelfRows(zoneH, cur.movableShelves, cur.shelfCount, middle, gi, gapInnerH)
           return { ...z, [zoneId]: { ...cur, movableShelves: nextRows, shelfCount: nextRows.length } }
         })
       }
@@ -1269,7 +1428,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
         if (zone && !hasDoor) {
           patchZone(target, {
             drawerFrontHeights: filledDrawerRows(
-              zone.frontHeight,
+              zoneStackOpeningHeight(zone, innerDrawerFronts, innerDoors),
               n,
               false,
               zone.y0 <= 0.5 ? drawerBottomGap : 0,
@@ -1293,52 +1452,87 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
       }
     } else if (pendingAdd.kind === 'rail') {
       const middle = pendingAdd.middle === true
-      const pushRail = (id: CabinetZoneId) => {
+      const railGap = parseRailGapTarget(target)
+      const pushRail = (id: CabinetZoneId, gapIndex?: number) => {
         const cur = zoneOf(zoneUi, id)
         if (cur.clothesRails.length >= MAX_CLOTHES_RAILS) return cur
         const zone = layout.zones.find((z) => z.id === id)
         const nextRails = [
           ...cur.clothesRails,
-          middle ? newMiddleRail() : newClothesRail(zone?.innerH ?? innerH, cur.clothesRails.length),
+          middle
+            ? newMiddleRail(gapIndex)
+            : newClothesRail(zone?.innerH ?? innerH, cur.clothesRails.length, gapIndex),
         ]
         return { ...cur, clothesRails: nextRails, hasClothesRail: true }
       }
-      if (target === 'full') {
+      const defaultGapForZone = (id: CabinetZoneId): number | undefined => {
+        const zone = layout.zones.find((z) => z.id === id)
+        if (!zone) return undefined
+        const cur = zoneOf(zoneUi, id)
+        const rows = displayedMovable(cur.movableShelves, cur.shelfCount, zone.innerH, params.thickness)
+        const openings = remainingShelfOpenings(
+          rowsToSpecs(rows),
+          zone.innerH,
+          params.thickness,
+          cur.shelfCount,
+        )
+        return largestOpeningIndex(openings)
+      }
+      if (railGap) {
+        if (railGap.zoneId) {
+          patchZone(railGap.zoneId, pushRail(railGap.zoneId, railGap.gapIndex))
+        } else {
+          setClothesRails((rows) =>
+            rows.length >= MAX_CLOTHES_RAILS
+              ? rows
+              : [
+                  ...rows,
+                  middle
+                    ? newMiddleRail(railGap.gapIndex)
+                    : newClothesRail(innerH, rows.length, railGap.gapIndex),
+                ],
+          )
+        }
+      } else if (target === 'full') {
         setZoneUi((z) => {
           const next = { ...z }
           for (const zone of layout.zones) {
-            next[zone.id] = pushRail(zone.id)
+            next[zone.id] = pushRail(zone.id, defaultGapForZone(zone.id))
           }
           return next
         })
       } else {
-        patchZone(target, pushRail(target))
+        patchZone(target, pushRail(target, defaultGapForZone(target)))
       }
     }
     setPendingAdd(null)
   }
 
   const startAdd = (next: PendingAdd) => {
-    if (next.kind === 'shelf' && next.middle) {
+    if (next.kind === 'shelf') {
       if (hasSplit && !layout.error) {
         setPendingAdd(next)
         return
       }
-      const current = displayedMovable(movableShelves, shelfCount, innerH, params.thickness)
-      const openings = pinShelfOpenings(rowsToSpecs(current), innerH, params.thickness)
-      if (openings.length > 1) {
+      const placeable = cabinetPlaceablePinOpenings
+      if (placeable.length > 1) {
         setPendingAdd(next)
         return
       }
-      addCabinetPinShelf(true, openings.length === 1 ? 0 : undefined)
+      const only = placeable[0]
+      const fullHeight = !only || (only.start <= 0.5 && only.end >= innerH - 0.5)
+      addCabinetPinShelf(
+        next.middle === true,
+        fullHeight ? undefined : only?.index,
+        fullHeight || !only ? undefined : only.end - only.start,
+      )
       return
     }
     if (hasSplit && !layout.error) {
       setPendingAdd(next)
       return
     }
-    if (next.kind === 'shelf') addCabinetPinShelf(next.middle === true)
-    else if (next.kind === 'drawer') {
+    if (next.kind === 'drawer') {
       setDrawerFrontHeights((rows) =>
         !isSlidingCabinet && doorCount > 0
           ? [...rows, String(DEFAULT_DRAWER_FRONT_HEIGHT)]
@@ -1347,6 +1541,10 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
     }
     else if (next.kind === 'door') setDoorCount(next.count)
     else if (next.kind === 'rail') {
+      if (cabinetRailOpenings.length > 1) {
+        setPendingAdd(next)
+        return
+      }
       setClothesRails((rows) =>
         rows.length >= MAX_CLOTHES_RAILS
           ? rows
@@ -1370,7 +1568,11 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
           return (
             heights.length >= 1 &&
             !hasDoor &&
-            !drawerFrontsAreEven(z.frontHeight, heights, z.y0 <= 0.5 ? drawerBottomGap : 0)
+            !drawerFrontsAreEven(
+              zoneStackOpeningHeight(z, innerDrawerFronts, innerDoors),
+              heights,
+              z.y0 <= 0.5 ? drawerBottomGap : 0,
+            )
           )
         })
         .map((z) => z.id)
@@ -1379,12 +1581,19 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
   const adjacentCombine = hasSplit && canCombineAdjacentZoneFronts(layout.zones)
   const showCombineFronts =
     !effectiveExternalDoors &&
-    (canCombineFronts(fullDrawerNums.length, fullDrawerHasDoor ? doorCount : 0) ||
+    (canCombineFronts(
+      fullDrawerNums.length,
+      innerDrawerFronts !== innerDoors ? 0 : fullDrawerHasDoor ? doorCount : 0,
+    ) ||
       (hasSplit &&
         layout.zones.some((z) =>
           canCombineFronts(
             parseDrawerRows(zoneOf(zoneUi, z.id).drawerFrontHeights).length,
-            doorSpan === 'zones' ? zoneOf(zoneUi, z.id).doorCount : 0,
+            innerDrawerFronts !== innerDoors
+              ? 0
+              : doorSpan === 'zones'
+                ? zoneOf(zoneUi, z.id).doorCount
+                : 0,
           ),
         )) ||
       adjacentCombine)
@@ -1404,7 +1613,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
           next[id] = {
             ...cur,
             drawerFrontHeights: equalDrawerFrontHeights(
-              zone.frontHeight,
+              zoneStackOpeningHeight(zone, innerDrawerFronts, innerDoors),
               n,
               zone.y0 <= 0.5 ? drawerBottomGap : 0,
             ).map(String),
@@ -2434,17 +2643,28 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
             >
               <p className="mt-0.5 text-xs text-[var(--color-muted-foreground)]">
                 Подвижни рафтове с рафтоносачи. Отгоре, отдолу или по средата на оставащия отвор. Рафт на точно
-                разстояние дели отвора на части — после слагаш рафт по средата над или под него.
+                разстояние или лост за дрехи дели отвора — после слагаш рафт над или под него. Над лоста трябва да
+                има поне {MIN_CLOTHES_RAIL_TO_SHELF_MM} мм.
               </p>
               {!hasSplit && (() => {
                 const rows = displayedMovable(movableShelves, shelfCount, innerH, params.thickness)
-                const allMiddle = shelfCount > 0 && rows.every(r => r.from === 'middle')
-                const cabinetShelfGap = allMiddle
-                  ? evenShelfGap(innerH, shelfCount, params.thickness)
-                  : 0
+                const z0 = layout.zones[0]
+                const railKeepout = (z0?.rails ?? []).map((r) =>
+                  clothesRailShelfKeepout(r.yTop - (z0?.y0 ?? 0)),
+                )
+                const clearances = middleShelfClearances(
+                  rowsToSpecs(rows),
+                  innerH,
+                  params.thickness,
+                  { closedBottom: false, closedTop: false },
+                  railKeepout,
+                )
                 return (
                   <>
-                    {rows.map((shelf, i) => (
+                    <MiddleGapNote clearances={clearances} />
+                    {rows.map((shelf, i) => {
+                      const gapHint = middleClearanceHint(shelf.from, shelf.gapIndex, clearances)
+                      return (
                       <div key={`pin-${i}`} className="mt-2 space-y-2 rounded-md border border-[var(--color-border)] p-2">
                         <div className="flex items-center gap-2">
                           <span className="min-w-28 shrink-0 text-xs">Рафт {i + 1}</span>
@@ -2473,7 +2693,9 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                           allowMiddle
                           originHint={
                             shelf.from === 'middle'
-                              ? 'По средата на отвора между рафтовете — равни празнини над и под рафта'
+                              ? gapHint
+                                ? `По средата · ${gapHint}`
+                                : 'По средата на отвора между рафтовете — равни празнини над и под рафта'
                               : `От ${shelf.from === 'bottom' ? 'дъното' : topBoardCaption}`
                           }
                           measureHint={`${movableShelfMeasureLabel(
@@ -2484,14 +2706,14 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                               offsetMm: mmNum(shelf.offsetMm),
                             },
                             topBoardCaption,
-                          )}${shelf.from === 'middle' ? '' : '. Линията е на 3D изгледа.'}`}
+                          )}${shelf.from === 'middle' ? (gapHint ? ` · ${gapHint}` : '') : '. Линията е на 3D изгледа.'}`}
                           offsetId={`pin-off-${i}`}
                           onFrom={(from) => {
                             const current = displayedMovable(movableShelves, shelfCount, innerH, params.thickness)
                             const next = current.map((r, j) =>
                               j === i
                                 ? from === 'middle'
-                                  ? newMiddlePinShelf()
+                                  ? newMiddlePinShelf(r.gapIndex)
                                   : { ...r, from, ...defaultShelfFaces(from) }
                                 : r,
                             )
@@ -2518,12 +2740,8 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                           }}
                         />
                       </div>
-                    ))}
-                    {cabinetShelfGap > 0 && (
-                      <p className="mt-2 text-xs text-[var(--color-muted-foreground)]">
-                        Разстояние между рафтовете: {formatMm(cabinetShelfGap)} мм
-                      </p>
-                    )}
+                      )
+                    })}
                   </>
                 )
               })()}
@@ -2531,17 +2749,32 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                 layout.zones.map((z) => {
                   const cur = zoneOf(zoneUi, z.id)
                   const rows = displayedMovable(cur.movableShelves, cur.shelfCount, z.innerH, params.thickness)
-                  const allMiddle = cur.shelfCount > 0 && rows.every(r => r.from === 'middle')
-                  const zoneShelfGap = allMiddle
-                    ? evenShelfGap(z.innerH, cur.shelfCount, params.thickness)
-                    : 0
+                  if (rows.length === 0) return null
+                  const clearances = middleShelfClearances(
+                    rowsToSpecs(rows),
+                    z.innerH,
+                    params.thickness,
+                    { closedBottom: !z.isFirst, closedTop: !z.isLast },
+                    z.rails.map((r) => clothesRailShelfKeepout(r.yTop - z.y0)),
+                  )
                   return (
-                    <div key={`zone-${z.id}`}>
-                      {rows.map((shelf, i) => (
+                    <div
+                      key={`zone-${z.id}`}
+                      className="mt-2 rounded-md border border-[var(--color-border)] px-2 py-1.5"
+                    >
+                      <FormSection
+                        title={z.label}
+                        summary={zoneShelfSummary(rows.length, clearances)}
+                        defaultOpen={rows.length <= 2}
+                      >
+                        <MiddleGapNote clearances={clearances} />
+                        {rows.map((shelf, i) => {
+                          const gapHint = middleClearanceHint(shelf.from, shelf.gapIndex, clearances)
+                          return (
                         <div key={`pin-${z.id}-${i}`} className="mt-2 space-y-2 rounded-md border border-[var(--color-border)] p-2">
                           <div className="flex items-center gap-2">
                             <span className="min-w-28 shrink-0 text-xs">
-                              Рафт {i + 1} · {z.label}
+                              Рафт {i + 1}
                             </span>
                             <Button
                               type="button"
@@ -2570,7 +2803,9 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                             allowMiddle
                             originHint={
                               shelf.from === 'middle'
-                                ? `По средата на отвора между рафтовете · ${z.label}`
+                                ? gapHint
+                                  ? `По средата · ${gapHint}`
+                                  : `По средата на отвора между рафтовете · ${z.label}`
                                 : `От ${shelf.from === 'bottom' ? 'долната плоскост' : 'горната плоскост'} · ${z.label}`
                             }
                             measureHint={`${movableShelfMeasureLabel(
@@ -2582,7 +2817,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                               },
                               'горната плоскост',
                               'долната плоскост',
-                            )}${shelf.from === 'middle' ? '' : '. Линията е на 3D изгледа.'}`}
+                            )}${shelf.from === 'middle' ? (gapHint ? ` · ${gapHint}` : '') : '. Линията е на 3D изгледа.'}`}
                             offsetId={`pin-off-${z.id}-${i}`}
                             onFrom={(from) => {
                               const nextRows = displayedMovable(
@@ -2593,7 +2828,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                               ).map((r, j) =>
                                 j === i
                                   ? from === 'middle'
-                                    ? newMiddlePinShelf()
+                                    ? newMiddlePinShelf(r.gapIndex)
                                     : { ...r, from, ...defaultShelfFaces(from) }
                                   : r,
                               )
@@ -2628,12 +2863,9 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                             }}
                           />
                         </div>
-                      ))}
-                      {zoneShelfGap > 0 && (
-                        <p className="mt-2 text-xs text-[var(--color-muted-foreground)]">
-                          {z.label}: Разстояние между рафтовете: {formatMm(zoneShelfGap)} мм
-                        </p>
-                      )}
+                          )
+                        })}
+                      </FormSection>
                     </div>
                   )
                 })}
@@ -2663,21 +2895,25 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                 <WherePicker
                   zones={
                     showCabinetPinParts
-                      ? cabinetPinOpenings.map((o) => ({
+                      ? cabinetPlaceablePinOpenings.map((o) => ({
                           id: `pin-gap:${o.index}`,
-                          label: o.label,
+                          label: heightPartCaption(o, cabinetPinOpenings.length, cabinetPinSplitKind),
                         }))
                       : pendingAdd.middle
                         ? layout.zones.filter((z) => !pinSplitZoneIds.has(z.id))
-                        : layout.zones
+                        : layout.zones.filter((z) => !pinSplitZoneIds.has(z.id))
                   }
                   extras={hasSplit ? [...middleBetweenExtras, ...pinGapZoneExtras] : undefined}
                   allowFull={hasSplit && !showCabinetPinParts}
                   hint={
                     showCabinetPinParts
-                      ? 'Рафтът на точно разстояние дели шкафа. Избери в коя част да е рафтът по средата.'
+                      ? cabinetPinSplitKind.hasRail && !cabinetPinSplitKind.hasShelf
+                        ? `Лостът дели шкафа. Рафт над лоста е поне ${MIN_CLOTHES_RAIL_TO_SHELF_MM} мм над него.`
+                        : 'Рафтът или лостът делят шкафа. Избери в коя част да е новият рафт.'
                       : pinGapZoneExtras.length > 0
-                        ? 'Рафт на точно разстояние дели частта — избери над или под него.'
+                        ? cabinetPinSplitKind.hasRail
+                          ? `Лостът или рафтът делят частта. Над лоста трябва да има поне ${MIN_CLOTHES_RAIL_TO_SHELF_MM} мм.`
+                          : 'Рафт на точно разстояние дели частта — избери над или под него.'
                         : middleBetweenExtras.length > 0
                           ? '„Между долната и горната“ слага рафта над фиксирания, в отвора до горния рафт.'
                           : undefined
@@ -2730,7 +2966,9 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
           summary={counts.clothesRailCount > 0 ? `${counts.clothesRailCount} бр.` : 'няма'}
         >
           <p className="mt-0.5 text-xs text-[var(--color-muted-foreground)]">
-            Между страниците. Отгоре (обикновено 48 мм), отдолу или по средата на отвора.
+            Между страниците. Отгоре обикновено 48 мм от плоскостта над отвора — плот или рафт, не винаги
+            плотът на шкафа. Лостът дели отвора: можеш да сложиш рафтове над него, поне{' '}
+            {MIN_CLOTHES_RAIL_TO_SHELF_MM} мм над лоста.
           </p>
           {!hasSplit &&
             clothesRails.map((rail, i) => (
@@ -2756,7 +2994,13 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                     onClick={() =>
                       setClothesRails((rows) =>
                         rows.map((r, j) =>
-                          j === i ? { from: 'bottom', offsetMm: r.from === 'middle' ? String(DEFAULT_CLOTHES_RAIL_FROM_TOP_MM) : r.offsetMm } : r,
+                          j === i
+                            ? {
+                                from: 'bottom',
+                                offsetMm: r.from === 'middle' ? String(DEFAULT_CLOTHES_RAIL_FROM_TOP_MM) : r.offsetMm,
+                                ...(r.gapIndex != null ? { gapIndex: r.gapIndex } : {}),
+                              }
+                            : r,
                         ),
                       )
                     }
@@ -2770,7 +3014,13 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                     onClick={() =>
                       setClothesRails((rows) =>
                         rows.map((r, j) =>
-                          j === i ? { from: 'top', offsetMm: r.from === 'middle' ? String(DEFAULT_CLOTHES_RAIL_FROM_TOP_MM) : r.offsetMm } : r,
+                          j === i
+                            ? {
+                                from: 'top',
+                                offsetMm: r.from === 'middle' ? String(DEFAULT_CLOTHES_RAIL_FROM_TOP_MM) : r.offsetMm,
+                                ...(r.gapIndex != null ? { gapIndex: r.gapIndex } : {}),
+                              }
+                            : r,
                         ),
                       )
                     }
@@ -2782,7 +3032,9 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                     size="sm"
                     variant={rail.from === 'middle' ? 'default' : 'outline'}
                     onClick={() =>
-                      setClothesRails((rows) => rows.map((r, j) => (j === i ? newMiddleRail() : r)))
+                      setClothesRails((rows) =>
+                        rows.map((r, j) => (j === i ? newMiddleRail(r.gapIndex) : r)),
+                      )
                     }
                   >
                     По средата
@@ -2808,10 +3060,14 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                   </div>
                 )}
                 <p className="text-xs text-[var(--color-muted-foreground)]">
-                  {`${clothesRailMeasureLabel(
-                    { from: rail.from, offsetMm: mmNum(rail.offsetMm) },
-                    topBoardCaption,
-                  )}${rail.from === 'middle' ? '.' : '. Линията е на 3D изгледа.'}`}
+                  {(() => {
+                    const cap = railOriginCaptions(layout.zones[0], i, topBoardCaption)
+                    return `${clothesRailMeasureLabel(
+                      { from: rail.from, offsetMm: mmNum(rail.offsetMm) },
+                      cap.top,
+                      cap.bottom,
+                    )}${rail.from === 'middle' ? '.' : '. Линията е на 3D изгледа.'}`
+                  })()}
                 </p>
               </div>
             ))}
@@ -2847,7 +3103,11 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                         patchZone(z.id, {
                           clothesRails: rows.map((r, j) =>
                             j === i
-                              ? { from: 'bottom', offsetMm: r.from === 'middle' ? String(DEFAULT_CLOTHES_RAIL_FROM_TOP_MM) : r.offsetMm }
+                              ? {
+                                  from: 'bottom' as const,
+                                  offsetMm: r.from === 'middle' ? String(DEFAULT_CLOTHES_RAIL_FROM_TOP_MM) : r.offsetMm,
+                                  ...(r.gapIndex != null ? { gapIndex: r.gapIndex } : {}),
+                                }
                               : r,
                           ),
                         })
@@ -2863,7 +3123,11 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                         patchZone(z.id, {
                           clothesRails: rows.map((r, j) =>
                             j === i
-                              ? { from: 'top', offsetMm: r.from === 'middle' ? String(DEFAULT_CLOTHES_RAIL_FROM_TOP_MM) : r.offsetMm }
+                              ? {
+                                  from: 'top' as const,
+                                  offsetMm: r.from === 'middle' ? String(DEFAULT_CLOTHES_RAIL_FROM_TOP_MM) : r.offsetMm,
+                                  ...(r.gapIndex != null ? { gapIndex: r.gapIndex } : {}),
+                                }
                               : r,
                           ),
                         })
@@ -2877,7 +3141,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                       variant={rail.from === 'middle' ? 'default' : 'outline'}
                       onClick={() =>
                         patchZone(z.id, {
-                          clothesRails: rows.map((r, j) => (j === i ? newMiddleRail() : r)),
+                          clothesRails: rows.map((r, j) => (j === i ? newMiddleRail(r.gapIndex) : r)),
                         })
                       }
                     >
@@ -2907,10 +3171,14 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                     </div>
                   )}
                   <p className="text-xs text-[var(--color-muted-foreground)]">
-                    {`${clothesRailMeasureLabel(
-                      { from: rail.from, offsetMm: mmNum(rail.offsetMm) },
-                      topBoardCaption,
-                    )}${rail.from === 'middle' ? '.' : '. Линията е на 3D изгледа.'}`}
+                    {(() => {
+                      const cap = railOriginCaptions(z, i, topBoardCaption)
+                      return `${clothesRailMeasureLabel(
+                        { from: rail.from, offsetMm: mmNum(rail.offsetMm) },
+                        cap.top,
+                        cap.bottom,
+                      )}${rail.from === 'middle' ? '.' : '. Линията е на 3D изгледа.'}`
+                    })()}
                   </p>
                 </div>
               ))
@@ -2957,10 +3225,23 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
               </Button>
             )}
           </div>
-          {pendingAdd?.kind === 'rail' && (
+          {pendingAdd?.kind === 'rail' && (hasSplit || showCabinetRailParts) && (
             <WherePicker
-              zones={layout.zones}
-              allowFull
+              zones={
+                showCabinetRailParts
+                  ? cabinetRailOpenings.map((o) => ({
+                      id: `rail-gap:${o.index}`,
+                      label: o.label,
+                    }))
+                  : layout.zones.filter((z) => !railSplitZoneIds.has(z.id))
+              }
+              extras={hasSplit ? railGapZoneExtras : undefined}
+              allowFull={hasSplit}
+              hint={
+                railGapZoneExtras.length > 0 || showCabinetRailParts
+                  ? 'Рафтовете и лостът делят отвора. Избери под, над или между тях — „отгоре“ се мери от плоскостта над тази част.'
+                  : undefined
+              }
               onPick={applyPending}
               onCancel={() => setPendingAdd(null)}
             />
@@ -3379,8 +3660,18 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
           <p className="mt-0.5 text-xs text-[var(--color-muted-foreground)]">
             {hasSplit
               ? 'Могат да са на една част или на целия шкаф. Долу на 0, горе фуга 3 мм.'
-              : 'Долу на 0, горе фуга 3 мм, странично 1.5 мм отляво и отдясно.'}
+              : innerDoors
+                ? 'Вътрешна врата: влиза между страниците до долния край на плота. Фуга 3 мм отгоре, 3 мм отляво и 3 мм отдясно.'
+                : 'Външна врата: покрива канта на страниците. Долу на 0, горе фуга 3 мм, странично 1.5 мм отляво и отдясно.'}
           </p>
+          <OverlayInsetPicker
+            inset={innerDoors}
+            onChange={setInnerDoors}
+            overlayLabel="Външна"
+            insetLabel="Вътрешна"
+            overlayHint="Вратата покрива канта на страниците. Фуга 1.5 мм отляво и 1.5 мм отдясно (3 мм общо)."
+            insetHint="Вратата влиза между страниците до долния край на плота, после 3 мм фуга горе. Отстрани 3 мм + 3 мм."
+          />
           <div className="mt-1 flex gap-2">
             <Button
               type="button"
@@ -3444,7 +3735,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                 <div key={z.id} className="mt-2 flex items-center gap-2">
                   <span className="text-xs">
                     {zoneOf(zoneUi, z.id).doorCount === 1 ? '1 врата' : '2 врати'} · {z.label} · фронт{' '}
-                    {formatMm(z.frontHeight)} мм
+                    {formatMm(innerDoors ? z.innerH : z.frontHeight)} мм
                   </span>
                   <Button
                     type="button"
@@ -3464,12 +3755,14 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
               ? 'Без врати — шкафът може да е само с чекмеджета.'
               : doorSizeHint(
                   params.width,
-                  frontH,
+                  doorFrontH,
                   layout,
                   drawerFrontHeights,
                   doorCount,
                   doorSpan,
                   !effectiveExternalDoors,
+                  innerDoors,
+                  params.thickness,
                 )}
           </p>
           {hasDoorsForSource && (
@@ -3506,6 +3799,15 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
           <p className="mt-0.5 text-xs text-[var(--color-muted-foreground)]">
             Отгоре надолу в избраната част, всяко със своя височина.
           </p>
+          <OverlayInsetPicker
+            title="Чела"
+            inset={innerDrawerFronts}
+            onChange={setInnerDrawerFronts}
+            overlayLabel="Външни"
+            insetLabel="Вътрешни"
+            overlayHint="Челото покрива канта на страниците. Фуга 1.5 мм отляво и 1.5 мм отдясно (3 мм общо)."
+            insetHint="Челото влиза между страниците до долния край на плота (или рафта отгоре), после 3 мм фуга горе. Отстрани 3 мм + 3 мм."
+          />
           <div className="mt-2 space-y-2">
             {drawerFrontHeights.map((value, i) => (
               <div key={`full-${i}`} className="flex items-center gap-2">
@@ -3575,7 +3877,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                           drawerFrontHeights: hasDoor
                             ? nextRows
                             : filledDrawerRows(
-                                z.frontHeight,
+                                zoneStackOpeningHeight(z, innerDrawerFronts, innerDoors),
                                 nextRows.length,
                                 false,
                                 z.y0 <= 0.5 ? drawerBottomGap : 0,
@@ -3629,7 +3931,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                     const heights = parseDrawerRows(zoneOf(zoneUi, z.id).drawerFrontHeights)
                     if (heights.length === 0) return null
                     const hasDoor = isSlidingCabinet ? false : doorSpan === 'zones' && zoneOf(zoneUi, z.id).doorCount > 0
-                    return `${z.label}: ${drawerHint(z.frontHeight, hasDoor ? zoneOf(zoneUi, z.id).doorCount : 0, heights, z.y0 <= 0.5 ? drawerBottomGap : 0)}`
+                    return `${z.label}: ${drawerHint(zoneStackOpeningHeight(z, innerDrawerFronts, innerDoors), hasDoor ? zoneOf(zoneUi, z.id).doorCount : 0, heights, z.y0 <= 0.5 ? drawerBottomGap : 0)}`
                   }),
                 ]
                   .filter(Boolean)
@@ -3642,6 +3944,17 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                   drawerBottomGap,
                 )}
           </p>
+          {counts.drawerCount > 0 && (
+            <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
+              {drawerWidthHint(
+                params.width,
+                params.thickness,
+                layout,
+                innerDrawerFronts,
+                !effectiveExternalDoors,
+              )}
+            </p>
+          )}
         </FormSection>
 
         {showCombineFronts && (
@@ -3666,7 +3979,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
             </div>
             <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
               {combineHint(
-                !hasSplit || doorSpan === 'full' ? doorCount : 0,
+                innerDrawerFronts !== innerDoors ? 0 : !hasSplit || doorSpan === 'full' ? doorCount : 0,
                 cutFromOneBoard,
                 adjacentCombine,
               )}
@@ -3747,23 +4060,28 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
               const fit = params as {
                 slideKind: SlideKind
                 slideLength: number
-                drawerFrontHeights: number[]
                 width: number
                 thickness: number
               }
-              return [...new Set(allDrawerFrontHeights(layout))].map((drawerH) => {
-              const box = drawerBoxRails(
-                fit.width,
-                fit.thickness,
-                drawerH,
-                fit.slideLength,
-                isSoftCloseSlide(fit.slideKind),
-              )
-              if (!box) return null
-              const many = counts.drawerCount > 1
+              const boxes = uniqueDrawerBoxes(layout, {
+                width: fit.width,
+                thickness: fit.thickness,
+                slideLength: fit.slideLength,
+                slideKind: fit.slideKind,
+              })
+              const many = boxes.length > 1 || boxes.some((b) => b.count > 1)
+              return boxes.map((view) => {
+              const { box } = view
+              const zone =
+                view.label && view.label !== 'Цял шкаф' && view.label !== 'Шкаф'
+                  ? ` · ${view.label}`
+                  : ''
               return (
-                <p key={drawerH} className="mt-1 text-xs text-[var(--color-muted-foreground)]">
-                  Царги{many ? ` ${drawerH} мм` : ''}: вътрешни {formatMm(box.inner.width)}×{formatMm(box.inner.height)} мм (2 бр.) · външни{' '}
+                <p
+                  key={`${view.frontHeight}-${Math.round(box.drawerOuterW)}-${view.label}`}
+                  className="mt-1 text-xs text-[var(--color-muted-foreground)]"
+                >
+                  Царги{many ? ` ${view.frontHeight} мм` : ''}{zone}: вътрешни {formatMm(box.inner.width)}×{formatMm(box.inner.height)} мм (2 бр.) · външни{' '}
                   {formatMm(box.outer.width)}×{formatMm(box.outer.height)} мм (2 бр.) · кутия {formatMm(box.drawerOuterW)} мм
                   {isSoftCloseSlide(fit.slideKind) ? ' · 5 мм луфт от страна' : ' · 12.5 мм луфт от страна'}
                 </p>
@@ -4159,6 +4477,18 @@ function DoorSourcePicker({
   )
 }
 
+function heightPartCaption(
+  o: { index: number; label: string },
+  openingCount: number,
+  kind: { hasShelf: boolean; hasRail: boolean },
+): string {
+  if (openingCount === 2) {
+    if (kind.hasRail && !kind.hasShelf) return o.index === 0 ? 'под лоста' : 'над лоста'
+    if (kind.hasShelf && !kind.hasRail) return o.index === 0 ? 'под рафта' : 'над рафта'
+  }
+  return o.label
+}
+
 function WherePicker({
   zones,
   extras,
@@ -4206,6 +4536,21 @@ function parsePinGapTarget(target: string): { zoneId: string | null; gapIndex: n
   const m = /^pin-gap:(?:(.+):)?(\d+)$/.exec(target)
   if (!m) return null
   return { zoneId: m[1] ?? null, gapIndex: Number(m[2]) }
+}
+
+function parseRailGapTarget(target: string): { zoneId: string | null; gapIndex: number } | null {
+  const m = /^rail-gap:(?:(.+):)?(\d+)$/.exec(target)
+  if (!m) return null
+  return { zoneId: m[1] ?? null, gapIndex: Number(m[2]) }
+}
+
+function largestOpeningIndex(openings: { start: number; end: number }[]): number | undefined {
+  if (openings.length < 2) return undefined
+  let best = 0
+  for (let i = 1; i < openings.length; i++) {
+    if (openings[i]!.end - openings[i]!.start > openings[best]!.end - openings[best]!.start) best = i
+  }
+  return best
 }
 
 function parseBetweenTarget(target: string): { colIndex: number; pairIndex: number } | null {
@@ -4261,6 +4606,49 @@ function zoneForBetweenPair(
   return rows[pairIndex + 1] ?? rows[pairIndex]
 }
 
+function OverlayInsetPicker({
+  title,
+  inset,
+  onChange,
+  overlayLabel,
+  insetLabel,
+  overlayHint,
+  insetHint,
+}: {
+  title?: string
+  inset: boolean
+  onChange: (value: boolean) => void
+  overlayLabel: string
+  insetLabel: string
+  overlayHint: string
+  insetHint: string
+}) {
+  return (
+    <div className="mt-2">
+      {title ? <p className="text-xs font-medium">{title}</p> : null}
+      <div className="mt-1 flex gap-2">
+        <Button
+          type="button"
+          size="sm"
+          variant={!inset ? 'default' : 'outline'}
+          onClick={() => onChange(false)}
+        >
+          {overlayLabel}
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant={inset ? 'default' : 'outline'}
+          onClick={() => onChange(true)}
+        >
+          {insetLabel}
+        </Button>
+      </div>
+      <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">{inset ? insetHint : overlayHint}</p>
+    </div>
+  )
+}
+
 function doorSizeHint(
   width: number,
   frontH: number,
@@ -4269,33 +4657,78 @@ function doorSizeHint(
   doorCount: 0 | 1 | 2,
   doorSpan: DoorSpan,
   subtractEdge = true,
+  inset = false,
+  thickness = 18,
 ): string {
   const fullDrawers = drawerFrontHeights.map((s) => parseInt(s, 10) || 0).filter((n) => n > 0)
   const edge = subtractEdge ? DOOR_EDGE_BOTH : 0
-  const cutOpts = subtractEdge ? undefined : { subtractEdge: false as const }
+  const cutOpts = {
+    ...(subtractEdge ? {} : { subtractEdge: false as const }),
+    ...(inset ? { inset: true as const } : {}),
+  }
+  const innerW = Math.max(0, width - 2 * thickness)
   const parts: string[] = []
   if (doorSpan === 'full' && (doorCount === 1 || doorCount === 2)) {
     const leftover = remainingFrontHeight(frontH, fullDrawers, true)
     if (leftover <= edge) parts.push('Няма място за врата на целия шкаф.')
     else {
-      const d = doorCutSize(width, frontH, doorCount, cutOpts)
+      const opening = inset ? innerW : width
+      const d = doorCutSize(opening, frontH, doorCount, cutOpts)
       parts.push(
-        `Цял шкаф: ${subtractEdge ? 'рязане' : 'поръчай'} ${formatMm(d.width)} × ${formatMm(leftover - edge)} мм · ${doorCutRuleNote({ withDrawerGaps: fullDrawers.length > 0, subtractEdge })}`,
+        `Цял шкаф: ${subtractEdge ? 'рязане' : 'поръчай'} ${formatMm(d.width)} × ${formatMm(leftover - edge)} мм · ${doorCutRuleNote({ withDrawerGaps: fullDrawers.length > 0, subtractEdge, insetFront: inset })}`,
       )
     }
   }
   for (const z of layout.zones) {
     if (layout.shelves.length === 0 && layout.partitions.length === 0) continue
     if (!(z.doorCount === 1 || z.doorCount === 2)) continue
-    const leftover = remainingFrontHeight(z.frontHeight, z.drawerFrontHeights, true)
+    const openingH = inset ? z.innerH : z.frontHeight
+    const leftover = remainingFrontHeight(openingH, z.drawerFrontHeights, true)
     if (leftover <= edge) {
       parts.push(`${z.label}: няма място за врата.`)
       continue
     }
-    const w = z.frontWidth > 0 ? z.frontWidth : width
-    const d = doorCutSize(w, leftover + DOOR_CLEARANCE_TOP, z.doorCount, cutOpts)
+    const overlayW = z.frontWidth > 0 ? z.frontWidth : width
+    const opening = inset ? (z.innerW > 0 ? z.innerW : innerW) : overlayW
+    const d = doorCutSize(opening, leftover + DOOR_CLEARANCE_TOP, z.doorCount, cutOpts)
     parts.push(
-      `${z.label}: ${subtractEdge ? 'рязане' : 'поръчай'} ${formatMm(d.width)} × ${formatMm(leftover - edge)} мм (отвор ${formatMm(z.frontHeight)} мм, ${doorCutRuleNote({ subtractEdge })})`,
+      `${z.label}: ${subtractEdge ? 'рязане' : 'поръчай'} ${formatMm(d.width)} × ${formatMm(leftover - edge)} мм (отвор ${formatMm(openingH)} мм, ${doorCutRuleNote({ subtractEdge, insetFront: inset })})`,
+    )
+  }
+  return parts.join(' ')
+}
+
+function drawerWidthHint(
+  cabinetWidth: number,
+  thickness: number,
+  layout: InteriorLayout,
+  inset: boolean,
+  subtractEdge: boolean,
+): string {
+  const opts = {
+    inset,
+    ...(subtractEdge ? {} : { subtractEdge: false as const }),
+  }
+  const verb = subtractEdge ? 'рязане' : 'поръчай'
+  const parts: string[] = []
+  if (layout.fullDrawerFrontHeights.length > 0) {
+    const opening = inset ? Math.max(0, cabinetWidth - 2 * thickness) : cabinetWidth
+    const h = layout.fullDrawerFrontHeights[0]
+    const cut = drawerFrontCutSize(opening, h, opts)
+    parts.push(
+      `Цял шкаф: ${verb} ${formatMm(cut.width)} мм широчина (${doorCutRuleNote({ insetFront: inset, subtractEdge })}).`,
+    )
+  }
+  for (const z of layout.zones) {
+    if (z.drawerFrontHeights.length === 0) continue
+    if (layout.shelves.length === 0 && layout.partitions.length === 0 && layout.fullDrawerFrontHeights.length > 0) {
+      continue
+    }
+    const overlayW = z.frontWidth > 0 ? z.frontWidth : cabinetWidth
+    const opening = inset ? (z.innerW > 0 ? z.innerW : Math.max(0, cabinetWidth - 2 * thickness)) : overlayW
+    const cut = drawerFrontCutSize(opening, z.drawerFrontHeights[0], opts)
+    parts.push(
+      `${z.label}: ${verb} ${formatMm(cut.width)} мм широчина.`,
     )
   }
   return parts.join(' ')
@@ -4318,6 +4751,7 @@ function validate(
   layout: InteriorLayout,
   frontH: number,
   clearanceBottom = 0,
+  inset?: { drawers?: boolean; doors?: boolean; innerH?: number },
 ): string | null {
   if (typeId !== 'kitchen-base' && typeId !== 'kitchen-wall' && typeId !== 'nightstand' && typeId !== 'section' && typeId !== 'wardrobe') return null
   if (p.width <= p.thickness * 2) return 'Ширината трябва да е по-голяма от двете страници.'
@@ -4331,13 +4765,19 @@ function validate(
   }
   const sliding = p.doorStyle === 'sliding' || typeId === 'wardrobe'
   const hingedDoors = sliding ? 0 : p.doorCount
-  const zoneErr = validateZoneFronts(layout, frontH, clearanceBottom)
+  const zoneErr = validateZoneFronts(layout, frontH, clearanceBottom, inset)
   if (zoneErr) return zoneErr
   if (layout.shelves.length === 0 && layout.partitions.length === 0) {
-    const leftover = remainingFrontHeight(frontH, p.drawerFrontHeights, hingedDoors > 0, clearanceBottom)
+    const opening = frontStackOpeningHeight(frontH, inset?.innerH ?? frontH, {
+      insetDrawers: inset?.drawers,
+      insetDoors: inset?.doors,
+      hasDrawers: p.drawerFrontHeights.length > 0,
+      hasDoors: hingedDoors > 0,
+    })
+    const leftover = remainingFrontHeight(opening, p.drawerFrontHeights, hingedDoors > 0, clearanceBottom)
     if (leftover < 0) {
       return clearanceBottom > 0
-        ? `Челата на чекмеджетата не събират във височината (фуга ${DOOR_CLEARANCE_TOP} мм отгоре, ${clearanceBottom} мм отдолу заради лайсната и ${DRAWER_DOOR_GAP} мм между тях).`
+        ? `Челата на чекмеджетата не събират във височината (фуга ${DOOR_CLEARANCE_TOP} мм отгоре, ${clearanceBottom} мм от дъното заради релсата и ${DRAWER_DOOR_GAP} мм между тях).`
         : `Челата на чекмеджетата не събират във височината на корпуса (фуга ${DOOR_CLEARANCE_TOP} мм отгоре и ${DRAWER_DOOR_GAP} мм между тях).`
     }
     if (hingedDoors > 0 && leftover < 80) return 'Останалата височина за вратата е твърде малка.'
@@ -4357,7 +4797,7 @@ function drawerHint(
   const leftover = remainingFrontHeight(frontHeight, drawerFrontHeights, doorCount > 0, clearanceBottom)
   const bottomNote =
     clearanceBottom > 0
-      ? `${clearanceBottom} мм отдолу (${SLIDING_BOTTOM_TRACK_MM} мм лайсна + ${clearanceBottom - SLIDING_BOTTOM_TRACK_MM} мм да не търкат)`
+      ? `${clearanceBottom} мм от дъното заради долната релса (челото почва оттам, без още 3 мм фуга)`
       : null
   if (doorCount > 0) {
     return leftover > 0

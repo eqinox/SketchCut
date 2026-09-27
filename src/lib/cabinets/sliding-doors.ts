@@ -31,10 +31,12 @@ export const SLIDING_DOOR_OVERLAP_MM = 10
 /** Lower rail height (two channels). */
 export const SLIDING_BOTTOM_TRACK_MM = SLIDING_LOWER_TRACK_HEIGHT_MM
 export { SLIDING_LOWER_TRACK_DEPTH_MM, SLIDING_LOWER_TRACK_INSET_MM, SLIDING_UPPER_TRACK_DEPTH_MM, SLIDING_UPPER_TRACK_HEIGHT_MM }
-/** Extra gap so drawer fronts do not rub the bottom track. */
-export const SLIDING_DRAWER_CLEARANCE_MM = 10
-/** Lowest drawer front sits this far above the inner floor when there are sliding doors. */
-export const SLIDING_DRAWER_FROM_BOTTOM_MM = SLIDING_BOTTOM_TRACK_MM + SLIDING_DRAWER_CLEARANCE_MM
+/**
+ * Lowest drawer front sits this far above the inner floor when drawers start
+ * from the bottom of a sliding wardrobe. Advance over the 4 mm lower track —
+ * the front starts here as if it were 0, with no extra 3 mm bottom фуга.
+ */
+export const SLIDING_DRAWER_FROM_BOTTOM_MM = 20
 /** Vertical handle profile D1L, mm added after the cut. */
 export const SLIDING_HANDLE_PROFILE_MM = 20
 /** D2 aluminium cap does not add width — it sits on the 18 mm board edge. */
@@ -240,7 +242,7 @@ export function appendSlidingDoors(
     `Вратите се препокриват с ${SLIDING_DOOR_OVERLAP_MM} мм. Кант дръжка D1L добавя ${SLIDING_HANDLE_PROFILE_MM} мм към широчината; профил D2 не добавя. Рязането е без вертикалните профили и без 2 мм кант горе и долу.`,
   )
   notes.push(
-    `Чекмеджета отдолу започват на ${SLIDING_DRAWER_FROM_BOTTOM_MM} мм от дъното (${SLIDING_BOTTOM_TRACK_MM} мм релса + ${SLIDING_DRAWER_CLEARANCE_MM} мм да не търкат).`,
+    `Чекмеджета отдолу започват на ${SLIDING_DRAWER_FROM_BOTTOM_MM} мм от дъното — аванс над долната релса. Челото сяда там, без още 3 мм фуга отдолу.`,
   )
   if (bought) {
     notes.push('Плъзгащите врати са външни: поръчват се по габарит, не влизат в разкроя и не се кантират при нас.')

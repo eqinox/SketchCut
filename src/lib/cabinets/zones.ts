@@ -2,12 +2,15 @@ import {
   DOOR_CLEARANCE_TOP,
   DRAWER_DOOR_GAP,
   MAX_SHELVES,
+  drawerBoxRails,
   parseDoorCount,
   parseDrawerFrontHeights,
   parseShelfCount,
   remainingFrontHeight,
   type DoorCount,
+  type DrawerBoxRails,
 } from './materials'
+import { isSoftCloseSlide, type SlideKind } from './hardware'
 import { exactMm, formatMm, parseMm } from '../utils'
 
 function parseOffsetMm(raw: unknown): number | null {
@@ -80,8 +83,8 @@ export interface MovableShelfSpec {
   fromFace: PanelFace
   toFace: PanelFace
   /**
-   * When `from` is `middle`, which remaining opening (0 = lowest).
-   * An exact-distance pin shelf splits the height; each opening can have its own middle shelves.
+   * Remaining opening (0 = lowest) around exact-distance pin shelves and clothes rails.
+   * Exact-distance shelves without `gapIndex` still measure from the whole compartment.
    */
   gapIndex?: number
 }
@@ -97,8 +100,18 @@ export interface ResolvedMovableShelf extends MovableShelfSpec {
 export const DEFAULT_CLOTHES_RAIL_FROM_TOP_MM = 48
 /** Drawn rod section, mm. */
 export const CLOTHES_RAIL_SECTION_MM = 22
+/** Min air from the top of the rod to the bottom face of a shelf above it. */
+export const MIN_CLOTHES_RAIL_TO_SHELF_MM = 50
 /** Cap per compartment (and per unsplit cabinet). */
 export const MAX_CLOTHES_RAILS = 4
+
+/** Rod plus the 50 mm keep-out above it — so pin shelves can sit in the leftover. */
+export function clothesRailShelfKeepout(yTop: number): { yBottom: number; yTop: number } {
+  return {
+    yBottom: yTop - CLOTHES_RAIL_SECTION_MM,
+    yTop: yTop + MIN_CLOTHES_RAIL_TO_SHELF_MM,
+  }
+}
 
 export type ClothesRailFrom = 'top' | 'bottom' | 'middle'
 
@@ -106,11 +119,20 @@ export interface ClothesRailSpec {
   from: ClothesRailFrom
   /** From top/bottom of the opening to the top of the rod. Ignored when `from` is `middle`. */
   offsetMm: number
+  /**
+   * Remaining opening around pin shelves (0 = lowest). Omitted: the largest
+   * leftover span — usually the hanging space under the shelves.
+   */
+  gapIndex?: number
 }
 
 export interface ResolvedClothesRail extends ClothesRailSpec {
   /** Inner-floor → top of the rod. */
   yTop: number
+  /** Inner-floor → bottom of the opening this rod sits in. */
+  openingY0: number
+  /** Inner-floor → top of the opening this rod sits in. */
+  openingY1: number
 }
 
 export function defaultClothesRail(): ClothesRailSpec {
@@ -125,12 +147,15 @@ export function parseClothesRails(raw: unknown, hasClothesRail?: boolean): Cloth
       const src = item as Record<string, unknown>
       const from: ClothesRailFrom =
         src.from === 'bottom' || src.from === 'middle' ? src.from : 'top'
+      const gapRaw = src.gapIndex
+      const gapN = typeof gapRaw === 'number' ? gapRaw : Number.parseInt(String(gapRaw ?? ''), 10)
+      const gapIndex = Number.isFinite(gapN) && gapN >= 0 ? Math.round(gapN) : undefined
       if (from === 'middle') {
-        out.push({ from: 'middle', offsetMm: 0 })
+        out.push({ from: 'middle', offsetMm: 0, ...(gapIndex != null ? { gapIndex } : {}) })
       } else {
         const n = parseOffsetMm(src.offsetMm)
         if (n == null) continue
-        out.push({ from, offsetMm: n })
+        out.push({ from, offsetMm: n, ...(gapIndex != null ? { gapIndex } : {}) })
       }
       if (out.length >= MAX_CLOTHES_RAILS) break
     }
@@ -139,23 +164,65 @@ export function parseClothesRails(raw: unknown, hasClothesRail?: boolean): Cloth
   return hasClothesRail ? [defaultClothesRail()] : []
 }
 
+function largestSpanIndex(gaps: { start: number; end: number }[]): number {
+  let best = 0
+  for (let i = 1; i < gaps.length; i++) {
+    if (gaps[i]!.end - gaps[i]!.start > gaps[best]!.end - gaps[best]!.start) best = i
+  }
+  return best
+}
+
 export function resolveClothesRails(
   specs: ClothesRailSpec[],
   zoneY0: number,
   zoneY1: number,
+  occupied?: { yBottom: number; yTop: number }[],
 ): ResolvedClothesRail[] {
   const innerH = zoneY1 - zoneY0
   const rod = CLOTHES_RAIL_SECTION_MM
+  const gaps = remainingOpenings(innerH, occupied ?? [])
+  if (gaps.length === 0) gaps.push({ start: 0, end: innerH })
+  const defaultGi = largestSpanIndex(gaps)
   return specs.map((s) => {
-    let yTop =
+    const gi =
+      typeof s.gapIndex === 'number' && Number.isFinite(s.gapIndex)
+        ? Math.min(gaps.length - 1, Math.max(0, Math.round(s.gapIndex)))
+        : defaultGi
+    const gap = gaps[gi] ?? { start: 0, end: innerH }
+    const span = gap.end - gap.start
+    let yTopLocal =
       s.from === 'middle'
-        ? zoneY0 + (innerH - rod) / 2
+        ? gap.start + (span - rod) / 2
         : s.from === 'bottom'
-          ? zoneY0 + s.offsetMm
-          : zoneY1 - s.offsetMm
-    yTop = Math.min(zoneY1 - rod, Math.max(zoneY0, yTop))
-    return { ...s, yTop }
+          ? gap.start + s.offsetMm
+          : gap.end - s.offsetMm
+    yTopLocal = Math.min(gap.end - rod, Math.max(gap.start, yTopLocal))
+    return {
+      ...s,
+      gapIndex: gi,
+      yTop: zoneY0 + yTopLocal,
+      openingY0: zoneY0 + gap.start,
+      openingY1: zoneY0 + gap.end,
+    }
   })
+}
+
+/** Keep-out bands so pin shelves sit at least 50 mm above a rod. */
+function railKeepoutsForShelves(
+  railSpecs: ClothesRailSpec[],
+  zoneY0: number,
+  zoneY1: number,
+  innerH: number,
+  thickness: number,
+  movableSpecs: MovableShelfSpec[],
+): { yBottom: number; yTop: number }[] {
+  const free = movableSpecs
+    .filter((s) => s.from !== 'middle' && s.gapIndex == null)
+    .slice(0, MAX_SHELVES)
+    .map((s) => resolveAnchoredMovable(s, innerH, thickness))
+  return resolveClothesRails(railSpecs, zoneY0, zoneY1, free).map((r) =>
+    clothesRailShelfKeepout(r.yTop - zoneY0),
+  )
 }
 
 export function clothesRailMeasureLabel(
@@ -334,6 +401,44 @@ function evenBottomsInSpan(spanStart: number, spanEnd: number, count: number, th
   return Array.from({ length: count }, (_, i) => spanStart + gap * (i + 1) + thickness * i)
 }
 
+/** Equal clearance for pin shelves placed in the middle of remaining openings. */
+export function middleShelfClearances(
+  specs: MovableShelfSpec[],
+  innerH: number,
+  thickness: number,
+  bounds?: { closedBottom?: boolean; closedTop?: boolean },
+  occupied?: { yBottom: number; yTop: number }[],
+): { gapIndex: number; count: number; gapMm: number }[] {
+  const T = thickness
+  const extra = occupied ?? []
+  const list = specs.slice(0, MAX_SHELVES)
+  const anchored = list.filter((s) => s.from !== 'middle').map((s) => resolveAnchoredMovable(s, innerH, T))
+  const useRails = extra.length > 0 && list.some((s) => s.from === 'middle' && s.gapIndex != null)
+  const gaps = remainingOpenings(innerH, useRails ? [...anchored, ...extra] : anchored)
+  if (gaps.length === 0) gaps.push({ start: 0, end: innerH })
+  const picked = pickOpening(gaps, innerH, bounds)
+  const defaultGi = Math.max(
+    0,
+    gaps.findIndex((g) => g.start === picked.start && g.end === picked.end),
+  )
+  const counts = gaps.map(() => 0)
+  for (const s of list) {
+    if (s.from !== 'middle') continue
+    const gi =
+      typeof s.gapIndex === 'number' && Number.isFinite(s.gapIndex)
+        ? Math.min(gaps.length - 1, Math.max(0, Math.round(s.gapIndex)))
+        : defaultGi
+    counts[gi] += 1
+  }
+  return gaps
+    .map((g, i) => ({
+      gapIndex: i,
+      count: counts[i],
+      gapMm: counts[i] < 1 ? 0 : (g.end - g.start - counts[i] * T) / (counts[i] + 1),
+    }))
+    .filter((x) => x.count > 0)
+}
+
 function resolveAnchoredMovable(
   spec: MovableShelfSpec,
   innerH: number,
@@ -353,14 +458,41 @@ function resolveAnchoredMovable(
   }
 }
 
+function resolveAnchoredInSpan(
+  spec: MovableShelfSpec,
+  spanStart: number,
+  spanEnd: number,
+  thickness: number,
+  gapIndex: number,
+): ResolvedMovableShelf {
+  const T = thickness
+  const span = Math.max(T, spanEnd - spanStart)
+  const from: FixedShelfFrom = spec.from === 'top' ? 'top' : 'bottom'
+  const m = measureFixedShelf({ ...spec, from, columnIndex: null }, span, T)
+  const yBottom = Math.min(spanEnd - T, Math.max(spanStart, spanStart + m.yBottom))
+  return {
+    from,
+    offsetMm: spec.offsetMm,
+    fromFace: m.fromFace,
+    toFace: m.toFace,
+    gapIndex,
+    yBottom,
+    yTop: yBottom + T,
+    startY: spanStart + m.startY,
+    endY: spanStart + m.endY,
+  }
+}
+
 export function resolveMovableShelves(
   specs: MovableShelfSpec[],
   innerH: number,
   thickness: number,
   fallbackCount = 0,
   bounds?: { closedBottom?: boolean; closedTop?: boolean },
+  occupied?: { yBottom: number; yTop: number }[],
 ): ResolvedMovableShelf[] {
   const T = thickness
+  const extra = occupied ?? []
   if (specs.length === 0) {
     const n = Math.min(MAX_SHELVES, Math.max(0, Math.floor(fallbackCount)))
     if (n < 1) return []
@@ -380,31 +512,70 @@ export function resolveMovableShelves(
     })
   }
   const list = specs.slice(0, MAX_SHELVES)
-  const anchored = list.filter((s) => s.from !== 'middle').map((s) => resolveAnchoredMovable(s, innerH, T))
-  const gaps = remainingOpenings(innerH, anchored)
-  if (gaps.length === 0) gaps.push({ start: 0, end: innerH })
-  const picked = pickOpening(gaps, innerH, bounds)
-  const defaultGi = Math.max(
+  const clampGi = (gi: number, n: number) => Math.min(n - 1, Math.max(0, Math.round(gi)))
+
+  const freeResolved = list.map((s) => {
+    if (s.from === 'middle' || s.gapIndex != null) return undefined
+    return resolveAnchoredMovable(s, innerH, T)
+  })
+  const freeBlocks = freeResolved.filter((s): s is ResolvedMovableShelf => s != null)
+  const gapsForAnchored = remainingOpenings(innerH, [...freeBlocks, ...extra])
+  if (gapsForAnchored.length === 0) gapsForAnchored.push({ start: 0, end: innerH })
+
+  const anchoredResolved = list.map((s, i) => {
+    if (s.from === 'middle') return undefined
+    if (s.gapIndex == null) return freeResolved[i]
+    const gi = clampGi(s.gapIndex, gapsForAnchored.length)
+    const gap = gapsForAnchored[gi] ?? { start: 0, end: innerH }
+    return resolveAnchoredInSpan(s, gap.start, gap.end, T, gi)
+  })
+  const allAnchored = anchoredResolved.filter((s): s is ResolvedMovableShelf => s != null)
+
+  const gapsLegacy = remainingOpenings(innerH, allAnchored)
+  const gapsIndexed = remainingOpenings(innerH, [...allAnchored, ...extra])
+  if (gapsLegacy.length === 0) gapsLegacy.push({ start: 0, end: innerH })
+  if (gapsIndexed.length === 0) gapsIndexed.push({ start: 0, end: innerH })
+  const pickedLegacy = pickOpening(gapsLegacy, innerH, bounds)
+  const defaultLegacy = Math.max(
     0,
-    gaps.findIndex((g) => g.start === picked.start && g.end === picked.end),
+    gapsLegacy.findIndex((g) => g.start === pickedLegacy.start && g.end === pickedLegacy.end),
   )
+  const pickedIndexed = pickOpening(gapsIndexed, innerH, bounds)
+  const defaultIndexed = Math.max(
+    0,
+    gapsIndexed.findIndex((g) => g.start === pickedIndexed.start && g.end === pickedIndexed.end),
+  )
+
   const gapIndexOf = (s: MovableShelfSpec) => {
+    const indexed = s.gapIndex != null
+    const gaps = indexed ? gapsIndexed : gapsLegacy
     if (typeof s.gapIndex === 'number' && Number.isFinite(s.gapIndex)) {
-      return Math.min(gaps.length - 1, Math.max(0, Math.round(s.gapIndex)))
+      return clampGi(s.gapIndex, gaps.length)
     }
-    return defaultGi
+    return indexed ? defaultIndexed : defaultLegacy
   }
-  const middleCounts = gaps.map(() => 0)
+
+  const middleCountsLegacy = gapsLegacy.map(() => 0)
+  const middleCountsIndexed = gapsIndexed.map(() => 0)
   for (const s of list) {
-    if (s.from === 'middle') middleCounts[gapIndexOf(s)] += 1
+    if (s.from !== 'middle') continue
+    if (s.gapIndex != null) middleCountsIndexed[gapIndexOf(s)] += 1
+    else middleCountsLegacy[gapIndexOf(s)] += 1
   }
-  const bottomsByGap = gaps.map((g, i) => evenBottomsInSpan(g.start, g.end, middleCounts[i], T))
-  const cursor = gaps.map(() => 0)
-  return list.map((s) => {
-    if (s.from !== 'middle') return resolveAnchoredMovable(s, innerH, T)
+  const bottomsLegacy = gapsLegacy.map((g, i) => evenBottomsInSpan(g.start, g.end, middleCountsLegacy[i], T))
+  const bottomsIndexed = gapsIndexed.map((g, i) => evenBottomsInSpan(g.start, g.end, middleCountsIndexed[i], T))
+  const cursorLegacy = gapsLegacy.map(() => 0)
+  const cursorIndexed = gapsIndexed.map(() => 0)
+
+  return list.map((s, i) => {
+    if (s.from !== 'middle') return anchoredResolved[i]!
+    const indexed = s.gapIndex != null
+    const gaps = indexed ? gapsIndexed : gapsLegacy
     const gi = gapIndexOf(s)
-    const gap = gaps[gi] ?? picked
-    const yBottom = bottomsByGap[gi]?.[cursor[gi]] ?? gap.start
+    const gap = gaps[gi] ?? (indexed ? pickedIndexed : pickedLegacy)
+    const bottoms = indexed ? bottomsIndexed : bottomsLegacy
+    const cursor = indexed ? cursorIndexed : cursorLegacy
+    const yBottom = bottoms[gi]?.[cursor[gi]] ?? gap.start
     cursor[gi] += 1
     return {
       from: 'middle' as const,
@@ -436,13 +607,72 @@ export function pinShelfOpenings(
   specs: MovableShelfSpec[],
   innerH: number,
   thickness: number,
+  extraOccupied?: { yBottom: number; yTop: number }[],
 ): { index: number; start: number; end: number; label: string }[] {
   const T = thickness
   const anchored = specs
-    .filter((s) => s.from !== 'middle')
+    .filter((s) => s.from !== 'middle' && s.gapIndex == null)
     .slice(0, MAX_SHELVES)
     .map((s) => resolveAnchoredMovable(s, innerH, T))
-  const gaps = remainingOpenings(innerH, anchored)
+  return heightOpenings(innerH, [...anchored, ...(extraOccupied ?? [])])
+}
+
+export function heightOpenings(
+  innerH: number,
+  occupied: { yBottom: number; yTop: number }[],
+): { index: number; start: number; end: number; label: string }[] {
+  const gaps = remainingOpenings(innerH, occupied)
+  if (gaps.length === 0) gaps.push({ start: 0, end: innerH })
+  return gaps.map((g, i) => ({
+    index: i,
+    start: g.start,
+    end: g.end,
+    label: openingPartLabel(i, gaps.length),
+  }))
+}
+
+export function placeableHeightOpenings(
+  openings: { index: number; start: number; end: number; label: string }[],
+  minSpan: number,
+): { index: number; start: number; end: number; label: string }[] {
+  return openings.filter((o) => o.end - o.start >= minSpan)
+}
+
+/** Openings a pin shelf can sit in — exact-distance shelves and clothes-rail keep-outs. */
+export function zoneHeightOpenings(z: {
+  innerH: number
+  y0: number
+  movable: { from: string; yBottom: number; yTop: number }[]
+  rails: { yTop: number }[]
+}): { index: number; start: number; end: number; label: string }[] {
+  const occupied = [
+    ...z.movable
+      .filter((s) => s.from !== 'middle')
+      .map((s) => ({ yBottom: s.yBottom, yTop: s.yTop })),
+    ...z.rails.map((r) => clothesRailShelfKeepout(r.yTop - z.y0)),
+  ]
+  return heightOpenings(z.innerH, occupied)
+}
+
+export function zoneHeightSplitKind(z: {
+  movable: { from: string }[]
+  rails: unknown[]
+}): { hasShelf: boolean; hasRail: boolean } {
+  return {
+    hasShelf: z.movable.some((s) => s.from !== 'middle'),
+    hasRail: z.rails.length > 0,
+  }
+}
+
+/** Clear openings around every pin shelf (including middle) — for a clothes rail. */
+export function remainingShelfOpenings(
+  specs: MovableShelfSpec[],
+  innerH: number,
+  thickness: number,
+  fallbackCount = 0,
+): { index: number; start: number; end: number; label: string }[] {
+  const occupied = resolveMovableShelves(specs, innerH, thickness, fallbackCount)
+  const gaps = remainingOpenings(innerH, occupied)
   if (gaps.length === 0) gaps.push({ start: 0, end: innerH })
   return gaps.map((g, i) => ({
     index: i,
@@ -485,11 +715,14 @@ export function parseMovableShelves(raw: unknown): MovableShelfSpec[] {
     const n = parseOffsetMm(src.offsetMm)
     if (n == null) continue
     const faces = defaultShelfFaces(from)
+    const gapRaw = src.gapIndex
+    const gapN = typeof gapRaw === 'number' ? gapRaw : Number.parseInt(String(gapRaw ?? ''), 10)
     out.push({
       from,
       offsetMm: n,
       fromFace: parseFace(src.fromFace, faces.fromFace),
       toFace: parseFace(src.toFace, faces.toFace),
+      ...(Number.isFinite(gapN) && gapN >= 0 ? { gapIndex: Math.round(gapN) } : {}),
     })
     if (out.length >= MAX_SHELVES) break
   }
@@ -1373,6 +1606,18 @@ export function layoutInterior(input: {
     if (!zoned) {
       const movableShelves = input.movableShelves ?? []
       const shelfCount = movableShelves.length > 0 ? movableShelves.length : input.shelfCount
+      const keepout = railKeepoutsForShelves(cabinetRails, z.y0, z.y1, z.innerH, T, movableShelves)
+      const movable = resolveMovableShelves(
+        movableShelves,
+        z.innerH,
+        T,
+        shelfCount,
+        {
+          closedBottom: !z.isFirst,
+          closedTop: !z.isLast,
+        },
+        keepout,
+      )
       return {
         ...z,
         shelfCount,
@@ -1382,17 +1627,26 @@ export function layoutInterior(input: {
         cutFromOneBoard: input.cutFromOneBoard,
         clothesRails: cabinetRails,
         hasClothesRail: cabinetRails.length > 0,
-        movable: resolveMovableShelves(movableShelves, z.innerH, T, shelfCount, {
-          closedBottom: !z.isFirst,
-          closedTop: !z.isLast,
-        }),
-        rails: resolveClothesRails(cabinetRails, z.y0, z.y1),
+        movable,
+        rails: resolveClothesRails(cabinetRails, z.y0, z.y1, movable),
       }
     }
     const f = zoneFittingsOf(input.zones, z.id)
     const shelfCount = shelfCountFromFittings(f)
     const movableShelves = f.movableShelves ?? []
     const clothesRails = parseClothesRails(f.clothesRails, f.hasClothesRail)
+    const keepout = railKeepoutsForShelves(clothesRails, z.y0, z.y1, z.innerH, T, movableShelves)
+    const movable = resolveMovableShelves(
+      movableShelves,
+      z.innerH,
+      T,
+      shelfCount,
+      {
+        closedBottom: !z.isFirst,
+        closedTop: !z.isLast,
+      },
+      keepout,
+    )
     return {
       ...z,
       ...f,
@@ -1401,11 +1655,8 @@ export function layoutInterior(input: {
       clothesRails,
       hasClothesRail: clothesRails.length > 0,
       doorCount: doorSpan === 'zones' ? f.doorCount : 0,
-      movable: resolveMovableShelves(movableShelves, z.innerH, T, shelfCount, {
-        closedBottom: !z.isFirst,
-        closedTop: !z.isLast,
-      }),
-      rails: resolveClothesRails(clothesRails, z.y0, z.y1),
+      movable,
+      rails: resolveClothesRails(clothesRails, z.y0, z.y1, movable),
     }
   })
   joinAdjacentZoneFronts(zones)
@@ -1455,6 +1706,64 @@ export function allDrawerFrontHeights(layout: InteriorLayout): number[] {
   return [...layout.fullDrawerFrontHeights, ...layout.zones.flatMap((z) => z.drawerFrontHeights)]
 }
 
+/** Each drawer stack with the carcass opening it sits in (full cabinet or one column). */
+export function drawerOpenings(
+  layout: InteriorLayout,
+  cabinetWidth: number,
+  thickness: number,
+): { frontHeight: number; innerCarcassW: number; label: string }[] {
+  const fullInner = cabinetWidth - 2 * thickness
+  const out: { frontHeight: number; innerCarcassW: number; label: string }[] = []
+  for (const frontHeight of layout.fullDrawerFrontHeights) {
+    out.push({ frontHeight, innerCarcassW: fullInner, label: 'Цял шкаф' })
+  }
+  for (const zone of layout.zones) {
+    const innerCarcassW = zone.innerW > 0 ? zone.innerW : fullInner
+    for (const frontHeight of zone.drawerFrontHeights) {
+      out.push({ frontHeight, innerCarcassW, label: zone.label })
+    }
+  }
+  return out
+}
+
+export function uniqueDrawerBoxes(
+  layout: InteriorLayout,
+  opts: { width: number; thickness: number; slideLength: number; slideKind: SlideKind },
+): { frontHeight: number; box: DrawerBoxRails; count: number; label: string }[] {
+  const soft = isSoftCloseSlide(opts.slideKind)
+  const byKey = new Map<string, { frontHeight: number; box: DrawerBoxRails; count: number; labels: string[] }>()
+  for (const opening of drawerOpenings(layout, opts.width, opts.thickness)) {
+    const box = drawerBoxRails(
+      opts.width,
+      opts.thickness,
+      opening.frontHeight,
+      opts.slideLength,
+      soft,
+      opening.innerCarcassW,
+    )
+    if (!box) continue
+    const key = `${opening.frontHeight}:${Math.round(box.drawerOuterW * 10)}`
+    const existing = byKey.get(key)
+    if (existing) {
+      existing.count += 1
+      if (!existing.labels.includes(opening.label)) existing.labels.push(opening.label)
+      continue
+    }
+    byKey.set(key, {
+      frontHeight: opening.frontHeight,
+      box,
+      count: 1,
+      labels: [opening.label],
+    })
+  }
+  return [...byKey.values()].map((v) => ({
+    frontHeight: v.frontHeight,
+    box: v.box,
+    count: v.count,
+    label: v.labels.length === 1 ? v.labels[0]! : v.labels.join(', '),
+  }))
+}
+
 export function zoneFrontBox(
   zone: ResolvedZone,
   opts: { innerFloorY: number; carcassTopY: number; carcassBotY: number; thickness: number },
@@ -1464,6 +1773,49 @@ export function zoneFrontBox(
   }
   const y = opts.innerFloorY - zone.frontY1
   return { y, h: Math.max(1, zone.frontHeight) }
+}
+
+/**
+ * Inner door / drawer opening: underside of the board above to the top of the
+ * board below. Does not cover the front edge of the top, bottom, or a shelf.
+ */
+export function zoneInsetFrontBox(
+  zone: ResolvedZone,
+  opts: { innerFloorY: number; innerTopY: number; innerBotY: number },
+): { y: number; h: number } {
+  if (zone.isFirst && zone.isLast) {
+    return { y: opts.innerTopY, h: Math.max(1, opts.innerBotY - opts.innerTopY) }
+  }
+  return { y: opts.innerFloorY - zone.y1, h: Math.max(1, zone.innerH) }
+}
+
+/** Overlay opening, or the inner cavity when the fronts sit between the sides. */
+export function frontStackOpeningHeight(
+  overlayHeight: number,
+  innerHeight: number,
+  opts: {
+    insetDrawers?: boolean
+    insetDoors?: boolean
+    hasDrawers: boolean
+    hasDoors: boolean
+  },
+): number {
+  const drawersInset = opts.hasDrawers ? opts.insetDrawers === true : true
+  const doorsInset = opts.hasDoors ? opts.insetDoors === true : true
+  return drawersInset && doorsInset ? innerHeight : overlayHeight
+}
+
+export function zoneStackOpeningHeight(
+  z: { frontHeight: number; innerH: number; drawerFrontHeights: number[]; doorCount: DoorCount },
+  insetDrawers: boolean,
+  insetDoors: boolean,
+): number {
+  return frontStackOpeningHeight(z.frontHeight, z.innerH, {
+    insetDrawers,
+    insetDoors,
+    hasDrawers: z.drawerFrontHeights.some((h) => h > 0),
+    hasDoors: z.doorCount === 1 || z.doorCount === 2,
+  })
 }
 
 export interface StackedFront {
@@ -1514,11 +1866,15 @@ export function validateZoneFronts(
   layout: InteriorLayout,
   carcassFrontHeight: number,
   clearanceBottom = 0,
+  inset?: { drawers?: boolean; doors?: boolean; innerH?: number },
 ): string | null {
   if (layout.error) return layout.error
+  const insetDrawers = inset?.drawers === true
+  const insetDoors = inset?.doors === true
   for (const z of layout.zones) {
     const bottom = z.y0 <= 0.5 ? clearanceBottom : 0
-    const leftover = remainingFrontHeight(z.frontHeight, z.drawerFrontHeights, z.doorCount > 0, bottom)
+    const opening = zoneStackOpeningHeight(z, insetDrawers, insetDoors)
+    const leftover = remainingFrontHeight(opening, z.drawerFrontHeights, z.doorCount > 0, bottom)
     if (leftover < 0) {
       return `${z.label}: челата не събират във височината.`
     }
@@ -1527,8 +1883,14 @@ export function validateZoneFronts(
     }
   }
   if (layout.fullDoorCount > 0 || layout.fullDrawerFrontHeights.length > 0) {
+    const opening = frontStackOpeningHeight(carcassFrontHeight, inset?.innerH ?? carcassFrontHeight, {
+      insetDrawers,
+      insetDoors,
+      hasDrawers: layout.fullDrawerFrontHeights.length > 0,
+      hasDoors: layout.fullDoorCount > 0,
+    })
     const leftover = remainingFrontHeight(
-      carcassFrontHeight,
+      opening,
       layout.fullDrawerFrontHeights,
       layout.fullDoorCount > 0,
       clearanceBottom,

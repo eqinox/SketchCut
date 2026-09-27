@@ -17,10 +17,14 @@ import {
   drawerBoxRails,
   isSoftCloseSlide,
   DOOR_GAP_X,
+  DRAWER_DOOR_GAP,
+  INNER_DRAWER_GAP_X,
+  INNER_DRAWER_SIDE_GAP_EACH,
   layoutInterior,
   layoutCounts,
-  allDrawerFrontHeights,
+  uniqueDrawerBoxes,
   zoneFrontBox,
+  zoneInsetFrontBox,
   stackFronts,
   shelvesForColumn,
   layoutSlidingDoors,
@@ -88,13 +92,23 @@ function scaledDimFont(base: number, scale: number) {
 
 function drawerSlideStacks(
   layout: InteriorLayout,
-  opts: { innerFloorY: number; carcassTopY: number; carcassBotY: number; thickness: number },
+  opts: {
+    innerFloorY: number
+    carcassTopY: number
+    carcassBotY: number
+    thickness: number
+    innerTopY?: number
+    innerBotY?: number
+    inset?: boolean
+  },
 ): {
   id: string
   heights: number[]
   box: { y: number; h: number }
   doorCount: 0 | 1 | 2
 }[] {
+  const innerTopY = opts.innerTopY ?? opts.carcassTopY
+  const innerBotY = opts.innerBotY ?? opts.carcassBotY
   const sources: {
     id: string
     heights: number[]
@@ -105,7 +119,9 @@ function drawerSlideStacks(
     sources.push({
       id: 'full',
       heights: layout.fullDrawerFrontHeights,
-      box: { y: opts.carcassTopY, h: Math.max(1, opts.carcassBotY - opts.carcassTopY) },
+      box: opts.inset
+        ? { y: innerTopY, h: Math.max(1, innerBotY - innerTopY) }
+        : { y: opts.carcassTopY, h: Math.max(1, opts.carcassBotY - opts.carcassTopY) },
       doorCount: layout.fullDoorCount,
     })
   }
@@ -114,7 +130,9 @@ function drawerSlideStacks(
     sources.push({
       id: zone.id,
       heights: zone.drawerFrontHeights,
-      box: zoneFrontBox(zone, opts),
+      box: opts.inset
+        ? zoneInsetFrontBox(zone, { innerFloorY: opts.innerFloorY, innerTopY, innerBotY })
+        : zoneFrontBox(zone, opts),
       doorCount: zone.doorCount,
     })
   }
@@ -126,11 +144,13 @@ function drawerFrontTopY(
   doorCount: 0 | 1 | 2,
   heights: number[],
   index: number,
+  clearanceBottom = 0,
 ): number {
   const row = stackFronts({
     frontHeight: box.h,
     doorCount,
     drawerFrontHeights: heights,
+    clearanceBottom,
   }).find((s) => s.kind === 'drawer' && s.index === index)
   return box.y + (row?.yFromFrontTop ?? 0)
 }
@@ -175,6 +195,10 @@ function DrawerSlidesOnCabinet({
   carcassTopY,
   carcassBotY,
   fontScale = 1,
+  clearanceBottom = 0,
+  innerTopY,
+  innerBotY,
+  insetFronts = false,
 }: {
   layout: InteriorLayout
   T: number
@@ -190,6 +214,10 @@ function DrawerSlidesOnCabinet({
   carcassTopY: number
   carcassBotY: number
   fontScale?: number
+  clearanceBottom?: number
+  innerTopY?: number
+  innerBotY?: number
+  insetFronts?: boolean
 }) {
   return (
     <>
@@ -198,24 +226,30 @@ function DrawerSlidesOnCabinet({
         carcassTopY,
         carcassBotY,
         thickness: T,
+        innerTopY,
+        innerBotY,
+        inset: insetFronts,
       }).flatMap((src) =>
         src.heights.map((frontH, i) => {
+          const zone = src.id === 'full' ? undefined : layout.zones.find((z) => z.id === src.id)
+          const openingW = zone && zone.innerW > 0 ? zone.innerW : width - 2 * thickness
           const rails = drawerBoxRails(
             width,
             thickness,
             frontH,
             slideLength,
             isSoftCloseSlide(slideKind),
+            openingW,
           )
           if (!rails) return null
           const x = drawerSlideWorldX(layout, src.id, T)
-          const zone = src.id === 'full' ? undefined : layout.zones.find((z) => z.id === src.id)
+          const bottomGap = src.id === 'full' || (zone != null && zone.y0 <= 0.5) ? clearanceBottom : 0
           const startZ =
             partitionFrontZ != null && zone != null && zone.x0 > 0.5
               ? partitionFrontZ
               : z0
           const z1 = startZ + slideLength
-          const yBot = drawerFrontTopY(src.box, src.doorCount, src.heights, i) + rails.outer.height
+          const yBot = drawerFrontTopY(src.box, src.doorCount, src.heights, i, bottomGap) + rails.outer.height
           const yTopS = yBot - SLIDE_PROFILE_H
           const a0 = cam.proj(x, yTopS, startZ)
           const a1 = cam.proj(x, yTopS, z1)
@@ -302,7 +336,7 @@ export function CabinetPreview({
     zones: p.zones,
     overlayCovers: p.topStyle === 'rails' ? undefined : { top: false, bottom: true },
   })
-  const drawerViews = uniqueDrawerViews({ ...p, drawerFrontHeights: allDrawerFrontHeights(layout) })
+  const drawerViews = uniqueDrawerViews(p, layout)
 
   return (
     <div className={cn('flex flex-col gap-3', className)}>
@@ -320,16 +354,8 @@ export function CabinetPreview({
       </ViewCard>
       {drawerViews.map((view) => (
         <ViewCard
-          key={view.frontHeight}
-          title={
-            drawerViews.length === 1
-              ? view.count > 1
-                ? `Чекмедже ×${view.count}`
-                : 'Чекмедже'
-              : view.count > 1
-                ? `Чекмедже ${view.frontHeight} мм ×${view.count}`
-                : `Чекмедже ${view.frontHeight} мм`
-          }
+          key={`${view.frontHeight}-${Math.round(view.box.drawerOuterW)}-${view.label}`}
+          title={drawerViewTitle(view, drawerViews.length)}
         >
           <ZoomableView>
             <Drawer3DView p={p} box={view.box} />
@@ -383,25 +409,32 @@ export function CabinetPreview({
   )
 }
 
-function uniqueDrawerViews(p: {
-  width: number
-  thickness: number
-  slideKind: KitchenBaseParams['slideKind']
-  slideLength: number
-  drawerFrontHeights: number[]
-}): { frontHeight: number; box: DrawerBoxRails; count: number }[] {
-  const soft = isSoftCloseSlide(p.slideKind)
-  const byHeight = new Map<number, { box: DrawerBoxRails; count: number }>()
-  for (const frontHeight of p.drawerFrontHeights) {
-    const existing = byHeight.get(frontHeight)
-    if (existing) {
-      existing.count += 1
-      continue
-    }
-    const box = drawerBoxRails(p.width, p.thickness, frontHeight, p.slideLength, soft)
-    if (box) byHeight.set(frontHeight, { box, count: 1 })
-  }
-  return [...byHeight.entries()].map(([frontHeight, v]) => ({ frontHeight, ...v }))
+function uniqueDrawerViews(
+  p: {
+    width: number
+    thickness: number
+    slideKind: KitchenBaseParams['slideKind']
+    slideLength: number
+  },
+  layout: InteriorLayout,
+): { frontHeight: number; box: DrawerBoxRails; count: number; label: string }[] {
+  return uniqueDrawerBoxes(layout, {
+    width: p.width,
+    thickness: p.thickness,
+    slideLength: p.slideLength,
+    slideKind: p.slideKind,
+  })
+}
+
+function drawerViewTitle(
+  view: { frontHeight: number; count: number; label: string },
+  total: number,
+): string {
+  const zone =
+    view.label && view.label !== 'Цял шкаф' && view.label !== 'Шкаф' ? ` · ${view.label}` : ''
+  const count = view.count > 1 ? ` ×${view.count}` : ''
+  if (total === 1) return `Чекмедже${count}${zone}`
+  return `Чекмедже ${view.frontHeight} мм${count}${zone}`
 }
 
 function shelfMeasureEndY(s: { toFace?: 'top' | 'bottom'; yTop: number; yBottom: number; endY: number }) {
@@ -463,7 +496,7 @@ function heightDimSpecs(
       dims.push({
         id: `rail-${z.id}-${i}`,
         col,
-        y0: r.from === 'top' ? z.y1 : z.y0,
+        y0: r.from === 'top' ? r.openingY1 : r.openingY0,
         y1: r.yTop,
         offsetMm: r.offsetMm,
         originZ: opts.originZ,
@@ -546,6 +579,7 @@ function InteriorHeightDimLines({
         const worldX = xs.get(d.id) ?? worldX0
         const a = cam.proj(worldX, innerFloorY - d.y0, d.originZ)
         const b = cam.proj(worldX, innerFloorY - d.y1, d.endZ)
+        const labelFont = d.id.startsWith('rail-') ? Math.max(18, fontSize * 0.58) : fontSize
         return (
           <g key={d.id} stroke={DRAW_DIM} fill={DRAW_DIM}>
             <line x1={a.x - tick} y1={a.y} x2={a.x + tick} y2={a.y} strokeWidth={2} />
@@ -555,7 +589,7 @@ function InteriorHeightDimLines({
               x={(a.x + b.x) / 2}
               y={(a.y + b.y) / 2}
               label={mm(d.offsetMm)}
-              fontSize={fontSize}
+              fontSize={labelFont}
               rotate={-90}
               fill={DRAW_DIM}
             />
@@ -706,7 +740,7 @@ function remainingHeightSpans(
     }
     for (const r of z.rails) {
       if (r.from === 'middle') continue
-      const origin = r.from === 'top' ? z.y1 : z.y0
+      const origin = r.from === 'top' ? r.openingY1 : r.openingY0
       labeled.push({ col, a: Math.min(origin, r.yTop), b: Math.max(origin, r.yTop) })
     }
   }
@@ -1098,6 +1132,13 @@ function ColumnFill({
   )
 }
 
+function insetFrontGeom(T: number, x0: number, innerW: number): { x: number; w: number } {
+  return {
+    x: T + x0 + INNER_DRAWER_SIDE_GAP_EACH,
+    w: Math.max(0, innerW - INNER_DRAWER_GAP_X),
+  }
+}
+
 function FrontsOnCabinet({
   layout,
   W,
@@ -1110,7 +1151,12 @@ function FrontsOnCabinet({
   cam,
   clearanceBottom = 0,
   insetFronts = false,
+  innerDrawerFronts = false,
+  innerDoors = false,
+  layer,
   fontScale = 1,
+  innerTopY,
+  innerBotY,
 }: {
   layout: InteriorLayout
   W: number
@@ -1123,11 +1169,25 @@ function FrontsOnCabinet({
   cam: ReturnType<typeof createDrawCam>
   clearanceBottom?: number
   insetFronts?: boolean
+  innerDrawerFronts?: boolean
+  innerDoors?: boolean
+  /** Draw only inset fronts (between the sides) or only overlay fronts (covering the sides). */
+  layer?: 'inset' | 'overlay'
   fontScale?: number
+  innerTopY?: number
+  innerBotY?: number
 }) {
   const gap = DOOR_GAP_X
   const items: ReactNode[] = []
-  const frontFaces = { front: true, top: true, right: true } as const
+  const overlayFaces = { front: true, top: true, right: true } as const
+  const insetFaces = { front: true, top: true, right: true } as const
+  const cavityTopY = innerTopY ?? carcassTopY
+  const cavityBotY = innerBotY ?? carcassBotY
+
+  const include = (inset: boolean) => {
+    if (!layer) return true
+    return layer === 'inset' ? inset : !inset
+  }
 
   const pushHeightLabel = (id: string, x: number, y: number, w: number, h: number) => {
     if (!(h > 24 && w > 40)) return
@@ -1136,7 +1196,17 @@ function FrontsOnCabinet({
     items.push(<DimText key={id} x={pt.x} y={pt.y} label={mm(h)} fontSize={fontSize} rotate={-90} />)
   }
 
-  const pushDoors = (x: number, y: number, w: number, h: number, count: 1 | 2, key: string, label: boolean) => {
+  const pushDoors = (
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    count: 1 | 2,
+    key: string,
+    label: boolean,
+    faces: typeof overlayFaces,
+    betweenGap: number,
+  ) => {
     if (!(h > 4)) return
     if (count === 1) {
       items.push(
@@ -1150,14 +1220,14 @@ function FrontsOnCabinet({
           d={d}
           color={FRONT_FILL}
           cam={cam}
-          faces={frontFaces}
+          faces={faces}
           opacity={0.92}
         />,
       )
       if (label) pushHeightLabel(`${key}-h`, x, y, w, h)
       return
     }
-    const dw = (w - gap) / 2
+    const dw = (w - betweenGap) / 2
     items.push(
       <Board
         key={`${key}-l`}
@@ -1169,12 +1239,12 @@ function FrontsOnCabinet({
         d={d}
         color={FRONT_FILL}
         cam={cam}
-        faces={frontFaces}
+        faces={faces}
         opacity={0.92}
       />,
       <Board
         key={`${key}-r`}
-        x={x + dw + gap}
+        x={x + dw + betweenGap}
         y={y}
         z={z}
         w={dw}
@@ -1182,33 +1252,42 @@ function FrontsOnCabinet({
         d={d}
         color={FRONT_FILL}
         cam={cam}
-        faces={frontFaces}
+        faces={faces}
         opacity={0.92}
       />,
     )
     if (label) {
       pushHeightLabel(`${key}-lh`, x, y, dw, h)
-      pushHeightLabel(`${key}-rh`, x + dw + gap, y, dw, h)
+      pushHeightLabel(`${key}-rh`, x + dw + betweenGap, y, dw, h)
     }
   }
 
   const pushStacked = (
-    box: { x: number; y: number; w: number; h: number },
+    overlay: { x: number; y: number; w: number; h: number },
+    innerY: { y: number; h: number },
     doorCount: 0 | 1 | 2,
     drawerFrontHeights: number[],
     key: string,
     bottomGap: number,
+    inset: { x: number; w: number },
   ) => {
+    const hasDrawers = drawerFrontHeights.some((h) => h > 0)
+    const hasDoors = doorCount === 1 || doorCount === 2
+    const allInner = (hasDrawers ? innerDrawerFronts : true) && (hasDoors ? innerDoors : true)
+    const stackBox = allInner ? { ...overlay, y: innerY.y, h: innerY.h } : overlay
     const stacked = stackFronts({
-      frontHeight: box.h,
+      frontHeight: stackBox.h,
       doorCount,
       drawerFrontHeights,
       clearanceBottom: bottomGap,
     })
     const label = stacked.length >= 2
     for (const s of stacked) {
-      const y = box.y + s.yFromFrontTop
+      const y = stackBox.y + s.yFromFrontTop
       if (s.kind === 'drawer') {
+        if (!include(innerDrawerFronts)) continue
+        const box = innerDrawerFronts ? inset : overlay
+        const faces = innerDrawerFronts ? insetFaces : overlayFaces
         items.push(
           <Board
             key={`df-${key}-${s.index}`}
@@ -1220,30 +1299,44 @@ function FrontsOnCabinet({
             d={d}
             color={FRONT_FILL}
             cam={cam}
-            faces={frontFaces}
+            faces={faces}
             opacity={0.92}
           />,
         )
         if (label) pushHeightLabel(`df-${key}-${s.index}-h`, box.x, y, box.w, s.height)
       } else if (s.doorCount === 1 || s.doorCount === 2) {
-        pushDoors(box.x, y, box.w, s.height, s.doorCount, `door-${key}`, label)
+        if (!include(innerDoors)) continue
+        const box = innerDoors ? inset : overlay
+        const faces = innerDoors ? insetFaces : overlayFaces
+        const between = innerDoors ? DRAWER_DOOR_GAP : gap
+        pushDoors(box.x, y, box.w, s.height, s.doorCount, `door-${key}`, label, faces, between)
       }
     }
   }
 
   if (layout.fullDoorCount > 0 || layout.fullDrawerFrontHeights.length > 0) {
+    const overlayX = insetFronts ? T : 0
+    const overlayW = insetFronts ? Math.max(0, W - 2 * T) : W
+    const innerOpenW = Math.max(0, W - 2 * T)
     pushStacked(
-      { x: 0, y: carcassTopY, w: W, h: carcassBotY - carcassTopY },
+      { x: overlayX, y: carcassTopY, w: overlayW, h: carcassBotY - carcassTopY },
+      { y: cavityTopY, h: Math.max(1, cavityBotY - cavityTopY) },
       layout.fullDoorCount,
       layout.fullDrawerFrontHeights,
       'full',
       clearanceBottom,
+      insetFrontGeom(T, 0, innerOpenW),
     )
   }
 
   for (const zone of layout.zones) {
     if (zone.doorCount === 0 && zone.drawerFrontHeights.length === 0) continue
     const box = zoneFrontBox(zone, { innerFloorY, carcassTopY, carcassBotY, thickness: T })
+    const insetBox = zoneInsetFrontBox(zone, {
+      innerFloorY,
+      innerTopY: cavityTopY,
+      innerBotY: cavityBotY,
+    })
     const x =
       insetFronts || zone.frontWidth <= 0
         ? T + zone.x0
@@ -1254,12 +1347,15 @@ function FrontsOnCabinet({
           ? zone.innerW
           : W
         : zone.frontWidth
+    const zoneInnerW = zone.innerW > 0 ? zone.innerW : Math.max(0, W - 2 * T)
     pushStacked(
       { x, y: box.y, w, h: box.h },
+      { y: insetBox.y, h: insetBox.h },
       zone.doorCount,
       zone.drawerFrontHeights,
       zone.id,
       zone.y0 <= 0.5 ? clearanceBottom : 0,
+      insetFrontGeom(T, zone.x0, zoneInnerW),
     )
   }
 
@@ -1546,6 +1642,7 @@ function Front3DView({
   const clothesZ = Math.max(40, D * 0.35)
   const shelfDepth = D - zShelfFront
   const innerFloorY = floor - L - T
+  const cavityTopY = innerFloorY - innerClearH
   const adjShelfOffs = layout.zones.flatMap((z) => z.movable.map((s) => z.y0 + s.yBottom))
   const topShelfOff =
     layout.shelves.length > 0
@@ -1677,8 +1774,31 @@ function Front3DView({
         innerFloorY={innerFloorY}
         carcassTopY={topY}
         carcassBotY={botY}
+        innerTopY={cavityTopY}
+        innerBotY={innerFloorY}
+        insetFronts={p.innerDrawerFronts === true}
         fontScale={fontScale}
       />
+
+      {showFronts && (
+        <FrontsOnCabinet
+          layout={layout}
+          W={W}
+          T={T}
+          innerFloorY={innerFloorY}
+          carcassTopY={topY}
+          carcassBotY={botY}
+          innerTopY={cavityTopY}
+          innerBotY={innerFloorY}
+          z={0}
+          d={T}
+          cam={view}
+          fontScale={fontScale}
+          innerDrawerFronts={p.innerDrawerFronts === true}
+          innerDoors={p.innerDoors === true}
+          layer="inset"
+        />
+      )}
 
       <Board x={W - T} y={sideY} w={T} h={sideH} d={D} color={wood.side} cam={view} faces={SIDE_RIGHT} />
 
@@ -1706,10 +1826,15 @@ function Front3DView({
           innerFloorY={innerFloorY}
           carcassTopY={topY}
           carcassBotY={botY}
+          innerTopY={cavityTopY}
+          innerBotY={innerFloorY}
           z={0}
           d={T}
           cam={view}
           fontScale={fontScale}
+          innerDrawerFronts={p.innerDrawerFronts === true}
+          innerDoors={p.innerDoors === true}
+          layer="overlay"
         />
       )}
 
@@ -1819,7 +1944,7 @@ function KitchenWallPreview({
     zones: p.zones,
     overlayCovers: { top: true, bottom: true },
   })
-  const drawerViews = uniqueDrawerViews({ ...p, drawerFrontHeights: allDrawerFrontHeights(layout) })
+  const drawerViews = uniqueDrawerViews(p, layout)
   const counts = layoutCounts(layout)
   const bottomHole = wallBottomHole(p, m.bottomW, m.bottomD)
   const shelfHole = wallShelfHole(p, m.innerW, Math.max(p.thickness, m.sideD - DEFAULT_SHELF_FRONT_INSET))
@@ -1842,16 +1967,8 @@ function KitchenWallPreview({
       </ViewCard>
       {drawerViews.map((view) => (
         <ViewCard
-          key={view.frontHeight}
-          title={
-            drawerViews.length === 1
-              ? view.count > 1
-                ? `Чекмедже ×${view.count}`
-                : 'Чекмедже'
-              : view.count > 1
-                ? `Чекмедже ${view.frontHeight} мм ×${view.count}`
-                : `Чекмедже ${view.frontHeight} мм`
-          }
+          key={`${view.frontHeight}-${Math.round(view.box.drawerOuterW)}-${view.label}`}
+          title={drawerViewTitle(view, drawerViews.length)}
         >
           <ZoomableView>
             <Drawer3DView p={p} box={view.box} />
@@ -2006,6 +2123,26 @@ function WallFront3DView({
         </g>
       ))}
 
+      {showFronts && (
+        <FrontsOnCabinet
+          layout={layout}
+          W={W}
+          T={T}
+          innerFloorY={innerFloorY}
+          carcassTopY={topY}
+          carcassBotY={floor}
+          innerTopY={innerTopY}
+          innerBotY={innerFloorY}
+          z={0}
+          d={T}
+          cam={view}
+          fontScale={fontScale}
+          innerDrawerFronts={p.innerDrawerFronts === true}
+          innerDoors={p.innerDoors === true}
+          layer="inset"
+        />
+      )}
+
       <Board x={W - T} y={topY} w={T} h={sideH} d={D} color={wood.side} cam={view} faces={SIDE_RIGHT} />
 
       <Board
@@ -2027,10 +2164,15 @@ function WallFront3DView({
           innerFloorY={innerFloorY}
           carcassTopY={topY}
           carcassBotY={floor}
+          innerTopY={innerTopY}
+          innerBotY={innerFloorY}
           z={0}
           d={T}
           cam={view}
           fontScale={fontScale}
+          innerDrawerFronts={p.innerDrawerFronts === true}
+          innerDoors={p.innerDoors === true}
+          layer="overlay"
         />
       )}
 
@@ -2208,7 +2350,7 @@ function PlinthBoxPreview({
       : { top: m.frontCoversTop, bottom: m.frontCoversBottom },
   })
   const counts = layoutCounts(layout)
-  const drawerViews = uniqueDrawerViews({ ...p, drawerFrontHeights: allDrawerFrontHeights(layout) })
+  const drawerViews = uniqueDrawerViews(p, layout)
   return (
     <div className={cn('flex flex-col gap-3', className)}>
       <ViewCard title="3D Изглед отпред">
@@ -2225,16 +2367,8 @@ function PlinthBoxPreview({
       </ViewCard>
       {drawerViews.map((view) => (
         <ViewCard
-          key={view.frontHeight}
-          title={
-            drawerViews.length === 1
-              ? view.count > 1
-                ? `Чекмедже ×${view.count}`
-                : 'Чекмедже'
-              : view.count > 1
-                ? `Чекмедже ${view.frontHeight} мм ×${view.count}`
-                : `Чекмедже ${view.frontHeight} мм`
-          }
+          key={`${view.frontHeight}-${Math.round(view.box.drawerOuterW)}-${view.label}`}
+          title={drawerViewTitle(view, drawerViews.length)}
         >
           <ZoomableView>
             <Drawer3DView p={p} box={view.box} />
@@ -2623,7 +2757,11 @@ function PlinthBoxFront3DView({
         innerFloorY={innerFloorY}
         carcassTopY={frontTopY}
         carcassBotY={frontBotY}
+        innerTopY={leftInnerY}
+        innerBotY={bottomY}
+        insetFronts={p.innerDrawerFronts === true}
         fontScale={fontScale}
+        clearanceBottom={m.sliding ? SLIDING_DRAWER_FROM_BOTTOM_MM : 0}
       />
 
       {m.sliding && (
@@ -2673,6 +2811,28 @@ function PlinthBoxFront3DView({
             faces={BETWEEN_FACES}
           />
         </>
+      )}
+
+      {showFronts && (
+        <FrontsOnCabinet
+          layout={layout}
+          W={W}
+          T={T}
+          innerFloorY={innerFloorY}
+          carcassTopY={m.sliding ? leftInnerY : frontTopY}
+          carcassBotY={m.sliding ? bottomY : frontBotY}
+          innerTopY={leftInnerY}
+          innerBotY={bottomY}
+          z={0}
+          d={T}
+          cam={view}
+          clearanceBottom={m.sliding ? SLIDING_DRAWER_FROM_BOTTOM_MM : 0}
+          insetFronts={m.sliding}
+          innerDrawerFronts={p.innerDrawerFronts === true}
+          innerDoors={p.innerDoors === true}
+          layer="inset"
+          fontScale={fontScale}
+        />
       )}
 
       <Board
@@ -2813,11 +2973,16 @@ function PlinthBoxFront3DView({
           innerFloorY={innerFloorY}
           carcassTopY={m.sliding ? leftInnerY : frontTopY}
           carcassBotY={m.sliding ? bottomY : frontBotY}
+          innerTopY={leftInnerY}
+          innerBotY={bottomY}
           z={0}
           d={T}
           cam={view}
           clearanceBottom={m.sliding ? SLIDING_DRAWER_FROM_BOTTOM_MM : 0}
           insetFronts={m.sliding}
+          innerDrawerFronts={p.innerDrawerFronts === true}
+          innerDoors={p.innerDoors === true}
+          layer="overlay"
           fontScale={fontScale}
         />
       )}
@@ -2924,3 +3089,4 @@ function PlinthBoxFront3DView({
     </SketchSvg>
   )
 }
+

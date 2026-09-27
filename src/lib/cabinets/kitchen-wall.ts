@@ -86,6 +86,8 @@ export const DEFAULT_KITCHEN_WALL_PARAMS: KitchenWallParams = {
   doorSpan: 'full',
   zones: {},
   externalDoors: false,
+  innerDrawerFronts: false,
+  innerDoors: false,
   dimFontScale: 1,
   colors: { ...DEFAULT_PART_COLORS },
 }
