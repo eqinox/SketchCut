@@ -51,6 +51,12 @@ export interface FixedShelfSpec {
    * `null` / omitted: same height in every bay (на целия шкаф).
    */
   columnIndex?: number | null
+  /**
+   * Measure from an already added fixed shelf (0-based index in the user list).
+   * `null` / omitted: from the carcass bottom or top (`from`).
+   * `from: 'bottom'` is upward from that shelf; `from: 'top'` is downward.
+   */
+  fromShelf?: number | null
 }
 
 export interface PartitionSpec {
@@ -83,8 +89,16 @@ export interface MovableShelfSpec {
   fromFace: PanelFace
   toFace: PanelFace
   /**
+   * Measure from an already added pin shelf in the same compartment (0-based).
+   * `null` / omitted: from the compartment bottom or top (`from`).
+   * `from: 'bottom'` is upward from that shelf; `from: 'top'` is downward.
+   * Ignored when `from` is `middle`.
+   */
+  fromShelf?: number | null
+  /**
    * Remaining opening (0 = lowest) around exact-distance pin shelves and clothes rails.
    * Exact-distance shelves without `gapIndex` still measure from the whole compartment.
+   * Ignored when `fromShelf` is set.
    */
   gapIndex?: number
 }
@@ -257,11 +271,13 @@ export const EMPTY_ZONE_FITTINGS: ZoneFittings = {
 }
 
 export interface ResolvedFixedShelf extends FixedShelfSpec {
+  /** Index in the user-facing list (Рафт 1 = 0). */
+  specIndex: number
   /** Inner-floor → bottom face of the shelf. */
   yBottom: number
   /** Inner-floor → top face of the shelf. */
   yTop: number
-  /** Inner-floor coords of the two measure endpoints (start on carcass, end on shelf). */
+  /** Inner-floor coords of the two measure endpoints (start on carcass or shelf, end on shelf). */
   startY: number
   endY: number
 }
@@ -281,11 +297,13 @@ function parseFace(raw: unknown, fallback: PanelFace): PanelFace {
  * Convert a user offset into inner-floor coordinates.
  * y = 0 is the top of the bottom; y = innerH is the underside of the top.
  * Outer faces sit at -thickness (bottom) and innerH + thickness (top).
+ * When `origin` is set, measure from that shelf: `from: 'bottom'` goes up, `from: 'top'` goes down.
  */
 export function measureFixedShelf(
   spec: FixedShelfSpec,
   innerH: number,
   thickness: number,
+  origin?: { yBottom: number; yTop: number } | null,
 ): { startY: number; endY: number; yBottom: number; yTop: number; fromFace: PanelFace; toFace: PanelFace } {
   const T = thickness
   const faces = defaultShelfFaces(spec.from)
@@ -293,7 +311,10 @@ export function measureFixedShelf(
   const toFace = spec.toFace ?? faces.toFace
   let startY: number
   let endY: number
-  if (spec.from === 'bottom') {
+  if (origin) {
+    startY = fromFace === 'bottom' ? origin.yBottom : origin.yTop
+    endY = spec.from === 'bottom' ? startY + spec.offsetMm : startY - spec.offsetMm
+  } else if (spec.from === 'bottom') {
     startY = fromFace === 'bottom' ? -T : 0
     endY = startY + spec.offsetMm
   } else {
@@ -304,22 +325,40 @@ export function measureFixedShelf(
   return { startY, endY, yBottom, yTop: yBottom + T, fromFace, toFace }
 }
 
+function shelfOriginPanel(
+  spec: { from: 'bottom' | 'top' | 'middle'; fromShelf?: number | null },
+  topBoardName: string,
+  bottomBoardName: string,
+): string {
+  if (typeof spec.fromShelf === 'number' && spec.fromShelf >= 0) return `рафт ${spec.fromShelf + 1}`
+  return spec.from === 'bottom' ? bottomBoardName : topBoardName
+}
+
 export function fixedShelfMeasureLabel(
-  spec: Pick<FixedShelfSpec, 'from' | 'offsetMm' | 'fromFace' | 'toFace'>,
+  spec: Pick<FixedShelfSpec, 'from' | 'offsetMm' | 'fromFace' | 'toFace'> & { fromShelf?: number | null },
   topBoardName = 'горната плоскост',
   bottomBoardName = 'дъното',
 ): string {
   const faces = defaultShelfFaces(spec.from)
   const fromFace = spec.fromFace ?? faces.fromFace
   const toFace = spec.toFace ?? faces.toFace
-  const fromPanel = spec.from === 'bottom' ? bottomBoardName : topBoardName
+  const fromPanel = shelfOriginPanel(spec, topBoardName, bottomBoardName)
   const fromWord = fromFace === 'top' ? 'горната' : 'долната'
   const toWord = toFace === 'top' ? 'горната' : 'долната'
+  const standard =
+    spec.from === 'bottom'
+      ? fromFace === 'top' && toFace === 'bottom'
+      : fromFace === 'bottom' && toFace === 'top'
+  if (standard) {
+    return spec.from === 'top' && spec.fromShelf != null
+      ? `${formatMm(spec.offsetMm)} мм надолу от ${fromPanel}`
+      : `${formatMm(spec.offsetMm)} мм от ${fromPanel}`
+  }
   return `${formatMm(spec.offsetMm)} мм от ${fromWord} страна на ${fromPanel} до ${toWord} страна на рафта`
 }
 
 export function movableShelfMeasureLabel(
-  spec: Pick<MovableShelfSpec, 'from' | 'offsetMm' | 'fromFace' | 'toFace'>,
+  spec: Pick<MovableShelfSpec, 'from' | 'offsetMm' | 'fromFace' | 'toFace' | 'fromShelf'>,
   topBoardName = 'горната плоскост',
   bottomBoardName = 'дъното',
 ): string {
@@ -401,6 +440,46 @@ function evenBottomsInSpan(spanStart: number, spanEnd: number, count: number, th
   return Array.from({ length: count }, (_, i) => spanStart + gap * (i + 1) + thickness * i)
 }
 
+/** Pin shelf measured from another pin shelf in the same list. Middle shelves never link. */
+function linkedShelfRef(spec: MovableShelfSpec): number | null {
+  if (spec.from === 'middle') return null
+  if (typeof spec.fromShelf !== 'number' || !Number.isFinite(spec.fromShelf) || spec.fromShelf < 0) return null
+  return Math.round(spec.fromShelf)
+}
+
+function measureFromShelfOrigin(
+  spec: MovableShelfSpec,
+  origin: { yBottom: number; yTop: number },
+  ref: number,
+  innerH: number,
+  thickness: number,
+): ResolvedMovableShelf {
+  const from: FixedShelfFrom = spec.from === 'top' ? 'top' : 'bottom'
+  const m = measureFixedShelf(
+    {
+      from,
+      offsetMm: spec.offsetMm,
+      fromFace: spec.fromFace,
+      toFace: spec.toFace,
+      columnIndex: null,
+    },
+    innerH,
+    thickness,
+    origin,
+  )
+  return {
+    from,
+    offsetMm: spec.offsetMm,
+    fromFace: m.fromFace,
+    toFace: m.toFace,
+    fromShelf: ref,
+    yBottom: m.yBottom,
+    yTop: m.yTop,
+    startY: m.startY,
+    endY: m.endY,
+  }
+}
+
 /** Equal clearance for pin shelves placed in the middle of remaining openings. */
 export function middleShelfClearances(
   specs: MovableShelfSpec[],
@@ -412,6 +491,34 @@ export function middleShelfClearances(
   const T = thickness
   const extra = occupied ?? []
   const list = specs.slice(0, MAX_SHELVES)
+  if (list.some((s) => linkedShelfRef(s) != null)) {
+    const resolved = resolveMovableShelves(list, innerH, T, 0, bounds, extra)
+    const exact = resolved.filter((s) => s.from !== 'middle')
+    const useRails = extra.length > 0 && list.some((s) => s.from === 'middle' && s.gapIndex != null)
+    const gaps = remainingOpenings(innerH, useRails ? [...exact, ...extra] : exact)
+    if (gaps.length === 0) gaps.push({ start: 0, end: innerH })
+    const picked = pickOpening(gaps, innerH, bounds)
+    const defaultGi = Math.max(
+      0,
+      gaps.findIndex((g) => g.start === picked.start && g.end === picked.end),
+    )
+    const counts = gaps.map(() => 0)
+    for (const s of list) {
+      if (s.from !== 'middle') continue
+      const gi =
+        typeof s.gapIndex === 'number' && Number.isFinite(s.gapIndex)
+          ? Math.min(gaps.length - 1, Math.max(0, Math.round(s.gapIndex)))
+          : defaultGi
+      counts[gi] += 1
+    }
+    return gaps
+      .map((g, i) => ({
+        gapIndex: i,
+        count: counts[i],
+        gapMm: counts[i] < 1 ? 0 : (g.end - g.start - counts[i] * T) / (counts[i] + 1),
+      }))
+      .filter((x) => x.count > 0)
+  }
   const anchored = list.filter((s) => s.from !== 'middle').map((s) => resolveAnchoredMovable(s, innerH, T))
   const useRails = extra.length > 0 && list.some((s) => s.from === 'middle' && s.gapIndex != null)
   const gaps = remainingOpenings(innerH, useRails ? [...anchored, ...extra] : anchored)
@@ -483,6 +590,127 @@ function resolveAnchoredInSpan(
   }
 }
 
+/** Pin shelves that measure from one another, then middle shelves in what's left. */
+function resolveMovableWithShelfRefs(
+  list: MovableShelfSpec[],
+  innerH: number,
+  thickness: number,
+  bounds?: { closedBottom?: boolean; closedTop?: boolean },
+  occupied?: { yBottom: number; yTop: number }[],
+): ResolvedMovableShelf[] {
+  const T = thickness
+  const extra = occupied ?? []
+  const byIndex = new Map<number, ResolvedMovableShelf>()
+  const clampGi = (gi: number, n: number) => Math.min(n - 1, Math.max(0, Math.round(gi)))
+
+  const placeLinked = (skipMiddleOrigin: boolean): boolean => {
+    let progress = false
+    for (let i = 0; i < list.length; i++) {
+      if (byIndex.has(i)) continue
+      const ref = linkedShelfRef(list[i]!)
+      if (ref == null) continue
+      if (ref === i || ref >= list.length) {
+        byIndex.set(i, resolveAnchoredMovable({ ...list[i]!, fromShelf: null }, innerH, T))
+        progress = true
+        continue
+      }
+      const origin = byIndex.get(ref)
+      if (!origin) continue
+      if (skipMiddleOrigin && list[ref]!.from === 'middle') continue
+      byIndex.set(i, measureFromShelfOrigin(list[i]!, origin, ref, innerH, T))
+      progress = true
+    }
+    return progress
+  }
+
+  const drainLinked = (skipMiddleOrigin: boolean) => {
+    let guard = 0
+    while (guard < list.length + 2 && placeLinked(skipMiddleOrigin)) guard += 1
+  }
+
+  list.forEach((s, i) => {
+    if (s.from === 'middle' || s.gapIndex != null || linkedShelfRef(s) != null) return
+    byIndex.set(i, resolveAnchoredMovable(s, innerH, T))
+  })
+  drainLinked(true)
+
+  const placedBlocks = () => [...byIndex.values()].map((s) => ({ yBottom: s.yBottom, yTop: s.yTop }))
+  const gapsForAnchored = remainingOpenings(innerH, [...placedBlocks(), ...extra])
+  if (gapsForAnchored.length === 0) gapsForAnchored.push({ start: 0, end: innerH })
+  list.forEach((s, i) => {
+    if (byIndex.has(i) || s.from === 'middle' || linkedShelfRef(s) != null || s.gapIndex == null) return
+    const gi = clampGi(s.gapIndex, gapsForAnchored.length)
+    const gap = gapsForAnchored[gi] ?? { start: 0, end: innerH }
+    byIndex.set(i, resolveAnchoredInSpan(s, gap.start, gap.end, T, gi))
+  })
+  drainLinked(true)
+
+  const exact = placedBlocks()
+  const gapsLegacy = remainingOpenings(innerH, exact)
+  const gapsIndexed = remainingOpenings(innerH, [...exact, ...extra])
+  if (gapsLegacy.length === 0) gapsLegacy.push({ start: 0, end: innerH })
+  if (gapsIndexed.length === 0) gapsIndexed.push({ start: 0, end: innerH })
+  const pickedLegacy = pickOpening(gapsLegacy, innerH, bounds)
+  const defaultLegacy = Math.max(
+    0,
+    gapsLegacy.findIndex((g) => g.start === pickedLegacy.start && g.end === pickedLegacy.end),
+  )
+  const pickedIndexed = pickOpening(gapsIndexed, innerH, bounds)
+  const defaultIndexed = Math.max(
+    0,
+    gapsIndexed.findIndex((g) => g.start === pickedIndexed.start && g.end === pickedIndexed.end),
+  )
+  const gapIndexOf = (s: MovableShelfSpec) => {
+    const indexed = s.gapIndex != null
+    const gaps = indexed ? gapsIndexed : gapsLegacy
+    if (typeof s.gapIndex === 'number' && Number.isFinite(s.gapIndex)) return clampGi(s.gapIndex, gaps.length)
+    return indexed ? defaultIndexed : defaultLegacy
+  }
+  const middleCountsLegacy = gapsLegacy.map(() => 0)
+  const middleCountsIndexed = gapsIndexed.map(() => 0)
+  for (const s of list) {
+    if (s.from !== 'middle') continue
+    if (s.gapIndex != null) middleCountsIndexed[gapIndexOf(s)] += 1
+    else middleCountsLegacy[gapIndexOf(s)] += 1
+  }
+  const bottomsLegacy = gapsLegacy.map((g, i) => evenBottomsInSpan(g.start, g.end, middleCountsLegacy[i]!, T))
+  const bottomsIndexed = gapsIndexed.map((g, i) => evenBottomsInSpan(g.start, g.end, middleCountsIndexed[i]!, T))
+  const cursorLegacy = gapsLegacy.map(() => 0)
+  const cursorIndexed = gapsIndexed.map(() => 0)
+
+  list.forEach((s, i) => {
+    if (s.from !== 'middle') return
+    const indexed = s.gapIndex != null
+    const gaps = indexed ? gapsIndexed : gapsLegacy
+    const gi = gapIndexOf(s)
+    const gap = gaps[gi] ?? (indexed ? pickedIndexed : pickedLegacy)
+    const bottoms = indexed ? bottomsIndexed : bottomsLegacy
+    const cursor = indexed ? cursorIndexed : cursorLegacy
+    const yBottom = bottoms[gi]?.[cursor[gi]!] ?? gap.start
+    cursor[gi] = (cursor[gi] ?? 0) + 1
+    byIndex.set(i, {
+      from: 'middle',
+      fromFace: 'top',
+      toFace: 'bottom',
+      offsetMm: Math.max(MIN_ZONE_CLEAR_MM, yBottom - gap.start),
+      gapIndex: gi,
+      yBottom,
+      yTop: yBottom + T,
+      startY: gap.start,
+      endY: yBottom,
+    })
+  })
+  drainLinked(false)
+
+  list.forEach((s, i) => {
+    if (byIndex.has(i)) return
+    const from: FixedShelfFrom = s.from === 'top' ? 'top' : 'bottom'
+    byIndex.set(i, resolveAnchoredMovable({ ...s, from, fromShelf: null }, innerH, T))
+  })
+
+  return list.map((_, i) => byIndex.get(i)!)
+}
+
 export function resolveMovableShelves(
   specs: MovableShelfSpec[],
   innerH: number,
@@ -512,6 +740,9 @@ export function resolveMovableShelves(
     })
   }
   const list = specs.slice(0, MAX_SHELVES)
+  if (list.some((s) => linkedShelfRef(s) != null)) {
+    return resolveMovableWithShelfRefs(list, innerH, T, bounds, extra)
+  }
   const clampGi = (gi: number, n: number) => Math.min(n - 1, Math.max(0, Math.round(gi)))
 
   const freeResolved = list.map((s) => {
@@ -610,6 +841,11 @@ export function pinShelfOpenings(
   extraOccupied?: { yBottom: number; yTop: number }[],
 ): { index: number; start: number; end: number; label: string }[] {
   const T = thickness
+  if (specs.some((s) => linkedShelfRef(s) != null)) {
+    const resolved = resolveMovableShelves(specs, innerH, T, 0, undefined, extraOccupied)
+    const anchored = resolved.filter((s) => s.from !== 'middle')
+    return heightOpenings(innerH, [...anchored, ...(extraOccupied ?? [])])
+  }
   const anchored = specs
     .filter((s) => s.from !== 'middle' && s.gapIndex == null)
     .slice(0, MAX_SHELVES)
@@ -717,12 +953,14 @@ export function parseMovableShelves(raw: unknown): MovableShelfSpec[] {
     const faces = defaultShelfFaces(from)
     const gapRaw = src.gapIndex
     const gapN = typeof gapRaw === 'number' ? gapRaw : Number.parseInt(String(gapRaw ?? ''), 10)
+    const fromShelf = parseFromPartition(src.fromShelf)
     out.push({
       from,
       offsetMm: n,
       fromFace: parseFace(src.fromFace, faces.fromFace),
       toFace: parseFace(src.toFace, faces.toFace),
-      ...(Number.isFinite(gapN) && gapN >= 0 ? { gapIndex: Math.round(gapN) } : {}),
+      ...(fromShelf == null && Number.isFinite(gapN) && gapN >= 0 ? { gapIndex: Math.round(gapN) } : {}),
+      ...(fromShelf != null ? { fromShelf } : {}),
     })
     if (out.length >= MAX_SHELVES) break
   }
@@ -965,6 +1203,7 @@ export function parseFixedShelves(raw: unknown): FixedShelfSpec[] {
       fromFace: parseFace(src.fromFace, faces.fromFace),
       toFace: parseFace(src.toFace, faces.toFace),
       columnIndex: parseColumnIndex(src.columnIndex),
+      fromShelf: parseFromPartition(src.fromShelf),
     })
     if (out.length >= MAX_FIXED_SHELF_SPECS) break
   }
@@ -1043,12 +1282,12 @@ function validateShelfGroup(group: ResolvedFixedShelf[], innerH: number): string
   const sorted = [...group].sort((a, b) => a.yBottom - b.yBottom)
   for (const s of sorted) {
     if (s.yBottom < MIN_ZONE_CLEAR_MM) {
-      return s.from === 'bottom'
+      return s.from === 'bottom' && s.fromShelf == null
         ? `Разстоянието отдолу трябва да е поне ${MIN_ZONE_CLEAR_MM} мм.`
         : 'Фиксираният рафт влиза в долната част.'
     }
     if (s.yTop > innerH - MIN_ZONE_CLEAR_MM) {
-      return s.from === 'top'
+      return s.from === 'top' && s.fromShelf == null
         ? `Разстоянието отгоре трябва да е поне ${MIN_ZONE_CLEAR_MM} мм.`
         : 'Фиксираният рафт влиза в горната част.'
     }
@@ -1077,27 +1316,66 @@ export function resolveFixedShelves(
   }
 
   const cols = Math.max(1, columnCount)
-  const resolved: ResolvedFixedShelf[] = specs.map((s) => {
-    const m = measureFixedShelf(s, innerH, T)
-    return {
-      ...s,
-      columnIndex: normalizeShelfColumnIndex(s.columnIndex, cols),
-      fromFace: m.fromFace,
-      toFace: m.toFace,
-      yBottom: m.yBottom,
-      yTop: m.yTop,
-      startY: m.startY,
-      endY: m.endY,
+  const byIndex = new Map<number, ResolvedFixedShelf>()
+  let guard = 0
+  while (byIndex.size < specs.length && guard < specs.length + 2) {
+    guard += 1
+    let progress = false
+    for (let specIndex = 0; specIndex < specs.length; specIndex++) {
+      if (byIndex.has(specIndex)) continue
+      const spec = specs[specIndex]!
+      const ref = spec.fromShelf
+      let origin: { yBottom: number; yTop: number } | null = null
+      if (typeof ref === 'number') {
+        if (ref === specIndex) {
+          return { shelves: [], error: 'Фиксиран рафт не може да се мери от себе си.' }
+        }
+        if (ref < 0 || ref >= specs.length) {
+          return { shelves: [], error: `Няма рафт ${ref + 1}, от който да се мери.` }
+        }
+        const placed = byIndex.get(ref)
+        if (!placed) continue
+        origin = placed
+      }
+      const m = measureFixedShelf(spec, innerH, T, origin)
+      byIndex.set(specIndex, {
+        ...spec,
+        specIndex,
+        columnIndex: normalizeShelfColumnIndex(spec.columnIndex, cols),
+        fromFace: m.fromFace,
+        toFace: m.toFace,
+        fromShelf: origin ? ref! : null,
+        yBottom: m.yBottom,
+        yTop: m.yTop,
+        startY: m.startY,
+        endY: m.endY,
+      })
+      progress = true
     }
-  })
-
-  for (let c = 0; c < cols; c++) {
-    const error = validateShelfGroup(shelvesForColumn(resolved, c), innerH)
-    if (error) return { shelves: [], error }
+    if (!progress) {
+      return { shelves: [], error: 'Фиксираните рафтове се мерят един от друг в кръг.' }
+    }
   }
 
-  resolved.sort((a, b) => a.yBottom - b.yBottom || (a.columnIndex ?? -1) - (b.columnIndex ?? -1))
-  return { shelves: resolved, error: null }
+  const resolved = [...byIndex.values()]
+  let error: string | null = null
+  const kept: ResolvedFixedShelf[] = []
+  for (let c = 0; c < cols; c++) {
+    const group = shelvesForColumn(resolved, c)
+    const groupError = validateShelfGroup(group, innerH)
+    if (!groupError) {
+      kept.push(...group)
+      continue
+    }
+    error = groupError
+    const inside = group.filter(
+      (s) => s.yBottom >= MIN_ZONE_CLEAR_MM && s.yTop <= innerH - MIN_ZONE_CLEAR_MM,
+    )
+    kept.push(...(inside.length === group.length ? inside.slice(0, -1) : inside))
+  }
+
+  kept.sort((a, b) => a.yBottom - b.yBottom || (a.columnIndex ?? -1) - (b.columnIndex ?? -1))
+  return { shelves: kept, error }
 }
 
 export function defaultPartitionOffsetMm(innerW: number, thickness: number, already: number): number {

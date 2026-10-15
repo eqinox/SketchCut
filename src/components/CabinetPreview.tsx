@@ -8,7 +8,8 @@ import {
   parseSectionParams,
   parseWardrobeParams,
   measureNightstand,
-  DEFAULT_SHELF_FRONT_INSET,
+  shelfFrontInsetMm,
+  shelfPanelDepth,
   DEFAULT_HARDBOARD_COLOR,
   FASCIA_SETBACK_MM,
   kitchenClearInnerH,
@@ -1638,9 +1639,9 @@ function Front3DView({
 
   const zRailFront = D - R
   const zBack = D
-  const zShelfFront = DEFAULT_SHELF_FRONT_INSET
+  const zShelfFront = shelfFrontInsetMm(p)
   const clothesZ = Math.max(40, D * 0.35)
-  const shelfDepth = D - zShelfFront
+  const shelfDepth = shelfPanelDepth(D, T, zShelfFront)
   const innerFloorY = floor - L - T
   const cavityTopY = innerFloorY - innerClearH
   const adjShelfOffs = layout.zones.flatMap((z) => z.movable.map((s) => z.y0 + s.yBottom))
@@ -1714,7 +1715,8 @@ function Front3DView({
             innerFloorY={innerFloorY}
             cam={view}
             shelfColor={wood.shelf}
-            fixedD={D}
+            fixedZ={zShelfFront}
+            fixedD={shelfDepth}
             adjZ={zShelfFront}
             adjD={shelfDepth}
             clothesZ={clothesZ}
@@ -1947,7 +1949,7 @@ function KitchenWallPreview({
   const drawerViews = uniqueDrawerViews(p, layout)
   const counts = layoutCounts(layout)
   const bottomHole = wallBottomHole(p, m.bottomW, m.bottomD)
-  const shelfHole = wallShelfHole(p, m.innerW, Math.max(p.thickness, m.sideD - DEFAULT_SHELF_FRONT_INSET))
+  const shelfHole = wallShelfHole(p, m.innerW, shelfPanelDepth(m.sideD, p.thickness, shelfFrontInsetMm(p)))
 
   return (
     <div className={cn('flex flex-col gap-3', className)}>
@@ -2046,9 +2048,9 @@ function WallFront3DView({
   const depthRot = (Math.atan2(dy, dx) * 180) / Math.PI
   const backMx = ox + W / 2 + dx
   const backMy = topY + dy - font * 0.45
-  const zShelfFront = DEFAULT_SHELF_FRONT_INSET
+  const zShelfFront = shelfFrontInsetMm(p)
   const clothesZ = Math.max(40, D * 0.35)
-  const shelfDepth = D - zShelfFront
+  const shelfDepth = shelfPanelDepth(D, T, zShelfFront)
   const innerFloorY = floor - T
   const innerTopY = topY + T
   const wood = p.colors
@@ -2101,7 +2103,8 @@ function WallFront3DView({
             innerFloorY={innerFloorY}
             cam={view}
             shelfColor={wood.shelf}
-            fixedD={D}
+            fixedZ={zShelfFront}
+            fixedD={shelfDepth}
             adjZ={zShelfFront}
             adjD={shelfDepth}
             clothesZ={clothesZ}
@@ -2721,8 +2724,8 @@ function PlinthBoxFront3DView({
             innerFloorY={innerFloorY}
             cam={view}
             shelfColor={wood.shelf}
-            fixedZ={m.sliding ? zShelfFront : zSide}
-            fixedD={m.sliding ? m.shelfD : m.sideD}
+            fixedZ={zShelfFront}
+            fixedD={m.shelfD}
             adjZ={zShelfFront}
             adjD={shelfDepth}
             clothesZ={clothesZ}

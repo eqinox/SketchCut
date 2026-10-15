@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { LogIn, LogOut, Save, FolderOpen } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { LogIn, LogOut, Save, FolderOpen, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -118,6 +118,7 @@ interface ProjectDialogProps {
   projectNames: { id: string; name: string; updatedAt: number }[]
   onSave: (name: string) => Promise<void>
   onLoad: (id: string) => void
+  onDelete: (id: string) => Promise<void>
   onError?: (message: string) => void
 }
 
@@ -128,11 +129,36 @@ export function ProjectDialog({
   projectNames,
   onSave,
   onLoad,
+  onDelete,
   onError,
 }: ProjectDialogProps) {
   const [name, setName] = useState('')
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState(false)
+
+  useEffect(() => {
+    if (open) return
+    setPendingDeleteId(null)
+    setError('')
+    setDeleting(false)
+  }, [open])
+
+  const handleDelete = async (id: string) => {
+    setError('')
+    setDeleting(true)
+    try {
+      await onDelete(id)
+      setPendingDeleteId(null)
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Грешка при изтриване'
+      setError(msg)
+      onError?.(msg)
+    } finally {
+      setDeleting(false)
+    }
+  }
 
   const handleSave = async () => {
     if (!name.trim()) return
@@ -185,22 +211,60 @@ export function ProjectDialog({
               <p className="text-sm text-[var(--color-muted-foreground)]">Няма запазени проекти</p>
             ) : (
               projectNames.map((p) => (
-                <button
+                <div
                   key={p.id}
-                  type="button"
-                  className="flex w-full items-center justify-between rounded-md border border-[var(--color-border)] px-3 py-2 text-left text-sm hover:bg-[var(--color-accent)]"
-                  onClick={() => {
-                    onLoad(p.id)
-                    onOpenChange(false)
-                  }}
+                  className="flex items-center gap-2 rounded-md border border-[var(--color-border)] px-3 py-2"
                 >
-                  <span>{p.name}</span>
-                  <span className="text-xs text-[var(--color-muted-foreground)]">
-                    {new Date(p.updatedAt).toLocaleDateString('bg-BG')}
-                  </span>
-                </button>
+                  <button
+                    type="button"
+                    className="flex min-w-0 flex-1 items-center justify-between text-left text-sm hover:underline"
+                    onClick={() => {
+                      onLoad(p.id)
+                      onOpenChange(false)
+                    }}
+                  >
+                    <span className="truncate">{p.name}</span>
+                    <span className="ml-2 shrink-0 text-xs text-[var(--color-muted-foreground)]">
+                      {new Date(p.updatedAt).toLocaleDateString('bg-BG')}
+                    </span>
+                  </button>
+                  {pendingDeleteId === p.id ? (
+                    <div className="flex shrink-0 items-center gap-1">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="destructive"
+                        disabled={deleting}
+                        onClick={() => void handleDelete(p.id)}
+                      >
+                        {deleting ? '...' : 'Изтрий'}
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        disabled={deleting}
+                        onClick={() => setPendingDeleteId(null)}
+                      >
+                        Отказ
+                      </Button>
+                    </div>
+                  ) : (
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      className="h-8 w-8 shrink-0"
+                      aria-label={`Изтрий ${p.name}`}
+                      onClick={() => setPendingDeleteId(p.id)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  )}
+                </div>
               ))
             )}
+            {error && <p className="text-sm text-[var(--color-destructive)]">{error}</p>}
           </div>
         )}
       </DialogContent>

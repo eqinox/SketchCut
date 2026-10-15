@@ -18,6 +18,7 @@ import {
   DEFAULT_RAIL_WIDTH,
   emptyLabor,
   edges,
+  flushCarcassDepth,
   kitchenClearInnerH,
   parseKitchenTopStyle,
   type CabinetGeneratorResult,
@@ -96,8 +97,9 @@ export function generateKitchenBase(
   const hardwareSettings = (settings as { hardware?: HardwareSettings; assemblyTime?: AssemblyTimeSettings })?.hardware ?? DEFAULT_HARDWARE_SETTINGS
   const assemblyTimeSettings = (settings as { hardware?: HardwareSettings; assemblyTime?: AssemblyTimeSettings })?.assemblyTime ?? DEFAULT_ASSEMBLY_TIME_SETTINGS
   const p = parseKitchenBaseParams(raw)
+  const depth = flushCarcassDepth(p.depth, p.thickness, p.depthMode)
   const m = measureCarcass(
-    { width: p.width, height: p.height, depth: p.depth, thickness: p.thickness },
+    { width: p.width, height: p.height, depth, thickness: p.thickness },
     KITCHEN_BASE_JOINERY,
   )
 
@@ -109,7 +111,7 @@ export function generateKitchenBase(
   const bottomScrews = KITCHEN_BASE_SCREWS_BOTTOM
 
   const notes: string[] = [
-    `Корпус ${p.width} × ${p.height} × ${p.depth} мм, плоскост ${p.thickness} мм.`,
+    `Корпус ${p.width} × ${p.height} × ${depth} мм, плоскост ${p.thickness} мм.`,
     `Крачета ${p.legHeight} мм — обща височина от пода ${p.height + p.legHeight} мм.`,
     'Дъното покрива страниците: страниците сядат върху дъното, винтовете се виждат отдолу.',
   ]
@@ -131,7 +133,7 @@ export function generateKitchenBase(
     )
   }
 
-  if (p.topStyle === 'rails' && p.depth < p.railWidth * 2) {
+  if (p.topStyle === 'rails' && depth < p.railWidth * 2) {
     notes.push('Внимание: дълбочината е по-малка от двете бленди една до друга.')
   }
 
@@ -212,7 +214,7 @@ export function generateKitchenBase(
 
   const interior = appendZonedInterior(
     {
-      fittings: parseInteriorFittings(p, p.depth),
+      fittings: parseInteriorFittings(p, depth),
       innerW: m.innerW,
       innerH,
       sideD: m.sideD,
@@ -238,7 +240,7 @@ export function generateKitchenBase(
     panels,
     width: p.width,
     height: p.height,
-    depth: p.depth,
+    depth,
     hasLegs: p.legHeight > 0,
     hasTopRails: p.topStyle === 'rails',
     topRailPairCount: bayCount,

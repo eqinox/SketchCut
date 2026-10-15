@@ -23,7 +23,7 @@ import {
   sheetKind,
   normalizeSheet,
 } from '@/lib/cabinets'
-import { subscribeAuth, saveProject, loadProjects, loadUserSettings, saveUserSettings, getFirebaseInitError } from '@/lib/firebase'
+import { subscribeAuth, saveProject, loadProjects, deleteProject, loadUserSettings, saveUserSettings, getFirebaseInitError } from '@/lib/firebase'
 import { saveDraft, readInitialDraft, setLastProjectId } from '@/lib/draft-storage'
 import { loadSettings, saveSettings, resetSettings, type HardwareSettings } from '@/lib/settings'
 import {
@@ -246,6 +246,18 @@ function App() {
       setDbError(null)
     } catch (e) {
       showDbError('Грешка при запазване в Firestore', formatFirebaseError(e), 'saveProject')
+      throw e
+    }
+  }
+
+  const handleDeleteProject = async (id: string) => {
+    if (!user) return
+    try {
+      await deleteProject(user.uid, id)
+      setSavedProjects((prev) => prev.filter((p) => p.id !== id))
+      setDbError(null)
+    } catch (e) {
+      showDbError('Грешка при изтриване от Firestore', formatFirebaseError(e), 'deleteProject')
       throw e
     }
   }
@@ -613,6 +625,7 @@ function App() {
         }))}
         onSave={handleSaveProject}
         onLoad={handleLoadProject}
+        onDelete={handleDeleteProject}
         onError={(msg) => showDbError('Проект', msg, 'ProjectDialog')}
       />
     </div>

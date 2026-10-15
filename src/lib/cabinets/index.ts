@@ -1,10 +1,11 @@
-export { WORK_HOURS_PER_DAY, DEFAULT_PANEL_THICKNESS, DEFAULT_RAIL_WIDTH, DEFAULT_LEG_HEIGHT, DEFAULT_SHELF_FRONT_INSET, TOP_EDGE_BAND_MM, FASCIA_SETBACK_MM, frontDoorOverhang, parseKitchenTopStyle, parseBoxTopStyle, kitchenClearInnerH, panelHoleNote, panelHoleFits } from './types'
+export { WORK_HOURS_PER_DAY, DEFAULT_PANEL_THICKNESS, DEFAULT_RAIL_WIDTH, DEFAULT_LEG_HEIGHT, DEFAULT_SHELF_FRONT_INSET, TOP_EDGE_BAND_MM, FASCIA_SETBACK_MM, frontDoorOverhang, parseDepthMode, flushCarcassDepth, parseKitchenTopStyle, parseBoxTopStyle, kitchenClearInnerH, panelHoleNote, panelHoleFits } from './types'
 export type {
   CabinetCategory,
   CabinetDimensions,
   CabinetGeneratorResult,
   CabinetTypeDefinition,
   CabinetTopStyle,
+  DepthMode,
   GeneratedPanel,
   HardwareItem,
   JoineryConfig,
@@ -16,7 +17,7 @@ export type {
 } from './types'
 export type { CabinetInstance } from '@/types'
 
-export { clothesRailLengthMm, parseInteriorFittings, parseDimFontScale, DEFAULT_DIM_FONT_SCALE, DIM_FONT_SCALE_MIN, DIM_FONT_SCALE_MAX, appendHangingFascias } from './fronts'
+export { clothesRailLengthMm, parseInteriorFittings, parseDimFontScale, shelfFrontInsetMm, shelfPanelDepth, DEFAULT_DIM_FONT_SCALE, DIM_FONT_SCALE_MIN, DIM_FONT_SCALE_MAX, appendHangingFascias } from './fronts'
 export type { InteriorFittings } from './fronts'
 export { CABINET_TYPES, getCabinetType, generateCabinet, scaleCabinetResult, cabinetDisplayName } from './catalog'
 export { measureCarcass, evenShelfBottoms, evenShelfGap, KITCHEN_BASE_JOINERY, KITCHEN_WALL_JOINERY } from './joinery'

@@ -6,10 +6,10 @@ import {
   SCREW_5X60,
 } from './hardware'
 import { KITCHEN_WALL_JOINERY, measureCarcass } from './joinery'
-import { appendHardboard, appendZonedInterior, parseInteriorFittings } from './fronts'
+import { appendHardboard, appendZonedInterior, parseInteriorFittings, shelfFrontInsetMm, shelfPanelDepth } from './fronts'
 import {
   DEFAULT_PANEL_THICKNESS,
-  DEFAULT_SHELF_FRONT_INSET,
+  flushCarcassDepth,
   emptyLabor,
   edges,
   panelHoleFits,
@@ -141,7 +141,8 @@ export function generateKitchenWall(
 ): CabinetGeneratorResult {
   const hardwareSettings = (settings as { hardware?: HardwareSettings; assemblyTime?: AssemblyTimeSettings })?.hardware ?? DEFAULT_HARDWARE_SETTINGS
   const assemblyTimeSettings = (settings as { hardware?: HardwareSettings; assemblyTime?: AssemblyTimeSettings })?.assemblyTime ?? DEFAULT_ASSEMBLY_TIME_SETTINGS
-  const p = parseKitchenWallParams(raw)
+  const parsed = parseKitchenWallParams(raw)
+  const p = { ...parsed, depth: flushCarcassDepth(parsed.depth, parsed.thickness, parsed.depthMode) }
   const m = measureCarcass(
     { width: p.width, height: p.height, depth: p.depth, thickness: p.thickness },
     KITCHEN_WALL_JOINERY,
@@ -151,7 +152,7 @@ export function generateKitchenWall(
   const bottomScrews = perEnd * 2
   const topScrews = perEnd * 2
   const bottomHole = wallBottomHole(p, m.bottomW, m.bottomD)
-  const shelfDepth = Math.max(p.thickness, m.sideD - DEFAULT_SHELF_FRONT_INSET)
+  const shelfDepth = shelfPanelDepth(m.sideD, p.thickness, shelfFrontInsetMm(p))
   const shelfHole = wallShelfHole(p, m.innerW, shelfDepth)
 
   const notes: string[] = [

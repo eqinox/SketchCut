@@ -11,9 +11,9 @@ import {
   DEFAULT_LEG_HEIGHT,
   DEFAULT_PANEL_THICKNESS,
   DEFAULT_RAIL_WIDTH,
-  DEFAULT_SHELF_FRONT_INSET,
   emptyLabor,
   edges,
+  flushCarcassDepth,
   frontDoorOverhang,
   parseBoxTopStyle,
   type CabinetGeneratorResult,
@@ -35,13 +35,12 @@ import {
   appendHangingFascias,
   appendZonedInterior,
   parseInteriorFittings,
+  shelfFrontInsetMm,
+  shelfPanelDepth,
   type InteriorFittings,
 } from './fronts'
-import { cabinetColumns, resolvePartitions } from './zones'
-import {
-  SLIDING_PARTITION_SETBACK_MM,
-  SLIDING_SHELF_FROM_PARTITION_MM,
-} from './sliding-doors'
+import { cabinetColumns, fittingsCountsFromParams, resolvePartitions } from './zones'
+import { SLIDING_PARTITION_SETBACK_MM } from './sliding-doors'
 
 export const NIGHTSTAND_TYPE_ID = 'nightstand'
 
@@ -138,6 +137,33 @@ export const DEFAULT_NIGHTSTAND_PARAMS: NightstandParams = {
   colors: { ...DEFAULT_PART_COLORS },
 }
 
+/**
+ * Overlay door or drawer front sits in front of the sides.
+ * Inner fronts and an open cabinet do not, so the sides keep the full depth.
+ */
+export function plinthFrontOverhang(
+  f: Parameters<typeof fittingsCountsFromParams>[0] & {
+    doorStyle?: string
+    innerDoors?: boolean
+    innerDrawerFronts?: boolean
+    depthMode?: 'without-door' | 'with-door' | 'no-doors'
+  },
+  thickness: number,
+): number {
+  if (f.doorStyle === 'sliding') return 0
+  const counts = fittingsCountsFromParams(f)
+  const overlayDoor = !f.innerDoors && counts.doorCount > 0
+  const overlayDrawer = !f.innerDrawerFronts && counts.drawerCount > 0
+  if (f.depthMode === 'with-door') {
+    if (f.innerDoors && overlayDoor && !overlayDrawer) return 0
+    return frontDoorOverhang(thickness)
+  }
+  if (f.depthMode === 'without-door' || f.depthMode === 'no-doors') {
+    return overlayDrawer ? frontDoorOverhang(thickness) : 0
+  }
+  return overlayDoor || overlayDrawer ? frontDoorOverhang(thickness) : 0
+}
+
 export function parseNightstandParams(raw: Record<string, unknown>): NightstandParams {
   const d = DEFAULT_NIGHTSTAND_PARAMS
   const num = (key: keyof NightstandParams, fallback: number) => {
@@ -148,8 +174,12 @@ export function parseNightstandParams(raw: Record<string, unknown>): NightstandP
   const depth = num('depth', d.depth)
   const thickness = num('thickness', d.thickness)
   const sliding = raw.doorStyle === 'sliding'
-  const sideD = sliding ? Math.max(thickness, depth) : Math.max(thickness, depth - frontDoorOverhang(thickness))
+  const provisional = parseInteriorFittings(raw, Math.max(thickness, depth))
+  const boxDepth = sliding ? flushCarcassDepth(depth, thickness, provisional.depthMode) : depth
+  const sideD = Math.max(thickness, boxDepth - plinthFrontOverhang(provisional, thickness))
   const slideDepth = sliding ? Math.max(thickness, sideD - SLIDING_PARTITION_SETBACK_MM) : sideD
+  const fittings =
+    slideDepth === Math.max(thickness, depth) ? provisional : parseInteriorFittings(raw, slideDepth)
   return {
     width: num('width', d.width),
     height: num('height', d.height),
@@ -161,7 +191,7 @@ export function parseNightstandParams(raw: Record<string, unknown>): NightstandP
     legHeight: leg === 150 ? 150 : 100,
     topStyle: parseBoxTopStyle(raw.topStyle),
     railWidth: num('railWidth', d.railWidth),
-    ...parseInteriorFittings(raw, slideDepth),
+    ...fittings,
     colors: parsePartColors(raw.colors),
   }
 }
@@ -172,16 +202,15 @@ export function measureNightstand(p: NightstandParams, topInner = false) {
   const coveringTop = hasTopPanel && !topInner
   const innerTopPanel = hasTopPanel && topInner
   const sliding = p.doorStyle === 'sliding'
-  const frontOverhang = sliding ? 0 : frontDoorOverhang(T)
-  const sideD = sliding ? Math.max(T, p.depth) : Math.max(T, p.depth - frontOverhang)
+  const boxDepth = sliding ? flushCarcassDepth(p.depth, T, p.depthMode) : p.depth
+  const frontOverhang = plinthFrontOverhang(p, T)
+  const sideD = Math.max(T, boxDepth - frontOverhang)
   const partitionD = sliding ? Math.max(T, sideD - SLIDING_PARTITION_SETBACK_MM) : sideD
-  const shelfD = sliding
-    ? Math.max(T, partitionD - SLIDING_SHELF_FROM_PARTITION_MM)
-    : Math.max(T, sideD - DEFAULT_SHELF_FRONT_INSET)
+  const shelfD = shelfPanelDepth(sliding ? partitionD : sideD, T, shelfFrontInsetMm(p))
   const topW = innerTopPanel ? p.width - 2 * T : p.width
-  const topD = innerTopPanel ? sideD : p.depth
+  const topD = innerTopPanel ? sideD : boxDepth
   const bottomW = p.useLegs ? p.width : p.width - 2 * T
-  const bottomD = p.useLegs ? p.depth : sideD
+  const bottomD = p.useLegs ? boxDepth : sideD
   const supportH = p.useLegs ? p.legHeight : p.plinthHeight
   const sideH = innerTopPanel
     ? p.height
@@ -229,6 +258,20 @@ export function measureNightstand(p: NightstandParams, topInner = false) {
   }
 }
 
+function sideDepthNote(
+  p: NightstandParams,
+  m: ReturnType<typeof measureNightstand>,
+  coveringTop: boolean,
+): string {
+  if (m.sliding) {
+    return `Страниците са ${m.sideD} мм дълбоки — плъзгащите врати минават отпред между тях (разделители ${m.partitionD} мм, рафтове ${m.shelfD} мм).`
+  }
+  if (m.frontOverhang > 0) {
+    return `Страниците са ${m.sideD} мм дълбоки — общата дълбочина ${p.depth} мм включва врата/чело ${p.thickness} мм + 2 мм кант${coveringTop ? ' на плота' : ''}.`
+  }
+  return `Страниците са ${m.sideD} мм дълбоки — без наложена врата и чело отпред, дълбочината ${p.depth} мм е на корпуса.`
+}
+
 export function generateNightstand(
   raw: Record<string, unknown>,
   settings?: unknown,
@@ -260,15 +303,17 @@ export function generatePlinthCabinet(
   if (p.useLegs) {
     notes.push(
       `Дъното е външно (${m.bottomW} × ${m.bottomD} мм), страниците влизат в него.`,
-      `Страниците са ${m.sideD} мм дълбоки — общата дълбочина ${p.depth} мм включва врата/чело ${p.thickness} мм + 2 мм кант.`,
+      sideDepthNote(p, m, coveringTop),
     )
     if (coveringTop) {
-      notes.push(
-        `Плотът е външен върху страниците (${m.topW} × ${m.topD} мм).`,
-        'Плотът и дъното стърчат отпред — вратата/челото стига до долната страна на плота и до горната на дъното, кантовете остават видими.',
-        'Плотът се хваща отвътре с 4 ъгълчета, без винтове 5×60 през горната страна.',
-      )
-    } else {
+      notes.push(`Плотът е външен върху страниците (${m.topW} × ${m.topD} мм).`)
+      if (m.frontOverhang > 0) {
+        notes.push(
+          'Плотът и дъното стърчат отпред — вратата/челото стига до долната страна на плота и до горната на дъното, кантовете остават видими.',
+        )
+      }
+      notes.push('Плотът се хваща отвътре с 4 ъгълчета, без винтове 5×60 през горната страна.')
+    } else if (m.frontOverhang > 0) {
       notes.push('Дъното стърчи отпред — вратата/челото стига до горната му страна, кантът остава видим.')
     }
     notes.push(`4 крачета ${p.legHeight} мм под дъното. Винтове 5×60 отдолу през дъното в страниците.`)
@@ -277,11 +322,7 @@ export function generatePlinthCabinet(
       hasTopPanel
         ? `Страниците са външни на дъното и на плота (${m.bottomW} мм между тях). Плотът влиза между страниците (${m.topW} × ${m.topD} мм).`
         : `Страниците са външни на дъното (${m.bottomW} мм между тях). Без плот — отворен корпус отгоре.`,
-      `Страниците са ${m.sideD} мм дълбоки — ${
-        m.sliding
-          ? `плъзгащите врати минават отпред между тях (разделители ${m.partitionD} мм, рафтове ${m.shelfD} мм).`
-          : `общата дълбочина ${p.depth} мм включва врата/чело ${p.thickness} мм + 2 мм кант.`
-      }`,
+      sideDepthNote(p, m, false),
     )
     if (innerTop) {
       notes.push('Плотът се хваща с винтове 5×60 през страниците, без ъгълчета.')
@@ -298,17 +339,13 @@ export function generatePlinthCabinet(
       coveringTop
         ? `Страниците са външни на дъното (${m.bottomW} мм между тях). Плотът е външен върху страниците (${m.topW} × ${m.topD} мм).`
         : `Страниците са външни на дъното (${m.bottomW} мм между тях). Без плот — отворен корпус отгоре.`,
-      `Страниците са ${m.sideD} мм дълбоки — ${
-        m.sliding
-          ? `плъзгащите врати минават отпред между тях (разделители ${m.partitionD} мм, рафтове ${m.shelfD} мм).`
-          : `общата дълбочина ${p.depth} мм включва врата/чело ${p.thickness} мм + 2 мм кант${coveringTop ? ' на плота' : ''}.`
-      }`,
+      sideDepthNote(p, m, coveringTop),
     )
     if (coveringTop) {
-      notes.push(
-        'Плотът стърчи отпред — вратата/челото стига до долната му страна, кантът на плота остава видим.',
-        'Плотът се хваща отвътре с 4 ъгълчета, без винтове 5×60 през горната страна.',
-      )
+      if (m.frontOverhang > 0) {
+        notes.push('Плотът стърчи отпред — вратата/челото стига до долната му страна, кантът на плота остава видим.')
+      }
+      notes.push('Плотът се хваща отвътре с 4 ъгълчета, без винтове 5×60 през горната страна.')
     }
     notes.push(
       'Цокъл с канта надолу, дъното върху него, пробив отгоре през дъното. После дъното между страниците.',

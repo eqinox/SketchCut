@@ -50,7 +50,7 @@ import {
   hardboardCutSize,
   type DoorCount,
 } from './materials'
-import { DEFAULT_SHELF_FRONT_INSET, FASCIA_SETBACK_MM, edges, panelHoleFits, panelHoleNote, type GeneratedPanel, type HardwareItem, type PanelHole } from './types'
+import { DEFAULT_SHELF_FRONT_INSET, FASCIA_SETBACK_MM, edges, panelHoleFits, panelHoleNote, parseDepthMode, type DepthMode, type GeneratedPanel, type HardwareItem, type PanelHole } from './types'
 import type { HardwareSettings } from '@/lib/settings'
 import { exactMm, formatMm } from '../utils'
 import {
@@ -148,11 +148,37 @@ export interface InteriorFittings {
   innerDoors: boolean
   /** Scale for millimetre labels on the cabinet drawing. 1 = current default size. */
   dimFontScale: number
+  /**
+   * `with-door`: the typed depth includes an overlay door.
+   * `without-door`: the typed depth is the carcass.
+   * `no-doors`: the cabinet has no doors.
+   * Missing on older cabinets: an overlay front still shortens a hinged carcass.
+   */
+  depthMode?: DepthMode
+  /**
+   * How many mm shallower a shelf is than the side it sits against.
+   * Missing: 50 mm on a normal carcass, 10 mm behind a sliding partition.
+   */
+  shelfFrontInset?: number
 }
 
 export const DEFAULT_DIM_FONT_SCALE = 1
 export const DIM_FONT_SCALE_MIN = 0.5
 export const DIM_FONT_SCALE_MAX = 2
+
+/** Millimetres a shelf is set back from the side (or sliding partition) in front of it. */
+export function shelfFrontInsetMm(raw: object | null | undefined): number {
+  const rec = raw as { shelfFrontInset?: unknown; doorStyle?: unknown } | null | undefined
+  const fallback = rec?.doorStyle === 'sliding' ? SLIDING_SHELF_FROM_PARTITION_MM : DEFAULT_SHELF_FRONT_INSET
+  const value = rec?.shelfFrontInset
+  const n = typeof value === 'number' ? value : typeof value === 'string' && value.trim() !== '' ? Number(value) : NaN
+  if (!Number.isFinite(n) || n < 0) return fallback
+  return Math.round(n)
+}
+
+export function shelfPanelDepth(referenceD: number, thickness: number, inset: number): number {
+  return Math.max(thickness, referenceD - Math.max(0, inset))
+}
 
 export function parseDimFontScale(raw: unknown): number {
   const n = typeof raw === 'number' ? raw : Number(raw)
@@ -224,6 +250,11 @@ export function parseInteriorFittings(raw: Record<string, unknown>, slideDepth: 
     innerDrawerFronts: raw.innerDrawerFronts === true,
     innerDoors: raw.innerDoors === true,
     dimFontScale: parseDimFontScale(raw.dimFontScale),
+    depthMode: parseDepthMode(raw.depthMode),
+    shelfFrontInset: shelfFrontInsetMm({
+      shelfFrontInset: raw.shelfFrontInset,
+      doorStyle: parseDoorStyle(raw.doorStyle),
+    }),
   }
 }
 
@@ -304,7 +335,8 @@ export function appendShelves(
   if (count <= 0) return
   const bottoms = evenShelfBottoms(input.innerH, count, input.thickness)
   const gap = bottoms[0] ?? 0
-  const shelfDepth = input.shelfDepth ?? input.sideD - DEFAULT_SHELF_FRONT_INSET
+  const shelfDepth = input.shelfDepth ?? Math.max(input.thickness, input.sideD - DEFAULT_SHELF_FRONT_INSET)
+  const frontInset = Math.max(0, Math.round(input.sideD - shelfDepth))
   const hole = input.hole && panelHoleFits(input.innerW, shelfDepth, input.hole) ? input.hole : undefined
   const where = input.zoneLabel ? `${input.zoneLabel}: ` : ''
   const name = input.zoneLabel ? `Рафт (${input.zoneLabel})` : 'Рафт'
@@ -315,7 +347,9 @@ export function appendShelves(
   )
   notes.push(
     input.depthNote ??
-      `Рафтът е с ${DEFAULT_SHELF_FRONT_INSET} мм по-къс от дълбочината (${shelfDepth} мм) — започва на 5 см отпред и стига дозад.`,
+      (frontInset > 0
+        ? `Рафтът е с ${frontInset} мм по-къс от страницата (${shelfDepth} мм) — започва на ${frontInset} мм отпред и стига дозад.`
+        : `Рафтът е ${shelfDepth} мм — наравно със страницата.`),
   )
   if (hole) {
     notes.push(`${where}${panelHoleNote(hole)}`)
@@ -339,8 +373,8 @@ export function appendShelves(
     canRotate: false,
     edges: edges({ top: true }),
     note: hole
-      ? `Кант: предната видима страна. Дълбочина ${shelfDepth} мм (корпусът минус 50 мм отпред). ${panelHoleNote(hole)}`
-      : `Кант: предната видима страна. Дълбочина ${shelfDepth} мм (корпусът минус 50 мм отпред).`,
+      ? `Кант: предната видима страна. Дълбочина ${shelfDepth} мм${frontInset > 0 ? ` (страницата минус ${frontInset} мм отпред)` : ''}. ${panelHoleNote(hole)}`
+      : `Кант: предната видима страна. Дълбочина ${shelfDepth} мм${frontInset > 0 ? ` (страницата минус ${frontInset} мм отпред)` : ''}.`,
     hole,
   })
 }
@@ -1017,7 +1051,9 @@ export function appendZonedInterior(
   const sliding = f.doorStyle === 'sliding'
   const boughtDoors = f.externalDoors || hardwareSettings.externalDoors
   const partitionD = input.partitionD ?? input.sideD
-  const shelfD = input.shelfD ?? input.sideD - DEFAULT_SHELF_FRONT_INSET
+  const shelfReferenceD = sliding ? partitionD : input.sideD
+  const shelfD = input.shelfD ?? shelfPanelDepth(shelfReferenceD, input.thickness, shelfFrontInsetMm(f))
+  const shelfInset = Math.max(0, Math.round(shelfReferenceD - shelfD))
   const layout = layoutInterior({
     innerH: input.innerH,
     innerW: input.innerW,
@@ -1043,11 +1079,13 @@ export function appendZonedInterior(
   const zoneNote = zoned ? 'zoned' : undefined
   const columnInnerWs = layout.columns.map((c) => c.innerW)
   const slidingShelfNote = sliding
-    ? `Рафтът е ${formatMm(shelfD)} мм дълбок — с ${SLIDING_SHELF_FROM_PARTITION_MM} мм по-плитък от разделителната страница.`
+    ? `Рафтът е ${formatMm(shelfD)} мм дълбок — с ${formatMm(shelfInset)} мм по-плитък от разделителната страница.`
     : undefined
-  const slidingFixedNote = sliding
-    ? `Дълбочина ${formatMm(shelfD)} мм — с ${SLIDING_SHELF_FROM_PARTITION_MM} мм по-плитък от разделителната страница.`
-    : undefined
+  const fixedDepthNote = sliding
+    ? `Дълбочина ${formatMm(shelfD)} мм — с ${formatMm(shelfInset)} мм по-плитък от разделителната страница.`
+    : shelfInset > 0
+      ? `Дълбочина ${formatMm(shelfD)} мм — с ${formatMm(shelfInset)} мм по-плитък от страницата.`
+      : 'Пълна дълбочина, без отстъп отпред.'
 
   if (layout.partitions.length > 0) {
     const pos = layout.partitions.map((p) => partitionMeasureLabel(p)).join(' и ')
@@ -1079,7 +1117,7 @@ export function appendZonedInterior(
         columnInnerWs,
         shelfColumns: layout.shelves.map((s) => s.columnIndex ?? null),
         hole: input.shelfHole,
-        depthNote: slidingFixedNote,
+        depthNote: fixedDepthNote,
       },
       panels,
       hardware,
@@ -1096,7 +1134,7 @@ export function appendZonedInterior(
         placements: z.movable,
         innerW: z.innerW > 0 ? z.innerW : input.innerW,
         innerH: z.innerH,
-        sideD: input.sideD,
+        sideD: shelfReferenceD,
         thickness: input.thickness,
         zoneLabel: label,
         hole: input.shelfHole,

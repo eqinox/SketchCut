@@ -30,13 +30,19 @@ export const DEFAULT_WARDROBE_PARAMS: WardrobeParams = {
 }
 
 export function parseWardrobeParams(raw: Record<string, unknown>): WardrobeParams {
-  const merged = { ...DEFAULT_WARDROBE_PARAMS, ...raw }
+  const noDoors = raw.depthMode === 'no-doors'
+  const merged = {
+    ...DEFAULT_WARDROBE_PARAMS,
+    ...raw,
+    doorStyle: noDoors ? 'hinged' : 'sliding',
+    doorCount: noDoors ? 0 : 2,
+  }
   return {
     ...parseNightstandParams(merged),
     useLegs: false,
-    doorStyle: 'sliding',
-    doorCount: 2,
-    slidingEdges: parseSlidingEdges(raw.slidingEdges ?? merged.slidingEdges, 2),
+    doorStyle: noDoors ? 'hinged' : 'sliding',
+    doorCount: noDoors ? 0 : 2,
+    slidingEdges: parseSlidingEdges(raw.slidingEdges ?? merged.slidingEdges, noDoors ? 0 : 2),
   }
 }
 
@@ -44,11 +50,22 @@ export function generateWardrobe(
   raw: Record<string, unknown>,
   settings?: unknown,
 ): CabinetGeneratorResult {
-  return generatePlinthCabinet({ ...DEFAULT_WARDROBE_PARAMS, ...raw, useLegs: false, doorStyle: 'sliding', doorCount: 2 }, settings, {
-    topInner: true,
-    label: 'Гардероб с плъзгащи врати',
-    forcePlinth: true,
-  })
+  const noDoors = raw.depthMode === 'no-doors'
+  return generatePlinthCabinet(
+    {
+      ...DEFAULT_WARDROBE_PARAMS,
+      ...raw,
+      useLegs: false,
+      doorStyle: noDoors ? 'hinged' : 'sliding',
+      doorCount: noDoors ? 0 : 2,
+    },
+    settings,
+    {
+      topInner: true,
+      label: 'Гардероб с плъзгащи врати',
+      forcePlinth: true,
+    },
+  )
 }
 
 export const wardrobeType: CabinetTypeDefinition = {

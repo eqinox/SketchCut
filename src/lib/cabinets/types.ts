@@ -20,6 +20,22 @@ export const TOP_EDGE_BAND_MM = 2
 export function frontDoorOverhang(thickness: number): number {
   return thickness + TOP_EDGE_BAND_MM
 }
+
+/** Whether the typed depth includes an overlay door, or the cabinet has none. */
+export type DepthMode = 'without-door' | 'with-door' | 'no-doors'
+
+export function parseDepthMode(value: unknown): DepthMode | undefined {
+  return value === 'with-door' || value === 'without-door' || value === 'no-doors' ? value : undefined
+}
+
+/**
+ * Kitchen and sliding carcasses are flush, so a depth typed together with the
+ * door is the finished size and the box itself is shorter by the door.
+ */
+export function flushCarcassDepth(depth: number, thickness: number, mode: unknown): number {
+  if (mode !== 'with-door') return depth
+  return Math.max(thickness, depth - frontDoorOverhang(thickness))
+}
 /** Lower kitchen shelves start this far back from the front edge. */
 export const DEFAULT_SHELF_FRONT_INSET = 50
 
