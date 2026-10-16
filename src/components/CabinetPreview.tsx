@@ -824,23 +824,265 @@ function RemainingHeightDimLines({
   )
 }
 
+type DimBox = { x: number; y: number; w: number; h: number }
+
+function dimLabelBox(cx: number, cy: number, label: string, fontSize: number, rotated: boolean): DimBox {
+  const along = Math.max(fontSize * 0.95, fontSize * 0.68 * label.length)
+  const across = fontSize * 1.15
+  if (rotated) return { x: cx - across / 2, y: cy - along / 2, w: across, h: along }
+  return { x: cx - along / 2, y: cy - across / 2, w: along, h: across }
+}
+
+function dimBoxesOverlap(a: DimBox, b: DimBox, gap = 8): boolean {
+  return a.x < b.x + b.w + gap && a.x + a.w + gap > b.x && a.y < b.y + b.h + gap && a.y + a.h + gap > b.y
+}
+
+/** Extra viewBox under the cabinet, only when a width number could not stay inside. */
+function widthDimPad(fontSize: number, rows: number): number {
+  const pitch = Math.max(48, fontSize * 1.35)
+  const n = Math.max(1, rows)
+  return Math.max(28, fontSize * 0.45) + (n - 1) * pitch + fontSize * 1.25
+}
+
+function widthDimInsideY(innerFloorY: number, fontSize: number, trackMm = 0): number {
+  return innerFloorY - trackMm - Math.max(44, fontSize * 0.4)
+}
+
+function heightDimBoxes(
+  layout: InteriorLayout,
+  innerFloorY: number,
+  T: number,
+  fontSize: number,
+  cam: ReturnType<typeof createDrawCam>,
+  originZ = 0,
+  shelfZ = 0,
+  railZ = 0,
+): DimBox[] {
+  const worldX0 = T + Math.max(28, fontSize * 0.32)
+  const specs = heightDimSpecs(layout, {
+    originZ,
+    shelfZ,
+    railZ,
+    shiftRightColumns: columnsWithDrawers(layout),
+  })
+  const xs = placeHeightDimX(specs, layout.columns, worldX0, fontSize)
+  return specs.map((d) => {
+    const worldX = xs.get(d.id) ?? worldX0
+    const a = cam.proj(worldX, innerFloorY - d.y0, d.originZ)
+    const b = cam.proj(worldX, innerFloorY - d.y1, d.endZ)
+    const labelFont = d.id.startsWith('rail-') ? Math.max(18, fontSize * 0.58) : fontSize
+    return dimLabelBox((a.x + b.x) / 2, (a.y + b.y) / 2, mm(d.offsetMm), labelFont, true)
+  })
+}
+
+type WidthLabelPlace = {
+  startX: number
+  endX: number
+  offsetMm: number
+  flat: boolean
+  yy: number
+  labelX: number
+  labelY: number
+  font: number
+  outside: boolean
+}
+
+/** A shelf face the width number can sit on, instead of leaving the cabinet. */
+type ShelfSeat = {
+  x0: number
+  x1: number
+  /** World Y of the top face. */
+  yTop: number
+  z: number
+}
+
+function shelfSeats(
+  layout: InteriorLayout,
+  innerLeft: number,
+  innerFloorY: number,
+  z: number,
+): ShelfSeat[] {
+  const seats: ShelfSeat[] = []
+  layout.columns.forEach((col, colIndex) => {
+    if (!(col.innerW > 0)) return
+    for (const s of shelvesForColumn(layout.shelves, colIndex)) {
+      seats.push({
+        x0: innerLeft + col.x0,
+        x1: innerLeft + col.x1,
+        yTop: innerFloorY - s.yTop,
+        z,
+      })
+    }
+    for (const zone of layout.zones) {
+      if (zone.colIndex !== colIndex) continue
+      for (const s of zone.movable) {
+        seats.push({
+          x0: innerLeft + zone.x0,
+          x1: innerLeft + zone.x1,
+          yTop: innerFloorY - s.yTop,
+          z,
+        })
+      }
+    }
+  })
+  return seats
+}
+
+function placePartitionDimLabels(input: {
+  partitions: InteriorLayout['partitions']
+  leftovers: { startX: number; endX: number; offsetMm: number }[]
+  cam: ReturnType<typeof createDrawCam>
+  innerLeft: number
+  insideY: number
+  outsideY: number
+  z?: number
+  zAtX?: (x: number) => number
+  leftoverZ?: number
+  fontSize: number
+  obstacles: DimBox[]
+  shelves?: ShelfSeat[]
+}): { places: WidthLabelPlace[]; outsideRows: number } {
+  const depth = (x: number) => input.zAtX?.(x) ?? input.z ?? 0
+  const leftoverDepth = input.leftoverZ ?? input.z ?? 0
+  const raw = [
+    ...input.partitions
+      .filter((p) => p.from !== 'middle')
+      .map((p) => ({ startX: p.startX, endX: p.endX, offsetMm: p.offsetMm, flat: false })),
+    ...input.leftovers.map((p) => ({ ...p, flat: true })),
+  ]
+  const obstacles = [...input.obstacles]
+  let outsideRows = 0
+  const places: WidthLabelPlace[] = raw.map((p) => {
+    const za = depth(p.startX)
+    const zb = depth(p.endX)
+    const a = input.cam.proj(input.innerLeft + p.startX, input.insideY, za)
+    const b = input.cam.proj(input.innerLeft + p.endX, input.insideY, zb)
+    const centerX = (a.x + b.x) / 2
+    const lineY = p.flat
+      ? (input.cam.proj(input.innerLeft + p.startX, input.insideY, leftoverDepth).y +
+          input.cam.proj(input.innerLeft + p.endX, input.insideY, leftoverDepth).y) /
+        2
+      : (a.y + b.y) / 2
+    const spanLo = Math.min(a.x, b.x)
+    const spanHi = Math.max(a.x, b.x)
+    const label = mm(p.offsetMm)
+    const worldA = input.innerLeft + p.startX
+    const worldB = input.innerLeft + p.endX
+    const spanMid = (worldA + worldB) / 2
+    const spanW = Math.max(1, Math.abs(worldB - worldA))
+    const seats = (input.shelves ?? [])
+      .filter((s) => {
+        const overlap = Math.min(worldB, s.x1) - Math.max(worldA, s.x0)
+        const shelfW = Math.max(1, s.x1 - s.x0)
+        return overlap >= Math.min(spanW, shelfW) * 0.6
+      })
+      .sort((left, right) => {
+        const dy = right.yTop - left.yTop
+        if (Math.abs(dy) > 1) return dy
+        const lc = (left.x0 + left.x1) / 2
+        const rc = (right.x0 + right.x1) / 2
+        return Math.abs(lc - spanMid) - Math.abs(rc - spanMid)
+      })
+    const keep = (x: number, labelY: number, font: number) => {
+      obstacles.push(dimLabelBox(x, labelY, label, font, false))
+      return { ...p, yy: input.insideY, labelX: x, labelY, font, outside: false }
+    }
+    const onFloor = (font: number) => {
+      const labelY = lineY - font * 0.62
+      const slack = font * 0.45
+      const x = fitLabelX(centerX, labelY, label, font, obstacles, spanLo - slack, spanHi + slack)
+      return x == null ? null : keep(x, labelY, font)
+    }
+    const onShelf = (font: number) => {
+      for (const seat of seats) {
+        const sa = input.cam.proj(seat.x0, seat.yTop, seat.z)
+        const sb = input.cam.proj(seat.x1, seat.yTop, seat.z)
+        const mid = input.cam.proj((seat.x0 + seat.x1) / 2, seat.yTop, seat.z)
+        const labelY = mid.y - font * 0.45
+        const x = fitLabelX(
+          mid.x,
+          labelY,
+          label,
+          font,
+          obstacles,
+          Math.min(sa.x, sb.x),
+          Math.max(sa.x, sb.x),
+        )
+        if (x != null) return keep(x, labelY, font)
+      }
+      return null
+    }
+    const full = onFloor(input.fontSize) ?? onShelf(input.fontSize)
+    if (full) return full
+    for (const scale of [0.9, 0.8]) {
+      const font = input.fontSize * scale
+      const shrunk = onFloor(font) ?? onShelf(font)
+      if (shrunk) return shrunk
+    }
+    const pitch = Math.max(48, input.fontSize * 1.35)
+    for (let row = 0; row < 4; row += 1) {
+      const yy = input.outsideY + row * pitch
+      const font = input.fontSize
+      const labelY = yy + font * 0.62
+      const x = fitLabelX(centerX, labelY, label, font, obstacles, spanLo - font, spanHi + font)
+      if (x != null) {
+        outsideRows = Math.max(outsideRows, row + 1)
+        obstacles.push(dimLabelBox(x, labelY, label, font, false))
+        return { ...p, yy, labelX: x, labelY, font, outside: true }
+      }
+    }
+    outsideRows = Math.max(outsideRows, 1)
+    const yy = input.outsideY
+    const labelY = yy + input.fontSize * 0.62
+    return { ...p, yy, labelX: centerX, labelY, font: input.fontSize, outside: true }
+  })
+  return { places, outsideRows }
+}
+
+function fitLabelX(
+  centerX: number,
+  labelY: number,
+  label: string,
+  font: number,
+  obstacles: DimBox[],
+  lo: number,
+  hi: number,
+): number | null {
+  const step = Math.max(8, font * 0.22)
+  const reach = Math.max(Math.abs(hi - centerX), Math.abs(centerX - lo), step)
+  const xs = [centerX]
+  for (let d = step; d <= reach + 0.1; d += step) xs.push(centerX + d, centerX - d)
+  for (const x of xs) {
+    if (x < Math.min(lo, hi) || x > Math.max(lo, hi)) continue
+    const box = dimLabelBox(x, labelY, label, font, false)
+    if (!obstacles.some((o) => dimBoxesOverlap(box, o))) return x
+  }
+  return null
+}
+
 function PartitionDimLines({
   partitions,
   leftovers = [],
   cam,
   innerLeft,
-  y,
+  insideY,
+  outsideY,
   anchorY,
   z = 0,
   zAtX,
   leftoverZ,
   fontSize,
+  obstacles = [],
+  shelves = [],
 }: {
   partitions: InteriorLayout['partitions']
   leftovers?: { startX: number; endX: number; offsetMm: number }[]
   cam: ReturnType<typeof createDrawCam>
   innerLeft: number
-  y: number
+  /** Dimension line inside the cabinet, just above the inner floor. */
+  insideY: number
+  /** Used only when a number still overlaps after a sideways move and a smaller font. */
+  outsideY: number
   /** Inner floor — extension lines drop to the measured faces here. */
   anchorY: number
   z?: number
@@ -849,40 +1091,46 @@ function PartitionDimLines({
   /** Leftover opening dims stay on one plane so the line is straight. */
   leftoverZ?: number
   fontSize: number
+  obstacles?: DimBox[]
+  shelves?: ShelfSeat[]
 }) {
   const tick = Math.max(14, fontSize * 0.18)
-  const stagger = Math.max(48, fontSize * 0.7)
   const sw = Math.max(5, Math.min(8, fontSize * 0.045))
-  const leftoverDepth = leftoverZ ?? z
-  const spans = [
-    ...partitions
-      .filter((p) => p.from !== 'middle')
-      .map((p, i) => ({ startX: p.startX, endX: p.endX, offsetMm: p.offsetMm, row: i, flat: false })),
-    ...leftovers.map((p) => ({ ...p, row: 0, flat: true })),
-  ]
   const depth = (x: number) => zAtX?.(x) ?? z
+  const leftoverDepth = leftoverZ ?? z
+  const { places } = placePartitionDimLabels({
+    partitions,
+    leftovers,
+    cam,
+    innerLeft,
+    insideY,
+    outsideY,
+    z,
+    zAtX,
+    leftoverZ,
+    fontSize,
+    obstacles,
+    shelves,
+  })
   return (
     <>
-      {spans.map((p, i) => {
-        const yy = y - p.row * stagger
+      {places.map((p, i) => {
         const za = depth(p.startX)
         const zb = depth(p.endX)
         const a = p.flat
           ? {
-              x: cam.proj(innerLeft + p.startX, yy, za).x,
-              y: cam.proj(innerLeft + p.startX, yy, leftoverDepth).y,
+              x: cam.proj(innerLeft + p.startX, p.yy, za).x,
+              y: cam.proj(innerLeft + p.startX, p.yy, leftoverDepth).y,
             }
-          : cam.proj(innerLeft + p.startX, yy, za)
+          : cam.proj(innerLeft + p.startX, p.yy, za)
         const b = p.flat
           ? {
-              x: cam.proj(innerLeft + p.endX, yy, zb).x,
-              y: cam.proj(innerLeft + p.endX, yy, leftoverDepth).y,
+              x: cam.proj(innerLeft + p.endX, p.yy, zb).x,
+              y: cam.proj(innerLeft + p.endX, p.yy, leftoverDepth).y,
             }
-          : cam.proj(innerLeft + p.endX, yy, zb)
+          : cam.proj(innerLeft + p.endX, p.yy, zb)
         const footA = cam.proj(innerLeft + p.startX, anchorY, za)
         const footB = cam.proj(innerLeft + p.endX, anchorY, zb)
-        const midX = (a.x + b.x) / 2
-        const midY = (a.y + b.y) / 2 - fontSize * 0.62
         const dx = b.x - a.x
         const dy = b.y - a.y
         const len = Math.hypot(dx, dy) || 1
@@ -895,7 +1143,7 @@ function PartitionDimLines({
             <line x1={a.x - nx} y1={a.y - ny} x2={a.x + nx} y2={a.y + ny} strokeWidth={sw} />
             <line x1={b.x - nx} y1={b.y - ny} x2={b.x + nx} y2={b.y + ny} strokeWidth={sw} />
             <DimLine x1={a.x} y1={a.y} x2={b.x} y2={b.y} strokeWidth={sw} />
-            <DimText x={midX} y={midY} label={mm(p.offsetMm)} fontSize={fontSize} fill={DRAW_DIM} />
+            <DimText x={p.labelX} y={p.labelY} label={mm(p.offsetMm)} fontSize={p.font} fill={DRAW_DIM} />
           </g>
         )
       })}
@@ -1622,11 +1870,9 @@ function Front3DView({
     p.topStyle === 'rails' ? [] : openingWidthSpans(layout.partitions, layout.columns)
   const innerClearH = kitchenClearInnerH(p.height, p.thickness, p.topStyle)
   const openingHeights = remainingHeightSpans(layout, innerClearH)
-  const padB = 36
 
   const totalH = H + L
   const vbW = padL + W + dx + padR
-  const vbH = padT + totalH + padB
   const ox = padL
   const floor = padT + totalH
   const topY = floor - L - H
@@ -1658,6 +1904,36 @@ function Front3DView({
   const zShelfFront = shelfFrontInsetMm(p)
   const shelfDepth = shelfPanelDepth(D, T, zShelfFront)
   const innerFloorY = floor - L - T
+  const widthInsideY = widthDimInsideY(innerFloorY, railFont)
+  const widthOutsideY = floor + Math.max(28, railFont * 0.45)
+  const widthAvoid = [
+    ...heightDimBoxes(layout, innerFloorY, T, railFont, view, 0, zShelfFront, 0),
+    ...(showOpeningDims
+      ? openingHeights.map((s) => {
+          const x = T + (s.x0 + s.x1) / 2
+          const a = view.proj(x, innerFloorY - s.startY, 0)
+          const b = view.proj(x, innerFloorY - s.endY, 0)
+          return dimLabelBox((a.x + b.x) / 2, (a.y + b.y) / 2, mm(s.offsetMm), railFont, true)
+        })
+      : []),
+  ]
+  const widthLabels = placePartitionDimLabels({
+    partitions: layout.partitions,
+    leftovers: spreadEqualOpeningSpans(
+      showOpeningDims ? [...leftovers, ...openingWidths] : leftovers,
+      layout.columns,
+      crowdedDimColumns(layout),
+    ),
+    cam: view,
+    innerLeft: T,
+    insideY: widthInsideY,
+    outsideY: widthOutsideY,
+    fontSize: railFont,
+    obstacles: widthAvoid,
+    shelves: shelfSeats(layout, T, innerFloorY, zShelfFront),
+  })
+  const padB = 36 + (widthLabels.outsideRows > 0 ? widthDimPad(railFont, widthLabels.outsideRows) : 0)
+  const vbH = padT + totalH + padB
   const cavityTopY = innerFloorY - innerClearH
   const adjShelfOffs = layout.zones.flatMap((z) => z.movable.map((s) => z.y0 + s.yBottom))
   const topShelfOff =
@@ -1874,9 +2150,12 @@ function Front3DView({
           )}
           cam={view}
           innerLeft={T}
-          y={innerFloorY - Math.max(44, railFont * 0.4)}
+          insideY={widthInsideY}
+          outsideY={widthOutsideY}
           anchorY={innerFloorY}
           fontSize={railFont}
+          obstacles={widthAvoid}
+          shelves={shelfSeats(layout, T, innerFloorY, zShelfFront)}
         />
       )}
       {showOpeningDims && openingHeights.length > 0 && (
@@ -2045,9 +2324,7 @@ function WallFront3DView({
   const leftovers = leftoverPartitionSpans(layout.partitions, layout.columns)
   const openingWidths = openingWidthSpans(layout.partitions, layout.columns)
   const openingHeights = remainingHeightSpans(layout, m.innerH)
-  const padB = 36
   const vbW = padL + W + dx + padR
-  const vbH = padT + H + padB
   const ox = padL
   const floor = padT + H
   const topY = floor - H
@@ -2066,6 +2343,36 @@ function WallFront3DView({
   const zShelfFront = shelfFrontInsetMm(p)
   const shelfDepth = shelfPanelDepth(D, T, zShelfFront)
   const innerFloorY = floor - T
+  const widthInsideY = widthDimInsideY(innerFloorY, small)
+  const widthOutsideY = floor + Math.max(28, small * 0.45)
+  const widthAvoid = [
+    ...heightDimBoxes(layout, innerFloorY, T, small, view, 0, zShelfFront, 0),
+    ...(showOpeningDims
+      ? openingHeights.map((s) => {
+          const x = T + (s.x0 + s.x1) / 2
+          const a = view.proj(x, innerFloorY - s.startY, 0)
+          const b = view.proj(x, innerFloorY - s.endY, 0)
+          return dimLabelBox((a.x + b.x) / 2, (a.y + b.y) / 2, mm(s.offsetMm), small, true)
+        })
+      : []),
+  ]
+  const widthLabels = placePartitionDimLabels({
+    partitions: layout.partitions,
+    leftovers: spreadEqualOpeningSpans(
+      showOpeningDims ? [...leftovers, ...openingWidths] : leftovers,
+      layout.columns,
+      crowdedDimColumns(layout),
+    ),
+    cam: view,
+    innerLeft: T,
+    insideY: widthInsideY,
+    outsideY: widthOutsideY,
+    fontSize: small,
+    obstacles: widthAvoid,
+    shelves: shelfSeats(layout, T, innerFloorY, zShelfFront),
+  })
+  const padB = 36 + (widthLabels.outsideRows > 0 ? widthDimPad(small, widthLabels.outsideRows) : 0)
+  const vbH = padT + H + padB
   const innerTopY = topY + T
   const wood = p.colors
   const sideH = H
@@ -2212,9 +2519,12 @@ function WallFront3DView({
           )}
           cam={view}
           innerLeft={T}
-          y={innerFloorY - Math.max(44, small * 0.4)}
+          insideY={widthInsideY}
+          outsideY={widthOutsideY}
           anchorY={innerFloorY}
           fontSize={small}
+          obstacles={widthAvoid}
+          shelves={shelfSeats(layout, T, innerFloorY, zShelfFront)}
         />
       )}
       {showOpeningDims && openingHeights.length > 0 && (
@@ -2492,10 +2802,8 @@ function PlinthBoxFront3DView({
   const leftovers = leftoverPartitionSpans(layout.partitions, layout.columns)
   const openingWidths = openingWidthSpans(layout.partitions, layout.columns)
   const openingHeights = remainingHeightSpans(layout, m.innerH)
-  const padB = Math.max(52, supportFont * 0.85)
 
   const vbW = padL + W + dx + padR
-  const vbH = padT + H + padB
   const ox = padL
   const floor = padT + H
   const topY = floor - H
@@ -2547,6 +2855,86 @@ function PlinthBoxFront3DView({
   const shelfDepth = m.shelfD
   const zPartition = zSide + (m.sideD - m.partitionD)
   const innerFloorY = bottomY
+  const shelfDimZ = m.sliding ? zShelfFront : zSide
+  const widthInsideY = widthDimInsideY(innerFloorY, small, m.sliding ? SLIDING_BOTTOM_TRACK_MM : 0)
+  const widthOutsideY = floor + Math.max(28, small * 0.45)
+  const widthZAtX = (x: number) =>
+    layout.partitions.some((part) => x >= part.xLeft - 0.51 && x <= part.xRight + 0.51) ? zPartition : zSide
+  const lowerTrackDepthPt = m.sliding
+    ? view.proj(
+        T + m.innerW * 0.72,
+        bottomY - 18,
+        zSide + SLIDING_LOWER_TRACK_INSET_MM + SLIDING_LOWER_TRACK_DEPTH_MM / 2,
+      )
+    : null
+  const lowerTrackInsetPt = m.sliding
+    ? view.proj(T + m.innerW * 0.55, bottomY - 8, zSide + SLIDING_LOWER_TRACK_INSET_MM / 2)
+    : null
+  const widthAvoidBase = [
+    ...heightDimBoxes(layout, innerFloorY, T, small, view, shelfDimZ, shelfDimZ, zSide),
+    ...(showOpeningDims
+      ? openingHeights.map((s) => {
+          const x = T + (s.x0 + s.x1) / 2
+          const a = view.proj(x, innerFloorY - s.startY, zSide)
+          const b = view.proj(x, innerFloorY - s.endY, zSide)
+          return dimLabelBox((a.x + b.x) / 2, (a.y + b.y) / 2, mm(s.offsetMm), small, true)
+        })
+      : []),
+    ...(m.sliding && showDimLines && lowerTrackDepthPt && lowerTrackInsetPt
+      ? [
+          dimLabelBox(
+            lowerTrackDepthPt.x,
+            lowerTrackDepthPt.y - small * 0.35,
+            mm(SLIDING_LOWER_TRACK_DEPTH_MM),
+            small,
+            false,
+          ),
+          dimLabelBox(
+            lowerTrackInsetPt.x,
+            lowerTrackInsetPt.y - small * 0.35,
+            mm(SLIDING_LOWER_TRACK_INSET_MM),
+            small,
+            false,
+          ),
+        ]
+      : []),
+  ]
+  const bottomLabelX =
+    fitLabelX(
+      bottomFrontLabel.x,
+      bottomFrontLabel.y,
+      mm(m.bottomW),
+      small,
+      widthAvoidBase,
+      bottomFrontLabel.x - small * 2.6,
+      bottomFrontLabel.x + small * 0.8,
+    ) ?? bottomFrontLabel.x
+  const widthAvoid = [
+    ...widthAvoidBase,
+    dimLabelBox(bottomLabelX, bottomFrontLabel.y, mm(m.bottomW), small, false),
+  ]
+  const widthLabels = placePartitionDimLabels({
+    partitions: layout.partitions,
+    leftovers: spreadEqualOpeningSpans(
+      showOpeningDims ? [...leftovers, ...openingWidths] : leftovers,
+      layout.columns,
+      crowdedDimColumns(layout),
+    ),
+    cam: view,
+    innerLeft: T,
+    insideY: widthInsideY,
+    outsideY: widthOutsideY,
+    z: zPartition,
+    leftoverZ: zSide,
+    zAtX: widthZAtX,
+    fontSize: small,
+    obstacles: widthAvoid,
+    shelves: shelfSeats(layout, T, innerFloorY, zShelfFront),
+  })
+  const padB =
+    Math.max(52, supportFont * 0.85) +
+    (widthLabels.outsideRows > 0 ? widthDimPad(small, widthLabels.outsideRows) : 0)
+  const vbH = padT + H + padB
   const carcassBotY = floor - supportH
   const frontTopY = coveringTop ? topY + T : topY
   const frontBotY = m.frontCoversBottom ? carcassBotY : bottomY
@@ -2743,7 +3131,7 @@ function PlinthBoxFront3DView({
             adjD={shelfDepth}
             pinMark={shelfPinMark(vbH)}
             clothesTrackMm={m.sliding ? SLIDING_UPPER_TRACK_HEIGHT_MM : 0}
-            railSideZ={zSide}
+            railSideZ={m.sliding ? zPartition : zSide}
             railPartitionZ={m.sliding ? zPartition : zSide}
           />
           {layout.partitions[i] && (
@@ -2766,8 +3154,8 @@ function PlinthBoxFront3DView({
         layout={layout}
         T={T}
         cam={view}
-        z0={zSide + SLIDE_FRONT_INSET}
-        partitionFrontZ={m.sliding ? zPartition : undefined}
+        z0={m.sliding ? zPartition + SLIDE_FRONT_INSET : zSide + SLIDE_FRONT_INSET}
+        partitionFrontZ={m.sliding ? zPartition + SLIDE_FRONT_INSET : undefined}
         width={p.width}
         thickness={p.thickness}
         slideLength={p.slideLength}
@@ -3025,16 +3413,15 @@ function PlinthBoxFront3DView({
           )}
           cam={view}
           innerLeft={T}
-          y={innerFloorY - (m.sliding ? SLIDING_BOTTOM_TRACK_MM : 0) - Math.max(44, small * 0.4)}
+          insideY={widthInsideY}
+          outsideY={widthOutsideY}
           anchorY={innerFloorY}
           z={zPartition}
           leftoverZ={zSide}
-          zAtX={(x) =>
-            layout.partitions.some((part) => x >= part.xLeft - 0.51 && x <= part.xRight + 0.51)
-              ? zPartition
-              : zSide
-          }
+          zAtX={widthZAtX}
           fontSize={small}
+          obstacles={widthAvoid}
+          shelves={shelfSeats(layout, T, innerFloorY, zShelfFront)}
         />
       )}
       {showOpeningDims && openingHeights.length > 0 && (
@@ -3070,7 +3457,7 @@ function PlinthBoxFront3DView({
           />
         </g>
       )}
-      <DimText x={bottomFrontLabel.x} y={bottomFrontLabel.y} label={mm(m.bottomW)} fontSize={small} />
+      <DimText x={bottomLabelX} y={bottomFrontLabel.y} label={mm(m.bottomW)} fontSize={small} />
       <g stroke={DRAW_DIM} fill={DRAW_DIM}>
         <line
           x1={supportLineX - supportTick}

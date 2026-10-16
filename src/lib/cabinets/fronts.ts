@@ -30,7 +30,7 @@ import {
   SCREW_5X60,
   type SlideKind,
 } from './hardware'
-import { evenShelfBottoms } from './joinery'
+import { evenShelfBottoms, evenShelfGap } from './joinery'
 import {
   doorCutSize,
   doorCutRuleNote,
@@ -48,11 +48,13 @@ import {
   SOFT_INNER_RAIL_HEIGHT_DROP,
   DEFAULT_HARDBOARD_THICKNESS,
   hardboardCutSize,
+  MAX_SHELVES,
   type DoorCount,
 } from './materials'
-import { DEFAULT_SHELF_FRONT_INSET, FASCIA_SETBACK_MM, edges, panelHoleFits, panelHoleNote, parseDepthMode, type DepthMode, type GeneratedPanel, type HardwareItem, type PanelHole } from './types'
+import { DEFAULT_PANEL_THICKNESS, DEFAULT_SHELF_FRONT_INSET, FASCIA_SETBACK_MM, edges, panelHoleFits, panelHoleNote, parseDepthMode, type DepthMode, type GeneratedPanel, type HardwareItem, type PanelHole } from './types'
 import type { HardwareSettings } from '@/lib/settings'
 import { exactMm, formatMm } from '../utils'
+import type { RuleSection } from './rule-text'
 import {
   appendSlidingDoors,
   parseDoorStyle,
@@ -69,6 +71,9 @@ import {
   type SlidingTrackColor,
 } from '@/lib/sliding-hardware'
 import {
+  MAX_FIXED_SHELVES,
+  MAX_PARTITIONS,
+  MIN_ZONE_CLEAR_MM,
   layoutInterior,
   layoutCounts,
   parseDoorSpan,
@@ -1418,4 +1423,44 @@ function countByHeight(heights: number[]): [number, number][] {
   const counts = new Map<number, number>()
   for (const h of heights) counts.set(h, (counts.get(h) ?? 0) + 1)
   return [...counts.entries()]
+}
+
+export function shelfRuleSection(): RuleSection {
+  const T = DEFAULT_PANEL_THICKNESS
+  const sideD = 400
+  const hingedInset = shelfFrontInsetMm({ doorStyle: 'hinged' })
+  const slidingInset = shelfFrontInsetMm({ doorStyle: 'sliding' })
+  const partitionD = sideD - SLIDING_PARTITION_SETBACK_MM
+  const innerH = 600
+  const gap = evenShelfGap(innerH, 2, T)
+  return {
+    id: 'shelves',
+    title: 'Рафтове и разделители',
+    blocks: [
+      {
+        title: 'Дълбочина на рафт',
+        lines: [
+          `Подвижен и фиксиран рафт са по-плитки от страницата, на която седят. По подразбиране ${DEFAULT_SHELF_FRONT_INSET} мм при обикновен шкаф: страница ${sideD} мм дава рафт ${formatMm(shelfPanelDepth(sideD, T, hingedInset))} мм.`,
+          `При плъзгащи врати сравнението е с вътрешната страница (с ${SLIDING_PARTITION_SETBACK_MM} мм по-плитка) и подразбирането е ${SLIDING_SHELF_FROM_PARTITION_MM} мм: от ${formatMm(partitionD)} мм става ${formatMm(shelfPanelDepth(partitionD, T, slidingInset))} мм.`,
+          `0 мм прави рафта наравно със страницата (${formatMm(shelfPanelDepth(sideD, T, 0))} мм). Рафтът не става по-тънък от дебелината на плоскостта.`,
+          'Кант: само предната видима страна.',
+        ],
+      },
+      {
+        title: 'Подвижни рафтове',
+        lines: [
+          `Поравно: (светъл отвор − брой × дебелина) / (брой + 1). Отвор ${innerH} мм и 2 рафта по ${T} мм: процеп ${formatMm(gap)} мм отдолу, между тях и отгоре.`,
+          `Най-много ${MAX_SHELVES} рафта. На всеки рафт ${SHELF_PINS_PER_SHELF} рафтоносача.`,
+        ],
+      },
+      {
+        title: 'Фиксиран рафт и разделител',
+        lines: [
+          `До ${MAX_FIXED_SHELVES} фиксирани рафта в една колона и до ${MAX_PARTITIONS} разделителни страници. Между тях остават поне ${MIN_ZONE_CLEAR_MM} мм.`,
+          `Фиксираният рафт се хваща с 5×60 през страниците: при дълбочина ${sideD} мм това е ${confirmatCount(sideD)} винта на страна.`,
+          'Разделителят сяда на дъното като вътрешна страница. Кант: предна и горна. Винтове 5×60 в двата му края.',
+        ],
+      },
+    ],
+  }
 }

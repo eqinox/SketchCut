@@ -29,8 +29,10 @@ export function parseDepthMode(value: unknown): DepthMode | undefined {
 }
 
 /**
- * Kitchen and sliding carcasses are flush, so a depth typed together with the
- * door is the finished size and the box itself is shorter by the door.
+ * Kitchen carcasses are flush, so a depth typed together with the door is the
+ * finished size and the box itself is shorter by the door.
+ * Sliding doors do not use this: the typed depth already includes the mechanism,
+ * and inner sides are shorter by the track setback instead.
  */
 export function flushCarcassDepth(depth: number, thickness: number, mode: unknown): number {
   if (mode !== 'with-door') return depth

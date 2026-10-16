@@ -15,6 +15,9 @@ import {
   edges,
   flushCarcassDepth,
   frontDoorOverhang,
+  FASCIA_SETBACK_MM,
+  TOP_EDGE_BAND_MM,
+  kitchenClearInnerH,
   parseBoxTopStyle,
   type CabinetGeneratorResult,
   type CabinetTopStyle,
@@ -35,14 +38,30 @@ import {
   appendHangingFascias,
   appendZonedInterior,
   parseInteriorFittings,
+  clothesRailLengthMm,
   shelfFrontInsetMm,
   shelfPanelDepth,
   type InteriorFittings,
 } from './fronts'
-import { cabinetColumns, fittingsCountsFromParams, resolvePartitions } from './zones'
-import { SLIDING_PARTITION_SETBACK_MM } from './sliding-doors'
-
+import {
+  CLOTHES_RAIL_SECTION_MM,
+  DEFAULT_CLOTHES_RAIL_FROM_TOP_MM,
+  MAX_CLOTHES_RAILS,
+  MIN_CLOTHES_RAIL_TO_SHELF_MM,
+  cabinetColumns,
+  evenLowerRailY,
+  fittingsCountsFromParams,
+  resolvePartitions,
+} from './zones'
+import { SLIDING_PARTITION_SETBACK_MM, SLIDING_UPPER_TRACK_HEIGHT_MM } from './sliding-doors'
+import { formatMm } from '../utils'
+import type { RuleSection } from './rule-text'
 export const NIGHTSTAND_TYPE_ID = 'nightstand'
+
+/** Corner brackets holding an outer top from the inside. Extra ones at each divider. */
+export const CORNER_BRACKETS = 4
+export const CORNER_BRACKETS_PER_PARTITION = 2
+export const SCREWS_PER_CORNER_BRACKET = 4
 
 /** Corner bracket for attaching an outer top to the sides from the inside. */
 const CORNER_BRACKET = {
@@ -175,7 +194,7 @@ export function parseNightstandParams(raw: Record<string, unknown>): NightstandP
   const thickness = num('thickness', d.thickness)
   const sliding = raw.doorStyle === 'sliding'
   const provisional = parseInteriorFittings(raw, Math.max(thickness, depth))
-  const boxDepth = sliding ? flushCarcassDepth(depth, thickness, provisional.depthMode) : depth
+  const boxDepth = sliding ? depth : flushCarcassDepth(depth, thickness, provisional.depthMode)
   const sideD = Math.max(thickness, boxDepth - plinthFrontOverhang(provisional, thickness))
   const slideDepth = sliding ? Math.max(thickness, sideD - SLIDING_PARTITION_SETBACK_MM) : sideD
   const fittings =
@@ -202,7 +221,7 @@ export function measureNightstand(p: NightstandParams, topInner = false) {
   const coveringTop = hasTopPanel && !topInner
   const innerTopPanel = hasTopPanel && topInner
   const sliding = p.doorStyle === 'sliding'
-  const boxDepth = sliding ? flushCarcassDepth(p.depth, T, p.depthMode) : p.depth
+  const boxDepth = sliding ? p.depth : flushCarcassDepth(p.depth, T, p.depthMode)
   const frontOverhang = plinthFrontOverhang(p, T)
   const sideD = Math.max(T, boxDepth - frontOverhang)
   const partitionD = sliding ? Math.max(T, sideD - SLIDING_PARTITION_SETBACK_MM) : sideD
@@ -264,7 +283,7 @@ function sideDepthNote(
   coveringTop: boolean,
 ): string {
   if (m.sliding) {
-    return `Страниците са ${m.sideD} мм дълбоки — плъзгащите врати минават отпред между тях (разделители ${m.partitionD} мм, рафтове ${m.shelfD} мм).`
+    return `Дълбочината ${p.depth} мм е заедно с плъзгащите врати. Страниците са ${m.sideD} мм. Вътрешните страници и разделителите са ${m.partitionD} мм и почват ${SLIDING_PARTITION_SETBACK_MM} мм навътре. Рафтовете са ${m.shelfD} мм.`
   }
   if (m.frontOverhang > 0) {
     return `Страниците са ${m.sideD} мм дълбоки — общата дълбочина ${p.depth} мм включва врата/чело ${p.thickness} мм + 2 мм кант${coveringTop ? ' на плота' : ''}.`
@@ -312,7 +331,7 @@ export function generatePlinthCabinet(
           'Плотът и дъното стърчат отпред — вратата/челото стига до долната страна на плота и до горната на дъното, кантовете остават видими.',
         )
       }
-      notes.push('Плотът се хваща отвътре с 4 ъгълчета, без винтове 5×60 през горната страна.')
+      notes.push(`Плотът се хваща отвътре с ${CORNER_BRACKETS} ъгълчета, без винтове 5×60 през горната страна.`)
     } else if (m.frontOverhang > 0) {
       notes.push('Дъното стърчи отпред — вратата/челото стига до горната му страна, кантът остава видим.')
     }
@@ -345,7 +364,7 @@ export function generatePlinthCabinet(
       if (m.frontOverhang > 0) {
         notes.push('Плотът стърчи отпред — вратата/челото стига до долната му страна, кантът на плота остава видим.')
       }
-      notes.push('Плотът се хваща отвътре с 4 ъгълчета, без винтове 5×60 през горната страна.')
+      notes.push(`Плотът се хваща отвътре с ${CORNER_BRACKETS} ъгълчета, без винтове 5×60 през горната страна.`)
     }
     notes.push(
       'Цокъл с канта надолу, дъното върху него, пробив отгоре през дъното. После дъното между страниците.',
@@ -366,8 +385,8 @@ export function generatePlinthCabinet(
   const plinthScrewsTotal = p.useLegs ? 0 : plinthScrewsEach * p.plinthCount
   const topScrewsPerSide = confirmatCount(m.topD)
   const topScrewsTotal = topScrewsPerSide * 2
-  const cornerBrackets = coveringTop ? 4 + 2 * nPart : 0
-  const bracketScrews = cornerBrackets * 4
+  const cornerBrackets = coveringTop ? CORNER_BRACKETS + CORNER_BRACKETS_PER_PARTITION * nPart : 0
+  const bracketScrews = cornerBrackets * SCREWS_PER_CORNER_BRACKET
 
   if (innerTop) {
     notes.push(
@@ -381,10 +400,10 @@ export function generatePlinthCabinet(
     notes.push(
       p.useLegs
         ? `Сглобяване: дъното с ${bottomScrewsTotal} винта 5×60 отдолу (${bottomScrewsPerSide} на страница)` +
-          (coveringTop ? `, плот с 4 ъгълчета × 4 винтчета 4×16 = ${bracketScrews} винтчета.` : '.')
+          (coveringTop ? `, плот с ${cornerBrackets} ъгълчета × ${SCREWS_PER_CORNER_BRACKET} винтчета 4×16 = ${bracketScrews} винтчета.` : '.')
         : `Сглобяване: цокъл към дъно с ${plinthScrewsTotal} винта 5×60 (${plinthScrewsEach} на цокъл),` +
           ` после дъното към страниците с ${bottomScrewsTotal} винта 5×60 (${bottomScrewsPerSide} на страница)` +
-          (coveringTop ? `, плот с 4 ъгълчета × 4 винтчета 4×16 = ${bracketScrews} винтчета.` : '.'),
+          (coveringTop ? `, плот с ${cornerBrackets} ъгълчета × ${SCREWS_PER_CORNER_BRACKET} винтчета 4×16 = ${bracketScrews} винтчета.` : '.'),
     )
   }
 
@@ -576,6 +595,160 @@ export function generatePlinthCabinet(
     hardware,
     notes,
     panels,
+  }
+}
+
+export function depthRuleSection(): RuleSection {
+  const T = DEFAULT_PANEL_THICKNESS
+  const depth = 400
+  const overhang = frontDoorOverhang(T)
+  const flush = flushCarcassDepth(depth, T, 'with-door')
+  const withDoor = plinthFrontOverhang({ doorCount: 1, doorStyle: 'hinged', depthMode: 'with-door', shelfCount: 0, drawerFrontHeights: [] }, T)
+  const withoutDoor = plinthFrontOverhang({ doorCount: 1, doorStyle: 'hinged', depthMode: 'without-door', shelfCount: 0, drawerFrontHeights: [] }, T)
+  const drawersOnly = plinthFrontOverhang(
+    { doorCount: 0, doorStyle: 'hinged', depthMode: 'without-door', shelfCount: 0, drawerFrontHeights: [150] },
+    T,
+  )
+  const slidingDepth = 590
+  const slidingBox = measureNightstand(
+    {
+      ...DEFAULT_NIGHTSTAND_PARAMS,
+      depth: slidingDepth,
+      doorStyle: 'sliding',
+      doorCount: 2,
+      depthMode: 'with-door',
+    },
+    true,
+  )
+  return {
+    id: 'depth',
+    title: 'Дълбочина',
+    blocks: [
+      {
+        title: 'Трите отметки',
+        lines: [
+          'Записаната дълбочина е числото, което си написал. От него не се вади нищо предварително.',
+          `„Заедно с вратата“: наложената врата стърчи с ${formatMm(overhang)} мм (дебелина ${T} + кант ${TOP_EDGE_BAND_MM}). При нощно страниците стават дълбочина − ${formatMm(withDoor)}. При кухня корпусът става ${formatMm(flush)} мм, ако е написано ${depth}.`,
+          `„Без вратата“: числото е корпусът. Наложена врата на панти не скъсява страниците (вади се ${formatMm(withoutDoor)} мм). Наложено чело вади ${formatMm(drawersOnly)} мм.`,
+          '„Шкафът е без врати“: броят врати става 0. Страниците са с пълната дълбочина, освен ако има наложени чела.',
+          'Стар шкаф без тази отметка: ако има наложена врата, се смята като „заедно с вратата“.',
+        ],
+      },
+      {
+        title: 'Плъзгащи врати',
+        lines: [
+          'Написаната дълбочина е заедно с механизма. Трите отметки не се сменят.',
+          `Вътрешните страници са с ${SLIDING_PARTITION_SETBACK_MM} мм по-плитки. При ${slidingDepth} мм те са ${formatMm(slidingBox.partitionD)} мм, а външните страници остават ${formatMm(slidingBox.sideD)} мм.`,
+          `Разделител и водач почват от вътрешната страница. Рафтът е още ${formatMm(slidingBox.partitionD - slidingBox.shelfD)} мм по-навътре (${formatMm(slidingBox.shelfD)} мм).`,
+        ],
+      },
+    ],
+  }
+}
+
+export function carcassRuleSection(): RuleSection {
+  const sample = {
+    ...DEFAULT_NIGHTSTAND_PARAMS,
+    width: 500,
+    height: 500,
+    depth: 400,
+    topStyle: 'panel' as const,
+    doorCount: 0 as const,
+    depthMode: 'no-doors' as const,
+  }
+  const box = measureNightstand(sample, false)
+  const section = measureNightstand(sample, true)
+  const kitchenH = 720
+  const T = sample.thickness
+  return {
+    id: 'carcass',
+    title: 'Корпус',
+    blocks: [
+      {
+        title: 'Кой захлупва кого',
+        lines: [
+          `Външна плоскост захлупва вътрешна. Пример широчина ${sample.width} мм: вътрешната е ${formatMm(box.innerW)} мм.`,
+          `Външен плот: ${CORNER_BRACKETS} ъгълчета отвътре, по ${SCREWS_PER_CORNER_BRACKET} винтчета 4×16. На всеки разделител още ${CORNER_BRACKETS_PER_PARTITION}.`,
+          'Вътрешен плот се хваща с 5×60 през страниците, без ъгълчета.',
+        ],
+      },
+      {
+        title: 'Нощно шкафче',
+        lines: [
+          `По подразбиране: 2 външни страници, вътрешно дъно ${formatMm(box.bottomW)} мм широко, външен плот ${formatMm(box.topW)} × ${formatMm(box.topD)} мм.`,
+          'С крачета дъното е външно, страниците влизат в него, винтовете 5×60 са отдолу.',
+          'Или цокъл, или крачета — не и двете.',
+        ],
+      },
+      {
+        title: 'Секция и гардероб',
+        lines: [
+          `Секция: плотът е вътрешен, ${formatMm(section.topW)} мм при широчина ${sample.width} (широчина − 2 × дебелина).`,
+          'Гардеробът с плъзгащи врати е същата конструкция. Разделителите са по-плитки заради релсата.',
+        ],
+      },
+      {
+        title: 'Кухня',
+        lines: [
+          'Долният шкаф: дъното захлупва страниците. От пода е височината на корпуса плюс крачетата.',
+          `Крачета по подразбиране ${DEFAULT_LEG_HEIGHT} мм.`,
+          `Височина ${kitchenH} мм: две бленди дават светъл отвор ${formatMm(kitchenClearInnerH(kitchenH, T, 'rails'))} мм, една бленда или плот — ${formatMm(kitchenClearInnerH(kitchenH, T, 'panel'))} мм.`,
+          `Блендата е висока ${DEFAULT_RAIL_WIDTH} мм. Бленда надолу е ${FASCIA_SETBACK_MM} мм навътре от предния край.`,
+          'Горен шкаф: страниците са външни. Дъното и плотът влизат между тях и се хващат с 5×60.',
+        ],
+      },
+      {
+        title: 'Цокъл',
+        lines: [
+          `Цокълът е между страниците, на ${PLINTH_INSET} мм навътре от канта на дъното. При широчина ${sample.width} мм е дълъг ${formatMm(box.plinthLength)} мм.`,
+          'Един цокъл е отпред. Два са отпред и отзад.',
+        ],
+      },
+    ],
+  }
+}
+
+export function clothesRailRuleSection(): RuleSection {
+  const sample = {
+    ...DEFAULT_NIGHTSTAND_PARAMS,
+    width: 2000,
+    height: 2400,
+    depth: 600,
+    plinthHeight: 100,
+    topStyle: 'panel' as const,
+    doorStyle: 'sliding' as const,
+    doorCount: 2 as const,
+    depthMode: 'with-door' as const,
+  }
+  const measured = measureNightstand(sample, true)
+  const yUpper = measured.innerH - DEFAULT_CLOTHES_RAIL_FROM_TOP_MM
+  const floorDrop = measured.supportH + sample.thickness
+  const yLower = evenLowerRailY(yUpper, floorDrop) ?? 0
+  const pairGap = yUpper - yLower
+  return {
+    id: 'rail',
+    title: 'Лост за дрехи',
+    blocks: [
+      {
+        title: 'Къде се мери',
+        lines: [
+          `По подразбиране ${DEFAULT_CLOTHES_RAIL_FROM_TOP_MM} мм от долната страна на плоскостта над отвора до горната страна на лоста.`,
+          `Тръбата е ${CLOTHES_RAIL_SECTION_MM} мм. Дължината при широчина ${sample.width} мм е ${formatMm(clothesRailLengthMm(sample.width, sample.thickness))} мм.`,
+          `Рафт над лоста е поне ${MIN_CLOTHES_RAIL_TO_SHELF_MM} мм над горната страна на лоста.`,
+          `Най-много ${MAX_CLOTHES_RAILS} лоста в една част.`,
+        ],
+      },
+      {
+        title: 'Още един до земята',
+        lines: [
+          `Горният лост остава на зададеното разстояние. Ако няма лост, се слага на ${DEFAULT_CLOTHES_RAIL_FROM_TOP_MM} мм отгоре.`,
+          'Долният се слага така, че разстоянието от лост до лост е равно на разстоянието от долния лост до пода. Мери се до горната страна на тръбата.',
+          `Пример гардероб ${sample.height} мм, цокъл ${sample.plinthHeight} мм, плоскост ${sample.thickness} мм: светъл отвор ${formatMm(measured.innerH)} мм, горен лост на ${formatMm(yUpper)} мм от дъното, до пода има още ${formatMm(floorDrop)} мм, долен лост на ${formatMm(yLower)} мм. Между лостовете и до пода: ${formatMm(pairGap)} мм.`,
+          'Повторно натискане мести долния лост, не добавя трети.',
+          `На чертежа при плъзгащи врати горният лост се рисува на ${SLIDING_UPPER_TRACK_HEIGHT_MM} мм под лайсната. Краищата опират в страниците или в разделителя. Числото ${DEFAULT_CLOTHES_RAIL_FROM_TOP_MM} си остава от плоскостта.`,
+        ],
+      },
+    ],
   }
 }
 

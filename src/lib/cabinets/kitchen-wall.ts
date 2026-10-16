@@ -22,6 +22,7 @@ import {
 import type { HardwareSettings } from '@/lib/settings'
 import { DEFAULT_HARDWARE_SETTINGS, omitsCuttingEdgingLabor } from '@/lib/settings'
 import { formatMm } from '../utils'
+import type { RuleBlock } from './rule-text'
 import {
   collectCabinetAssembly,
   type AssemblyTimeSettings,
@@ -288,6 +289,15 @@ export function generateKitchenWall(
     hardware,
     notes,
     panels,
+  }
+}
+
+export function hoodRuleBlock(): RuleBlock {
+  return {
+    title: 'Абсорбатор',
+    lines: [
+      `Отвор в средата на дъното. По подразбиране кръг Ø${formatMm(DEFAULT_HOOD_DIAMETER_MM)} мм. Рафтовете над него имат същия отвор за въздуховода.`,
+    ],
   }
 }
 

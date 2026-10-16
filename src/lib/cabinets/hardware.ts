@@ -1,5 +1,6 @@
 import type { HardwareSettings, SlideKind } from '@/lib/settings'
 import type { HardwareItem } from './types'
+import type { RuleBlock } from './rule-text'
 
 export type { SlideKind }
 
@@ -10,13 +11,16 @@ export interface FastenerPack {
   packPriceEur: number
 }
 
+/** One more 5×60 screw for each span of this length along the outer panel. */
+export const CONFIRMAT_SPAN_MM = 500
+
 /**
  * Confirmat 5×60 count along an outer panel:
  * up to 500 mm → 2, up to 1000 → 3, up to 1500 → 4, and so on.
  */
 export function confirmatCount(outerSpanMm: number): number {
   if (!(outerSpanMm > 0)) return 0
-  return 1 + Math.ceil(outerSpanMm / 500)
+  return 1 + Math.ceil(outerSpanMm / CONFIRMAT_SPAN_MM)
 }
 
 /** Confirmat / chipboard screw used to assemble carcasses. */
@@ -224,4 +228,26 @@ export function hardwareCostById(hardware: HardwareItem[], id: string): number {
     (sum, item) => (item.id === id ? sum + (item.unitPriceEur ?? 0) * item.quantity : sum),
     0,
   )
+}
+
+export function confirmatRuleBlock(): RuleBlock {
+  const span = CONFIRMAT_SPAN_MM
+  return {
+    title: 'Винтове 5×60',
+    lines: [
+      `Брой по дължината на външната плоскост: 1 + закръгляне нагоре на дължината / ${span}.`,
+      `До ${span} мм → ${confirmatCount(span)}, до ${span * 2} мм → ${confirmatCount(span * 2)}, до ${span * 3} мм → ${confirmatCount(span * 3)}.`,
+    ],
+  }
+}
+
+export function hingeRuleBlock(): RuleBlock {
+  return {
+    title: 'Наложена врата',
+    lines: [
+      `${HINGES_PER_SMALL_DOOR} панти на врата. На панта: ${SCREWS_4X16_PER_HINGE} винтчета 4×16 и ${SCREWS_4X20_PER_HINGE} винтчета 4×20.`,
+      'Плавно или обикновено прибиране се избира в Настройки.',
+      'Плъзгащите врати нямат панти — имат механизма MVP-005.',
+    ],
+  }
 }

@@ -9,6 +9,12 @@ import {
 
 const DRAFT_KEY = 'sketchcut:draft'
 const LAST_PROJECT_KEY = 'sketchcut:lastProjectId'
+const OPEN_PROJECT_KEY = 'sketchcut:openProject'
+
+export interface OpenProjectRef {
+  id: string
+  name: string
+}
 
 export interface DraftData {
   version: 1
@@ -93,6 +99,32 @@ export function setLastProjectId(id: string): void {
 export function getLastProjectId(): string | null {
   try {
     return localStorage.getItem(LAST_PROJECT_KEY)
+  } catch {
+    return null
+  }
+}
+
+export function setOpenProject(project: OpenProjectRef | null): void {
+  try {
+    if (!project) {
+      localStorage.removeItem(OPEN_PROJECT_KEY)
+      localStorage.removeItem(LAST_PROJECT_KEY)
+      return
+    }
+    localStorage.setItem(OPEN_PROJECT_KEY, JSON.stringify(project))
+    localStorage.setItem(LAST_PROJECT_KEY, project.id)
+  } catch {
+    // ignore
+  }
+}
+
+export function getOpenProject(): OpenProjectRef | null {
+  try {
+    const raw = localStorage.getItem(OPEN_PROJECT_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as OpenProjectRef
+    if (!parsed || typeof parsed.id !== 'string' || typeof parsed.name !== 'string' || !parsed.name) return null
+    return { id: parsed.id, name: parsed.name }
   } catch {
     return null
   }

@@ -15,6 +15,7 @@ import {
 } from './materials'
 import { WORK_HOURS_PER_DAY, type GeneratedPanel, type HardwareItem, type LaborEstimate } from './types'
 import { exactMm } from '../utils'
+import type { RuleBlock } from './rule-text'
 
 export { hardwareCostEur } from './hardware'
 
@@ -278,6 +279,16 @@ export function formatEur(value: number, fractionDigits = 2): string {
     minimumFractionDigits: fractionDigits,
     maximumFractionDigits: fractionDigits,
   }).format(value)
+}
+
+export function laborHourRuleBlock(): RuleBlock {
+  const day = 100
+  return {
+    title: 'Час',
+    lines: [
+      `Часовата ставка е дневната ставка / ${WORK_HOURS_PER_DAY} работни часа. При ${day} € на ден това е ${formatEur(hourlyRateEur(day))} на час.`,
+    ],
+  }
 }
 
 export function formatArea(m2: number): string {

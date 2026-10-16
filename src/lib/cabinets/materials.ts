@@ -1,4 +1,15 @@
 import type { BoardKind, Sheet } from '@/types'
+import { formatMm } from '../utils'
+import type { RuleBlock, RuleSection } from './rule-text'
+import { KERF } from '@/lib/packing/types'
+import {
+  HANDLES_PER_DOOR,
+  HANDLES_PER_DRAWER,
+  SCREWS_35X16_PER_DRAWER_SOFT,
+  SCREWS_35X20_PER_DRAWER_NORMAL,
+  SCREWS_4X16_PER_DRAWER_SOFT,
+  SLIDES_PER_DRAWER,
+} from './hardware'
 
 export type { BoardKind }
 
@@ -464,4 +475,138 @@ export function drawerBoxRails(
     inner: { width: innerWidth, height: innerHeight },
     outer: { width: outerLength, height: outerHeight },
   }
+}
+
+const RULE_OPENING_W = 600
+const RULE_OPENING_H = 720
+
+export function overlayDoorRuleSection(): RuleSection {
+  const one = doorCutSize(RULE_OPENING_W, RULE_OPENING_H, 1)
+  const two = doorCutSize(RULE_OPENING_W, RULE_OPENING_H, 2)
+  const even = equalDrawerFrontHeights(RULE_OPENING_H, 3)
+  return {
+    id: 'overlay',
+    title: 'Наложени врати и чела',
+    blocks: [
+      {
+        title: 'Какво се реже',
+        lines: [
+          `Режещият размер е без канта. Кантът ${DOOR_EDGE_MM} мм се лепи после, от четирите страни (${DOOR_EDGE_BOTH} мм общо на двойка срещуположни страни).`,
+        ],
+      },
+      {
+        title: 'Височина',
+        lines: [
+          `Долу вратата е на ${DOOR_CLEARANCE_BOTTOM}. Горе се махат ${DOOR_CLEARANCE_TOP} мм.`,
+          `Рязане по височина = отвор − ${DOOR_CLEARANCE_TOP} − ${DOOR_CLEARANCE_BOTTOM} − ${DOOR_EDGE_BOTH}. Готовият размер с кант = отвор − ${DOOR_CLEARANCE_TOP} − ${DOOR_CLEARANCE_BOTTOM}.`,
+          `Отвор ${RULE_OPENING_H} мм, една врата: рязане ${formatMm(one.height)} мм височина.`,
+          'При външен плот горната точка на отвора е долната страна на плота. Вратата стига до плота и не влиза в него.',
+          'С крачета дъното е външно: долната точка е горната страна на дъното.',
+          'При вътрешен плот (секция) вратата покрива и предния кант на плота.',
+        ],
+      },
+      {
+        title: 'Широчина',
+        lines: [
+          `Една врата или едно чело: фуга ${DOOR_GAP_X} мм общо = ${formatMm(DOOR_SIDE_GAP_EACH)} мм отляво + ${formatMm(DOOR_SIDE_GAP_EACH)} мм отдясно.`,
+          `Рязане = отвор / брой − ${DOOR_GAP_X} − ${DOOR_EDGE_BOTH}.`,
+          `Отвор ${RULE_OPENING_W} мм: една врата ${formatMm(one.width)} мм, две врати по ${formatMm(two.width)} мм.`,
+        ],
+      },
+      {
+        title: 'Чела едно над друго',
+        lines: [
+          `Между челата и между чело и врата има ${DRAWER_DOOR_GAP} мм.`,
+          `Най-долното чело сяда на ${DOOR_CLEARANCE_BOTTOM}. Най-горното свършва ${DOOR_CLEARANCE_TOP} мм под горния край.`,
+          `Ново чело по подразбиране е ${DEFAULT_DRAWER_FRONT_HEIGHT} мм. Най-много ${MAX_DRAWERS} чекмеджета в един отвор.`,
+          `„Изравни“ на отвор ${RULE_OPENING_H} мм на 3 чела дава ${even.map((h) => formatMm(h)).join(' + ')} мм. Остатъчните милиметри отиват към горните чела.`,
+          `Чела с еднаква широчина (една врата отгоре, не две) могат да се режат от една плоча. Между парчетата се оставят ${COMBINED_FRONT_SAW_BUFFER} мм: две чела по ${formatMm(one.height)} мм стават ${formatMm(combinedFrontCutHeight([one.height, one.height]))} мм.`,
+        ],
+      },
+    ],
+  }
+}
+
+export function insetDoorRuleSection(): RuleSection {
+  const two = doorCutSize(RULE_OPENING_W, RULE_OPENING_H, 2, { inset: true })
+  const one = doorCutSize(RULE_OPENING_W, RULE_OPENING_H, 1, { inset: true })
+  return {
+    id: 'inset',
+    title: 'Вътрешни врати и чела',
+    blocks: [
+      {
+        title: 'Къде сядат',
+        lines: [
+          'Влизат между страниците и не покриват канта им.',
+          `Височина: до долната страна на плота или рафта отгоре, после ${DOOR_CLEARANCE_TOP} мм фуга горе. Долу — горната страна на дъното или рафта отдолу. Рязане по височина за отвор ${RULE_OPENING_H} мм: ${formatMm(one.height)} мм.`,
+        ],
+      },
+      {
+        title: 'Широчина',
+        lines: [
+          `Фуга ${INNER_DRAWER_GAP_X} мм общо = ${INNER_DRAWER_SIDE_GAP_EACH} мм отляво + ${INNER_DRAWER_SIDE_GAP_EACH} мм отдясно.`,
+          `При две вътрешни врати има още ${DRAWER_DOOR_GAP} мм между тях.`,
+          `Рязане = (отвор − фугите) / брой − ${DOOR_EDGE_BOTH}. Отвор ${RULE_OPENING_W} мм: една ${formatMm(one.width)} мм, две по ${formatMm(two.width)} мм.`,
+        ],
+      },
+    ],
+  }
+}
+
+export function drawerRuleSection(): RuleSection {
+  const front = DEFAULT_DRAWER_FRONT_HEIGHT
+  const slide = 500
+  const roller = drawerBoxRails(RULE_OPENING_W, 18, front, slide, false)
+  const soft = drawerBoxRails(RULE_OPENING_W, 18, front, slide, true)
+  return {
+    id: 'drawers',
+    title: 'Чекмедже',
+    blocks: [
+      {
+        title: 'Кутия',
+        lines: [
+          `Височина на страницата = височина на челото − ${DRAWER_RAIL_BELOW_FRONT} мм, закръглена до ${DRAWER_RAIL_HEIGHT_STEP} мм.`,
+          roller
+            ? `Чело ${front} мм и ролков водач ${slide} мм: страница ${formatMm(roller.outer.height)} × ${formatMm(roller.outer.width)} мм, чело и гръб ${formatMm(roller.inner.height)} × ${formatMm(roller.inner.width)} мм.`
+            : '',
+          `При плавно прибиране вътрешните страници са с ${SOFT_INNER_RAIL_HEIGHT_DROP} мм по-ниски, а дължината е водачът минус ${SOFT_SLIDE_OUTER_RAIL_SHORTEN} мм.` +
+            (soft ? ` Същият пример: страница ${formatMm(soft.outer.height)} × ${formatMm(soft.outer.width)} мм, вътре ${formatMm(soft.inner.height)} × ${formatMm(soft.inner.width)} мм.` : ''),
+          `Отстъп от страницата на шкафа: ${formatMm(ROLLER_SLIDE_SIDE_GAP)} мм от всяка страна при ролкови, ${SOFT_SLIDE_SIDE_GAP} мм при плавно.`,
+          `${SLIDES_PER_DRAWER} водача на чекмедже.`,
+          `Винтчета при ролкови: ${SCREWS_35X20_PER_DRAWER_NORMAL} бр. 3,5×20 на чекмедже. При плавно: ${SCREWS_4X16_PER_DRAWER_SOFT} бр. 4×16 и ${SCREWS_35X16_PER_DRAWER_SOFT} бр. 3,5×16.`,
+          `${HANDLES_PER_DRAWER} дръжка на чекмедже и ${HANDLES_PER_DOOR} на врата, ако дръжките са включени.`,
+        ].filter((line) => line !== ''),
+      },
+    ],
+  }
+}
+
+export function boardRuleBlocks(): RuleBlock[] {
+  const back = hardboardCutSize(600, 800, 100)
+  const full = sheetAreaM2(DEFAULT_CHIPBOARD_WIDTH, DEFAULT_CHIPBOARD_HEIGHT)
+  const billed = billedSheetCount(3.5 * full, DEFAULT_CHIPBOARD_WIDTH, DEFAULT_CHIPBOARD_HEIGHT, true)
+  return [
+    {
+      title: 'Кант',
+      lines: [
+        `Дебел кант ${DOOR_EDGE_MM} мм и тънък 0,5 мм. Цените по подразбиране са ${formatMm(EDGE_PRICE_MM2_EUR)} €/м и ${formatMm(EDGE_PRICE_MM05_EUR)} €/м и се сменят в Настройки.`,
+        'Фазерът не се кантира.',
+      ],
+    },
+    {
+      title: 'Фазер',
+      lines: [
+        `Гърбът е пълната широчина × височината. С цокъл височината се маха с височината на цокъла. Шкаф 600 × 800 с цокъл 100: фазер ${formatMm(back.width)} × ${formatMm(back.height)} мм. С крачета цокълът е 0 и гърбът покрива целия корпус.`,
+      ],
+    },
+    {
+      title: 'Разкрой и труд',
+      lines: [
+        `Дискът на триона е ${KERF} мм и се оставя между детайлите.`,
+        `Рязането се смята ${CUTTING_MINUTES_PER_SHEET} мин на цяла плоча, умножено по използваната част (ПДЧ и фазер отделно).`,
+        `Кантирането е ${EDGING_MINUTES_PER_SHEET} мин на цяла ПДЧ плоча, пак по използваната част.`,
+        `Отметката за цели плочи закръгля нагоре: 3,5 плочи се таксуват като ${formatMm(billed)}.`,
+      ],
+    },
+  ]
 }

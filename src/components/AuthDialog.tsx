@@ -120,6 +120,7 @@ interface ProjectDialogProps {
   onLoad: (id: string) => void
   onDelete: (id: string) => Promise<void>
   onError?: (message: string) => void
+  openProjectId?: string | null
 }
 
 export function ProjectDialog({
@@ -131,6 +132,7 @@ export function ProjectDialog({
   onLoad,
   onDelete,
   onError,
+  openProjectId = null,
 }: ProjectDialogProps) {
   const [name, setName] = useState('')
   const [error, setError] = useState('')
@@ -223,7 +225,10 @@ export function ProjectDialog({
                       onOpenChange(false)
                     }}
                   >
-                    <span className="truncate">{p.name}</span>
+                    <span className="truncate">
+                      {p.name}
+                      {p.id === openProjectId ? ' · отворен' : ''}
+                    </span>
                     <span className="ml-2 shrink-0 text-xs text-[var(--color-muted-foreground)]">
                       {new Date(p.updatedAt).toLocaleDateString('bg-BG')}
                     </span>
@@ -274,23 +279,46 @@ export function ProjectDialog({
 
 export function HeaderActions({
   user,
+  openProjectName,
+  projectDirty,
+  projectSaving,
+  projectSaved,
   onAuthClick,
   onSaveClick,
+  onSaveAsClick,
   onLoadClick,
 }: {
   user: User | null
+  openProjectName: string | null
+  projectDirty: boolean
+  projectSaving: boolean
+  projectSaved: boolean
   onAuthClick: () => void
   onSaveClick: () => void
+  onSaveAsClick: () => void
   onLoadClick: () => void
 }) {
+  const saveLabel = projectSaving ? 'Запазване...' : projectSaved ? 'Запазено' : 'Запази'
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex shrink-0 items-center gap-2">
       {user && (
         <>
-          <Button variant="outline" size="sm" onClick={onSaveClick}>
+          <Button
+            variant={openProjectName && projectDirty ? 'default' : 'outline'}
+            size="sm"
+            onClick={onSaveClick}
+            disabled={projectSaving}
+            title={openProjectName ? `Запази в ${openProjectName}` : 'Запази проект'}
+          >
             <Save className="h-4 w-4" />
-            <span className="hidden sm:inline">Запази</span>
+            <span className="hidden sm:inline">{saveLabel}</span>
           </Button>
+          {openProjectName && (
+            <Button variant="ghost" size="sm" onClick={onSaveAsClick} disabled={projectSaving}>
+              <span className="hidden sm:inline">Запази като</span>
+              <Save className="h-4 w-4 sm:hidden" />
+            </Button>
+          )}
           <Button variant="outline" size="sm" onClick={onLoadClick}>
             <FolderOpen className="h-4 w-4" />
             <span className="hidden sm:inline">Зареди</span>

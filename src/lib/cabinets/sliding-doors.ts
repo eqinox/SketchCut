@@ -1,13 +1,16 @@
 import { pricedLine } from './hardware'
-import { DOOR_EDGE_MM } from './materials'
-import { edges, type GeneratedPanel, type HardwareItem } from './types'
+import { DOOR_CLEARANCE_TOP } from './materials'
+import { DEFAULT_PANEL_THICKNESS, edges, type GeneratedPanel, type HardwareItem } from './types'
 import type { HardwareSettings } from '@/lib/settings'
 import type { PartitionSpec } from './zones'
 import { formatMm } from '../utils'
+import type { RuleSection } from './rule-text'
 import {
   DEFAULT_SLIDING_LOWER_TRACK_EUR,
   DEFAULT_SLIDING_MVP005_KIT_EUR,
   DEFAULT_SLIDING_SOFT_CLOSE_EUR,
+  DEFAULT_SLIDING_CAP_SKUS,
+  DEFAULT_SLIDING_HANDLE_SKUS,
   DEFAULT_SLIDING_UPPER_TRACK_EUR,
   SLIDING_LOWER_TRACK_DEPTH_MM,
   SLIDING_LOWER_TRACK_HEIGHT_MM,
@@ -39,6 +42,8 @@ export { SLIDING_LOWER_TRACK_DEPTH_MM, SLIDING_LOWER_TRACK_INSET_MM, SLIDING_UPP
 export const SLIDING_DRAWER_FROM_BOTTOM_MM = 20
 /** Vertical handle profile D1L, mm added after the cut. */
 export const SLIDING_HANDLE_PROFILE_MM = 20
+/** Soft-close dampers assumed on each side when the count is left unset. */
+export const DEFAULT_SLIDING_SOFT_CLOSE_PER_SIDE = 1
 /** D2 aluminium cap does not add width — it sits on the 18 mm board edge. */
 export const SLIDING_CAP_PROFILE_MM = 0
 
@@ -167,7 +172,7 @@ export function layoutSlidingDoors(input: {
   const rightBase = innerW - split.xLeft
   const overlap = SLIDING_DOOR_OVERLAP_MM
   const gabaritH = innerH
-  const cutH = Math.max(T, gabaritH - 2 * DOOR_EDGE_MM)
+  const cutH = gabaritH
   const pair = input.edges.length >= 2 ? input.edges : defaultSlidingEdges(2)
 
   const make = (
@@ -226,8 +231,8 @@ export function appendSlidingDoors(
   const lowerEur = hardwareSettings.slidingLowerTrackEur?.[lowerColor] ?? DEFAULT_SLIDING_LOWER_TRACK_EUR[lowerColor]
   const kitEur = hardwareSettings.slidingMvp005KitEur ?? DEFAULT_SLIDING_MVP005_KIT_EUR
   const damperEur = hardwareSettings.slidingSoftCloseEur ?? DEFAULT_SLIDING_SOFT_CLOSE_EUR
-  const softLeft = Math.max(0, input.softCloseLeft ?? 1)
-  const softRight = Math.max(0, input.softCloseRight ?? 1)
+  const softLeft = Math.max(0, input.softCloseLeft ?? DEFAULT_SLIDING_SOFT_CLOSE_PER_SIDE)
+  const softRight = Math.max(0, input.softCloseRight ?? DEFAULT_SLIDING_SOFT_CLOSE_PER_SIDE)
 
   notes.push(
     `2 плъзгащи врати между страниците. Горната релса е ${SLIDING_UPPER_TRACK_DEPTH_MM} мм дълбока и ${SLIDING_UPPER_TRACK_HEIGHT_MM} мм висока, наравно с канта на плота. Вътрешните страници са с ${SLIDING_PARTITION_SETBACK_MM} мм по-плитки (${SLIDING_UPPER_TRACK_DEPTH_MM} мм релса + ${SLIDING_UPPER_TRACK_CLEARANCE_MM} мм запас).`,
@@ -239,7 +244,7 @@ export function appendSlidingDoors(
     `Релсите се продават по ${formatMm(SLIDING_TRACK_LENGTH_MM)} мм — влиза цялата цена на пръта, дори да се отреже.`,
   )
   notes.push(
-    `Вратите се препокриват с ${SLIDING_DOOR_OVERLAP_MM} мм. Кант дръжка D1L добавя ${SLIDING_HANDLE_PROFILE_MM} мм към широчината; профил D2 не добавя. Рязането е без вертикалните профили и без 2 мм кант горе и долу.`,
+    `Вратите се препокриват с ${SLIDING_DOOR_OVERLAP_MM} мм. Кант дръжка D1L добавя ${SLIDING_HANDLE_PROFILE_MM} мм към широчината; профил D2 не добавя. Рязането е без вертикалните профили. Височината е равна на габарита. Горе и долу се лепи тънък кант 0,5 мм.`,
   )
   notes.push(
     `Чекмеджета отдолу започват на ${SLIDING_DRAWER_FROM_BOTTOM_MM} мм от дъното — аванс над долната релса. Челото сяда там, без още 3 мм фуга отдолу.`,
@@ -270,7 +275,7 @@ export function appendSlidingDoors(
       continue
     }
     notes.push(
-      `${leaf.name}: габарит ${formatMm(leaf.gabaritW)} × ${formatMm(leaf.gabaritH)} мм · рязане ${formatMm(leaf.cutW)} × ${formatMm(leaf.cutH)} мм (ляво ${leftL} ${slidingProfileMm(leaf.edges.left)} мм, дясно ${rightL} ${slidingProfileMm(leaf.edges.right)} мм, кант 2 мм горе и долу).`,
+      `${leaf.name}: габарит ${formatMm(leaf.gabaritW)} × ${formatMm(leaf.gabaritH)} мм · рязане ${formatMm(leaf.cutW)} × ${formatMm(leaf.cutH)} мм (ляво ${leftL} ${slidingProfileMm(leaf.edges.left)} мм, дясно ${rightL} ${slidingProfileMm(leaf.edges.right)} мм, тънък кант 0,5 мм горе и долу).`,
     )
     panels.push({
       role: 'sliding-door',
@@ -279,8 +284,8 @@ export function appendSlidingDoors(
       height: leaf.cutH,
       quantity: 1,
       canRotate: false,
-      edges: edges({ top: true, bottom: true }),
-      note: `Плъзгаща врата. Рязане без вертикалните профили. След D1L/D2: ${formatMm(leaf.gabaritW)} мм. Кант 2 мм: горна и долна.`,
+      edges: edges({ top: true, bottom: true }, 'mm05'),
+      note: `Плъзгаща врата. Рязане без вертикалните профили. След D1L/D2: ${formatMm(leaf.gabaritW)} мм. Тънък кант 0,5 мм: горна и долна.`,
     })
   }
 
@@ -384,5 +389,82 @@ export function appendSlidingDoors(
         slidingSkuLabel(capSku),
       ),
     )
+  }
+}
+
+export function slidingDoorRuleSection(): RuleSection {
+  const T = DEFAULT_PANEL_THICKNESS
+  const innerW = 1000
+  const innerH = 2000
+  const both = layoutSlidingDoors({
+    innerW,
+    innerH,
+    thickness: T,
+    partitions: [],
+    edges: bothSideSlidingEdges(),
+  })
+  const oneSide = layoutSlidingDoors({
+    innerW,
+    innerH,
+    thickness: T,
+    partitions: [],
+    edges: oneSideSlidingEdges(),
+  })
+  const handleLeaf = both[0]
+  const capLeaf = oneSide[0]
+  const barLengths = [...new Set(DEFAULT_SLIDING_HANDLE_SKUS.concat(DEFAULT_SLIDING_CAP_SKUS).map((sku) => sku.lengthMm))]
+    .sort((a, b) => a - b)
+    .map((mm) => formatMm(mm))
+    .join(', ')
+  return {
+    id: 'sliding',
+    title: 'Плъзгащи врати',
+    blocks: [
+      {
+        title: 'Релси',
+        lines: [
+          `Горна релса: ${SLIDING_UPPER_TRACK_DEPTH_MM} мм дълбока, ${SLIDING_UPPER_TRACK_HEIGHT_MM} мм висока, наравно с канта на плота.`,
+          `Долна релса: ${SLIDING_LOWER_TRACK_DEPTH_MM} мм дълбока, ${SLIDING_LOWER_TRACK_HEIGHT_MM} мм висока (два канала), ${SLIDING_LOWER_TRACK_INSET_MM} мм навътре от канта на дъното.`,
+          `Продават се само по ${formatMm(SLIDING_TRACK_LENGTH_MM / 1000)} м. В цената влиза целият прът. Цветът и цената са в Настройки.`,
+        ],
+      },
+      {
+        title: 'Корпусът зад вратите',
+        lines: [
+          `Написаната дълбочина е заедно с механизма. Вътрешните страници и разделителите са с ${SLIDING_PARTITION_SETBACK_MM} мм по-плитки (${SLIDING_UPPER_TRACK_DEPTH_MM} мм релса + ${SLIDING_UPPER_TRACK_CLEARANCE_MM} мм запас).`,
+          `Рафтовете са още по-плитки от вътрешната страница. По подразбиране с ${SLIDING_SHELF_FROM_PARTITION_MM} мм.`,
+          `Двете врати се препокриват с ${SLIDING_DOOR_OVERLAP_MM} мм.`,
+        ],
+      },
+      {
+        title: 'Размер на една врата',
+        lines: [
+          `Рязане по височина = светъл отвор. Горе и долу се лепи тънък кант 0,5 мм и размерът не се скъсява.`,
+          `Кант дръжка D1L добавя ${SLIDING_HANDLE_PROFILE_MM} мм. Профил D2 за ${T} мм плоскост добавя ${SLIDING_CAP_PROFILE_MM} мм.`,
+          handleLeaf
+            ? `Отвор ${innerW} × ${innerH} мм, D1L от двете страни: габарит ${formatMm(handleLeaf.gabaritW)} × ${formatMm(handleLeaf.gabaritH)} мм, рязане ${formatMm(handleLeaf.cutW)} × ${formatMm(handleLeaf.cutH)} мм.`
+            : '',
+          capLeaf
+            ? `Същият отвор, D1L отвън и D2 отвътре: рязане ${formatMm(capLeaf.cutW)} × ${formatMm(capLeaf.cutH)} мм.`
+            : '',
+          `Профилите се купуват на цял прът: ${barLengths} мм.`,
+          'Ако вратите са външни, в разкроя не влизат: поръчва се габаритът.',
+        ].filter((line) => line !== ''),
+      },
+      {
+        title: 'Обков на врата',
+        lines: [
+          'Механизъм MVP-005: 1 комплект (2 горни + 2 долни ролки) на врата.',
+          `Плавно прибиране по подразбиране: ${DEFAULT_SLIDING_SOFT_CLOSE_PER_SIDE} отляво и ${DEFAULT_SLIDING_SOFT_CLOSE_PER_SIDE} отдясно.`,
+        ],
+      },
+      {
+        title: 'Чекмеджета от дъното',
+        lines: [
+          `Най-долното чело сяда на ${SLIDING_DRAWER_FROM_BOTTOM_MM} мм от дъното. Това е новият нула, без още ${DOOR_CLEARANCE_TOP} мм фуга отдолу.`,
+          `Горе остава фугата ${DOOR_CLEARANCE_TOP} мм. Над фиксиран рафт тези ${SLIDING_DRAWER_FROM_BOTTOM_MM} мм не важат.`,
+        ],
+      },
+    ],
   }
 }

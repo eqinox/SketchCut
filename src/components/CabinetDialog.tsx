@@ -89,6 +89,7 @@ import {
   slidingProfileMm,
   SLIDING_DRAWER_FROM_BOTTOM_MM,
   SLIDING_HANDLE_PROFILE_MM,
+  SLIDING_PARTITION_SETBACK_MM,
   isBuyoutDoorPanel,
   type CabinetInstance,
   type CabinetPartColors,
@@ -1357,6 +1358,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
   const isKitchenCarcass = typeId === 'kitchen-base' || typeId === 'kitchen-wall'
   const isPlinthBox = typeId === 'nightstand' || typeId === 'section' || typeId === 'wardrobe'
   const isSlidingCabinet = typeId === 'wardrobe' || (typeId === 'section' && doorStyle === 'sliding')
+  const slidingLocksDepth = isSlidingCabinet && depthMode !== 'no-doors'
   const nsMeasure =
     isKitchenCarcass
       ? null
@@ -2190,6 +2192,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                   setClothesRails([])
                   setDoorCount(2)
                   setDoorStyle('sliding')
+                  setDepthMode((mode) => (mode === 'no-doors' ? 'without-door' : mode))
                   setSlidingEdges(defaultSlidingEdges(2))
                   setDrawerFrontHeights([])
                   setCutFromOneBoard(false)
@@ -2276,37 +2279,40 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
           <div className="flex items-center gap-2">
             <Checkbox
               id="depth-without-door"
-              checked={depthMode === 'without-door'}
+              checked={!slidingLocksDepth && depthMode === 'without-door'}
+              disabled={slidingLocksDepth}
               onCheckedChange={(checked) => {
-                if (!checked) return
+                if (!checked || slidingLocksDepth) return
                 setDepthMode('without-door')
                 alignShelfInset(typeId === 'wardrobe' || (typeId === 'section' && doorStyle === 'sliding'))
               }}
             />
-            <Label htmlFor="depth-without-door" className="cursor-pointer text-sm font-normal">
+            <Label htmlFor="depth-without-door" className={slidingLocksDepth ? 'text-sm font-normal opacity-50' : 'cursor-pointer text-sm font-normal'}>
               Без вратата
             </Label>
           </div>
           <div className="flex items-center gap-2">
             <Checkbox
               id="depth-with-door"
-              checked={depthMode === 'with-door'}
+              checked={slidingLocksDepth || depthMode === 'with-door'}
+              disabled={slidingLocksDepth}
               onCheckedChange={(checked) => {
-                if (!checked) return
+                if (!checked || slidingLocksDepth) return
                 setDepthMode('with-door')
                 alignShelfInset(typeId === 'wardrobe' || (typeId === 'section' && doorStyle === 'sliding'))
               }}
             />
-            <Label htmlFor="depth-with-door" className="cursor-pointer text-sm font-normal">
+            <Label htmlFor="depth-with-door" className={slidingLocksDepth ? 'text-sm font-normal opacity-50' : 'cursor-pointer text-sm font-normal'}>
               Заедно с вратата
             </Label>
           </div>
           <div className="flex items-center gap-2">
             <Checkbox
               id="cabinet-without-doors"
-              checked={depthMode === 'no-doors'}
+              checked={!slidingLocksDepth && depthMode === 'no-doors'}
+              disabled={slidingLocksDepth}
               onCheckedChange={(checked) => {
-                if (!checked) return
+                if (!checked || slidingLocksDepth) return
                 setDepthMode('no-doors')
                 alignShelfInset(false)
                 setDoorCount(0)
@@ -2315,13 +2321,15 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                 clearZoneDoors()
               }}
             />
-            <Label htmlFor="cabinet-without-doors" className="cursor-pointer text-sm font-normal">
+            <Label htmlFor="cabinet-without-doors" className={slidingLocksDepth ? 'text-sm font-normal opacity-50' : 'cursor-pointer text-sm font-normal'}>
               Шкафът е без врати
             </Label>
           </div>
         </div>
         <p className="text-xs text-[var(--color-muted-foreground)]">
-          {depthMode === 'no-doors'
+          {slidingLocksDepth && nsMeasure
+            ? `Плъзгащи врати: ${formatMm(params.depth)} мм е заедно с механизма. Вътрешните страници са ${formatMm(nsMeasure.partitionD)} мм и почват ${SLIDING_PARTITION_SETBACK_MM} мм навътре.`
+            : depthMode === 'no-doors'
             ? nsMeasure && nsMeasure.frontOverhang > 0
               ? `Шкафът е без врати. Наложеното чело държи страниците на ${formatMm(nsMeasure.sideD)} мм.`
               : `Шкафът е без врати. Страниците са ${formatMm(nsMeasure?.sideD ?? params.depth)} мм — пълната дълбочина.`
@@ -3814,6 +3822,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                       setDoorCount(2)
                       setDoorSpan('full')
                       setSlidingEdges(defaultSlidingEdges(2))
+                      setDepthMode((mode) => (mode === 'no-doors' ? 'without-door' : mode))
                       setPendingAdd(null)
                       clearZoneDoors()
                     }}
@@ -4126,7 +4135,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                             </div>
                             <p className="text-xs text-[var(--color-muted-foreground)]">
                               Рязане по широчина = габарит − ляв профил − десен профил. D1L добавя {formatMm(SLIDING_HANDLE_PROFILE_MM)} мм;
-                              D2 не добавя. Височина на рязане = габарит − 4 мм (кант 2 мм горе и долу).
+                              D2 не добавя. Височина на рязане = габарит. Горе и долу се лепи тънък кант 0,5 мм.
                             </p>
                             {handleSku ? (
                               <p className="text-xs text-[var(--color-muted-foreground)]">

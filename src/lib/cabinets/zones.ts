@@ -12,6 +12,7 @@ import {
 } from './materials'
 import { isSoftCloseSlide, type SlideKind } from './hardware'
 import { exactMm, formatMm, parseMm } from '../utils'
+import type { RuleSection } from './rule-text'
 
 function parseOffsetMm(raw: unknown): number | null {
   const n = typeof raw === 'number' && Number.isFinite(raw) ? raw : parseMm(raw)
@@ -2234,4 +2235,30 @@ export function fittingsCountsFromParams(p: {
     clothesRailCount += parseClothesRails(z.clothesRails, z.hasClothesRail).length
   }
   return { fixedShelves: fixed, partitions: parts, shelfCount, doorCount, drawerCount, clothesRailCount }
+}
+
+export function zoneSplitRuleSection(): RuleSection {
+  return {
+    id: 'zones',
+    title: 'Части по рафт',
+    blocks: [
+      {
+        title: 'Долна, средна и горна част',
+        lines: [
+          `Долна част: от долната страна на дъното до горната страна на рафта, после ${DOOR_CLEARANCE_TOP} мм фуга горе.`,
+          `Горна част: от долната страна на рафта до горната точка на отвора, после ${DOOR_CLEARANCE_TOP} мм фуга горе.`,
+          `Средна част: от долната страна на долния рафт до горната страна на горния, със същата фуга ${DOOR_CLEARANCE_TOP} мм.`,
+          'Съседните чела се срещат на горната страна на рафта и не се застъпват върху него.',
+          '„На целия шкаф“ е върху целия корпус, без да се реже на части.',
+        ],
+      },
+      {
+        title: 'Колони',
+        lines: [
+          `Разделителна страница дели шкафа отляво надясно: ${columnLabel(0, 3)}, ${columnLabel(1, 3)}, ${columnLabel(2, 3)}.`,
+          'Хоризонталните части остават Долна, Средна и Горна. Заедно се четат „Страна 1 · Долна част“.',
+        ],
+      },
+    ],
+  }
 }

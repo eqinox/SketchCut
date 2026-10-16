@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { partFaces } from './colors'
+import type { RuleSection } from './rule-text'
 
 /** Outline of every board — same as the kitchen-base 3D view. */
 export const DRAW_STROKE = '#111111'
@@ -10,6 +11,33 @@ export const DRAW_PAPER = '#ffffff'
 
 /** Parts between the sides, seen from the right: front + top. No end grain. */
 export const BETWEEN_FACES = { front: true, top: true } as const
+
+export function drawingRuleSection(): RuleSection {
+  return {
+    id: 'drawing',
+    title: 'Чертеж',
+    blocks: [
+      {
+        title: '3D изглед',
+        lines: [
+          `Кавалерна проекция, поглед отпред-дясно, дълбочина ${DRAW_DEPTH_SCALE} при ${DRAW_DEPTH_ANGLE}°. Чертае се само лицето, което се вижда отдясно.`,
+          'Хоризонтално парче (рафт, дъно, бленда, плот): предно и горно лице.',
+          'Вертикално парче (страница, разделител): предно лице и дясната стена към нас.',
+          'Редът е отляво надясно: лява колона, нейният разделител, следваща колона, дясната външна страница, плотът най-накрая.',
+          'Лостът стига от лицето на лявата опора до лицето на дясната — страница или разделител.',
+        ],
+      },
+      {
+        title: 'Размери по чертежа',
+        lines: [
+          'Ако две линии или две числа се застъпват, едната се мести.',
+          'Вертикални размери в една колона, които се срещат по височина, отиват на различни места по широчина.',
+          'Еднакъв отвор в няколко равни полета се пише веднъж. Размер, писан веднъж, не се повтаря.',
+        ],
+      },
+    ],
+  }
+}
 /** Left/inner vertical board from the right: front + inner (right) wall. */
 export const SIDE_LEFT_BODY = { front: true, right: true } as const
 export const SIDE_LEFT_TOP = { top: true } as const

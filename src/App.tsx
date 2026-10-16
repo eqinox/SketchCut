@@ -25,7 +25,7 @@ import {
   normalizeSheet,
 } from '@/lib/cabinets'
 import { subscribeAuth, saveProject, loadProjects, deleteProject, loadUserSettings, saveUserSettings, getFirebaseInitError } from '@/lib/firebase'
-import { saveDraft, readInitialDraft, setLastProjectId } from '@/lib/draft-storage'
+import { saveDraft, readInitialDraft, setOpenProject, getOpenProject, type OpenProjectRef } from '@/lib/draft-storage'
 import { loadSettings, saveSettings, resetSettings, type HardwareSettings } from '@/lib/settings'
 import {
   loadAssemblyTimeSettings,
@@ -58,6 +58,11 @@ function App() {
   const [rulesOpen, setRulesOpen] = useState(false)
   const [projectOpen, setProjectOpen] = useState(false)
   const [projectMode, setProjectMode] = useState<'save' | 'load'>('save')
+  const [openProject, setOpenProjectState] = useState<OpenProjectRef | null>(() => getOpenProject())
+  const [projectDirty, setProjectDirty] = useState(false)
+  const [projectSaving, setProjectSaving] = useState(false)
+  const [projectSavedFlash, setProjectSavedFlash] = useState(false)
+  const projectBaseline = useRef<string | null>(null)
   const [savedProjects, setSavedProjects] = useState<SavedProject[]>([])
   const [dbError, setDbError] = useState<DbErrorDetails | null>(null)
   const [settings, setSettings] = useState<HardwareSettings>(loadSettings())
@@ -67,6 +72,29 @@ function App() {
 
   const showDbError = useCallback((title: string, message: string, source?: string) => {
     setDbError({ title, message, source })
+  }, [])
+
+  const workspaceKey = useCallback(
+    (data: { sheets: Sheet[]; parts: Part[]; edgeBanding: PartEdgeBanding[]; cabinets: CabinetInstance[]; dailyRateEur: number }) =>
+      JSON.stringify(data),
+    [],
+  )
+
+  const rememberOpenProject = useCallback(
+    (project: OpenProjectRef, data: { sheets: Sheet[]; parts: Part[]; edgeBanding: PartEdgeBanding[]; cabinets: CabinetInstance[]; dailyRateEur: number }) => {
+      projectBaseline.current = workspaceKey(data)
+      setOpenProject(project)
+      setOpenProjectState(project)
+      setProjectDirty(false)
+    },
+    [workspaceKey],
+  )
+
+  const forgetOpenProject = useCallback(() => {
+    projectBaseline.current = null
+    setOpenProject(null)
+    setOpenProjectState(null)
+    setProjectDirty(false)
   }, [])
 
   const applyProjectData = useCallback((project: SavedProject) => {
@@ -139,13 +167,31 @@ function App() {
   }, [])
 
   useEffect(() => {
-    setEdgeBanding((prev) => syncEdgeBanding(parts, prev))
+    setEdgeBanding((prev) => {
+      const next = syncEdgeBanding(parts, prev)
+      if (next.length === prev.length && next.every((item, index) => item === prev[index])) return prev
+      return next
+    })
   }, [parts])
 
   useEffect(() => {
     if (!saveReadyRef.current) return
     saveDraft({ sheets, parts, edgeBanding, cabinets, dailyRateEur })
   }, [sheets, parts, edgeBanding, cabinets, dailyRateEur])
+
+  useEffect(() => {
+    if (!openProject) {
+      setProjectDirty(false)
+      return
+    }
+    const key = workspaceKey({ sheets, parts, edgeBanding, cabinets, dailyRateEur })
+    if (projectBaseline.current == null) {
+      projectBaseline.current = key
+      setProjectDirty(false)
+      return
+    }
+    setProjectDirty(key !== projectBaseline.current)
+  }, [openProject, sheets, parts, edgeBanding, cabinets, dailyRateEur, workspaceKey])
 
   const loadUserProjects = useCallback(async () => {
     if (!user) return
@@ -227,29 +273,42 @@ function App() {
     setPackingResult(updated)
   }, [])
 
-  const handleSaveProject = async (name: string) => {
+  const handleSaveProject = async (name: string, existingId?: string) => {
     if (!user) return
+    setProjectSaving(true)
+    setProjectSavedFlash(false)
     try {
-      const existing = savedProjects.find((p) => p.name === name)
+      const byId = existingId ? savedProjects.find((p) => p.id === existingId) : undefined
+      const byName = savedProjects.find((p) => p.name === name)
+      const data = { sheets, parts, edgeBanding, cabinets, dailyRateEur }
       const project: SavedProject = {
-        id: existing?.id ?? generateId(),
+        id: existingId ?? byId?.id ?? byName?.id ?? generateId(),
         name,
-        sheets,
-        parts,
-        edgeBanding,
-        cabinets,
-        dailyRateEur,
+        ...data,
         updatedAt: Date.now(),
       }
       await saveProject(user.uid, project)
-      setLastProjectId(project.id)
-      saveDraft({ sheets, parts, edgeBanding, cabinets, dailyRateEur })
+      rememberOpenProject({ id: project.id, name: project.name }, data)
+      saveDraft(data)
       await loadUserProjects()
       setDbError(null)
+      setProjectSavedFlash(true)
+      window.setTimeout(() => setProjectSavedFlash(false), 2000)
     } catch (e) {
       showDbError('Грешка при запазване в Firestore', formatFirebaseError(e), 'saveProject')
       throw e
+    } finally {
+      setProjectSaving(false)
     }
+  }
+
+  const handleSaveOpenProject = () => {
+    if (!openProject) {
+      setProjectMode('save')
+      setProjectOpen(true)
+      return
+    }
+    void handleSaveProject(openProject.name, openProject.id)
   }
 
   const handleDeleteProject = async (id: string) => {
@@ -257,6 +316,7 @@ function App() {
     try {
       await deleteProject(user.uid, id)
       setSavedProjects((prev) => prev.filter((p) => p.id !== id))
+      if (openProject?.id === id) forgetOpenProject()
       setDbError(null)
     } catch (e) {
       showDbError('Грешка при изтриване от Firestore', formatFirebaseError(e), 'deleteProject')
@@ -267,15 +327,16 @@ function App() {
   const handleLoadProject = (id: string) => {
     const project = savedProjects.find((p) => p.id === id)
     if (!project) return
-    applyProjectData(project)
-    setLastProjectId(id)
-    saveDraft({
-      sheets: project.sheets,
+    const data = {
+      sheets: project.sheets.map(normalizeSheet),
       parts: project.parts,
       edgeBanding: project.edgeBanding,
       cabinets: project.cabinets ?? [],
       dailyRateEur: project.dailyRateEur ?? 0,
-    })
+    }
+    applyProjectData(project)
+    rememberOpenProject({ id: project.id, name: project.name }, data)
+    saveDraft(data)
   }
 
   const cabinetState = { cabinets, parts, edgeBanding }
@@ -317,6 +378,7 @@ function App() {
     setEdgeBanding([])
     setCabinets([])
     resetPacking()
+    forgetOpenProject()
   }
 
   const ensureHardboardSheet = (params: Record<string, unknown>) => {
@@ -452,14 +514,27 @@ function App() {
       <DbErrorBanner error={dbError} onDismiss={() => setDbError(null)} />
       <header className="sticky top-0 z-40 border-b border-[var(--color-border)] bg-[var(--color-background)]/95 backdrop-blur supports-[backdrop-filter]:bg-[var(--color-background)]/80">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3">
-          <div className="flex items-center gap-2">
-            <Layers className="h-6 w-6 text-[var(--color-primary)]" />
-            <h1 className="text-xl font-bold">SketchCut</h1>
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="flex shrink-0 items-center gap-2">
+              <Layers className="h-6 w-6 text-[var(--color-primary)]" />
+              <h1 className="text-xl font-bold">SketchCut</h1>
+            </div>
+            {openProject && (
+              <p className="truncate text-sm text-[var(--color-muted-foreground)]" title={openProject.name}>
+                Отворен: <span className="font-medium text-[var(--color-foreground)]">{openProject.name}</span>
+                {projectDirty ? ' · има промени' : ''}
+              </p>
+            )}
           </div>
           <HeaderActions
             user={user}
+            openProjectName={openProject?.name ?? null}
+            projectDirty={projectDirty}
+            projectSaving={projectSaving}
+            projectSaved={projectSavedFlash}
             onAuthClick={() => setAuthOpen(true)}
-            onSaveClick={() => {
+            onSaveClick={handleSaveOpenProject}
+            onSaveAsClick={() => {
               setProjectMode('save')
               setProjectOpen(true)
             }}
@@ -632,8 +707,9 @@ function App() {
           name: p.name,
           updatedAt: p.updatedAt,
         }))}
-        onSave={handleSaveProject}
+        onSave={(name) => handleSaveProject(name)}
         onLoad={handleLoadProject}
+        openProjectId={openProject?.id ?? null}
         onDelete={handleDeleteProject}
         onError={(msg) => showDbError('Проект', msg, 'ProjectDialog')}
       />
