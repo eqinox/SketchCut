@@ -153,6 +153,20 @@ export function defaultClothesRail(): ClothesRailSpec {
   return { from: 'top', offsetMm: DEFAULT_CLOTHES_RAIL_FROM_TOP_MM }
 }
 
+/**
+ * Top of a second rod so the gap between the two rod tops equals the gap from the
+ * lower rod top down to the floor. `upperY` and the result share one axis: 0 is the
+ * bottom of the opening. `belowOpeningMm` is how far the floor sits under that
+ * bottom (plinth or legs, plus the bottom panel).
+ */
+export function evenLowerRailY(upperY: number, belowOpeningMm: number): number | null {
+  if (!(upperY > 0)) return null
+  const yLower = (upperY - Math.max(0, belowOpeningMm)) / 2
+  if (!(yLower >= CLOTHES_RAIL_SECTION_MM)) return null
+  if (!(upperY - yLower >= CLOTHES_RAIL_SECTION_MM)) return null
+  return exactMm(yLower)
+}
+
 export function parseClothesRails(raw: unknown, hasClothesRail?: boolean): ClothesRailSpec[] {
   const out: ClothesRailSpec[] = []
   if (Array.isArray(raw)) {
@@ -1152,12 +1166,10 @@ export const ZONE_LABELS: Record<CabinetRowId, string> = {
   top: 'Горна част',
 }
 
+/** Bay between vertical dividers. Страна 1 is the leftmost; numbers grow to the right. */
 export function columnLabel(index: number, count: number): string {
   if (count <= 1) return 'Шкаф'
-  if (count === 2) return index === 0 ? 'Лява част' : 'Дясна част'
-  if (count === 3) return (['Лява част', 'Средна част', 'Дясна част'] as const)[index] ?? `Част ${index + 1}`
-  const four = ['Лява част', 'Средна лява', 'Средна дясна', 'Дясна част']
-  return four[index] ?? `Част ${index + 1}`
+  return `Страна ${index + 1}`
 }
 
 export function compartmentId(
@@ -1179,8 +1191,7 @@ export function compartmentLabel(
 ): string {
   if (colCount <= 1) return rowCount <= 1 ? 'Шкаф' : ZONE_LABELS[rowId]
   if (rowCount <= 1) return columnLabel(colIndex, colCount)
-  const col = columnLabel(colIndex, colCount).replace(/ част$/, '')
-  return `${col} · ${ZONE_LABELS[rowId]}`
+  return `${columnLabel(colIndex, colCount)} · ${ZONE_LABELS[rowId]}`
 }
 
 export function parseDoorSpan(raw: unknown): DoorSpan {

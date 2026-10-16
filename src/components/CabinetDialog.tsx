@@ -67,6 +67,8 @@ import {
   MAX_SHELVES,
   MAX_CLOTHES_RAILS,
   DEFAULT_CLOTHES_RAIL_FROM_TOP_MM,
+  CLOTHES_RAIL_SECTION_MM,
+  evenLowerRailY,
   evenShelfGap,
   clothesRailLengthMm,
   hardboardCutSize,
@@ -444,6 +446,79 @@ function newMiddleRail(gapIndex?: number): ClothesRailUi {
   return { from: 'middle', offsetMm: '0', ...(gapIndex != null ? { gapIndex } : {}) }
 }
 
+/** Second rod: gap between the rods equals the gap from the lower rod to the floor. */
+function placeEvenLowerRails(
+  rows: ClothesRailUi[],
+  openings: { index: number; start: number; end: number }[],
+  openingH: number,
+  floorDrop: number,
+): ClothesRailUi[] {
+  const gaps = openings.length > 0 ? openings : [{ index: 0, start: 0, end: openingH }]
+  const largest = gaps.reduce((a, b) => (b.end - b.start > a.end - a.start ? b : a))
+  const gapOf = (r: ClothesRailUi) =>
+    r.gapIndex != null ? (gaps.find((g) => g.index === r.gapIndex) ?? largest) : largest
+  const yOf = (r: ClothesRailUi) => {
+    const gap = gapOf(r)
+    if (r.from === 'middle') return gap.start + (gap.end - gap.start - CLOTHES_RAIL_SECTION_MM) / 2
+    if (r.from === 'bottom') return gap.start + mmNum(r.offsetMm)
+    return gap.end - mmNum(r.offsetMm)
+  }
+  const top = rows
+    .filter((r) => r.from === 'top')
+    .reduce<ClothesRailUi | null>((best, r) => (!best || yOf(r) > yOf(best) ? r : best), null)
+  const yUpper = top ? yOf(top) : openingH - DEFAULT_CLOTHES_RAIL_FROM_TOP_MM
+  const yLower = evenLowerRailY(yUpper, floorDrop)
+  if (yLower == null) return rows
+  const needsTop = !top
+  const hasBottom = rows.some((r) => r.from === 'bottom')
+  const free = MAX_CLOTHES_RAILS - rows.length
+  if ((needsTop ? 1 : 0) + (hasBottom ? 0 : 1) > free) return rows
+
+  const host =
+    gaps.find((g) => yLower >= g.start && yLower <= g.end - CLOTHES_RAIL_SECTION_MM) ??
+    gaps.reduce((a, b) => (Math.abs(a.start - yLower) <= Math.abs(b.start - yLower) ? a : b))
+  const offset = exactMm(
+    Math.max(0, Math.min(host.end - host.start - CLOTHES_RAIL_SECTION_MM, yLower - host.start)),
+  )
+  const withGap = gaps.length > 1
+  const next = rows.map((r) => ({ ...r }))
+  if (!top) {
+    if (next.length >= MAX_CLOTHES_RAILS) return rows
+    const topGap = gaps.reduce((a, b) => (b.end > a.end ? b : a))
+    next.unshift({
+      from: 'top',
+      offsetMm: String(DEFAULT_CLOTHES_RAIL_FROM_TOP_MM),
+      ...(withGap ? { gapIndex: topGap.index } : {}),
+    })
+  }
+  const lower: ClothesRailUi = {
+    from: 'bottom',
+    offsetMm: String(offset),
+    ...(withGap ? { gapIndex: host.index } : { gapIndex: undefined }),
+  }
+  const bottomIdx = next.reduce(
+    (found, r, i) =>
+      r.from === 'bottom' && (found < 0 || yOf(r) < yOf(next[found]!)) ? i : found,
+    -1,
+  )
+  if (bottomIdx >= 0) next[bottomIdx] = { ...next[bottomIdx], ...lower }
+  else if (next.length < MAX_CLOTHES_RAILS) next.push(lower)
+  return next
+}
+
+function railToGroundNote(yLower: number, otherTops: number[], floorDrop: number): string {
+  if (!(floorDrop > 0)) return ''
+  const toGround = yLower + floorDrop
+  const above = otherTops.filter((y) => y > yLower + 1)
+  const yUpper = above.length > 0 ? Math.min(...above) : null
+  if (yUpper == null) return ` До земята ${formatMm(toGround)} мм.`
+  const between = yUpper - yLower
+  if (Math.abs(between - toGround) < 0.6) {
+    return ` Между лостовете и до земята: ${formatMm(between)} мм.`
+  }
+  return ` До земята ${formatMm(toGround)} мм.`
+}
+
 function railOriginCaptions(
   zone: { y0: number; y1: number; rails: { openingY0: number; openingY1: number }[] } | undefined,
   railIndex: number,
@@ -594,6 +669,7 @@ type PendingAdd =
   | { kind: 'drawer' }
   | { kind: 'door'; count: 1 | 2 }
   | { kind: 'rail'; middle?: boolean }
+  | { kind: 'rail-even' }
   | { kind: 'fixed-shelf' }
   | { kind: 'partition-middle' }
 
@@ -1311,6 +1387,12 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
       : typeId === 'kitchen-wall'
         ? params.height - 2 * params.thickness
         : nsMeasure!.innerH
+  const floorDropMm =
+    typeId === 'kitchen-wall'
+      ? 0
+      : typeId === 'kitchen-base'
+        ? legHeight + params.thickness
+        : (nsMeasure?.supportH ?? 0) + params.thickness
   const topBoardCaption =
     typeId === 'kitchen-base'
       ? topStyle === 'rails'
@@ -1861,11 +1943,48 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
       } else {
         patchZone(target, pushRail(target, defaultGapForZone(target)))
       }
+    } else if (pendingAdd.kind === 'rail-even') {
+      const placeIn = (id: CabinetZoneId) => {
+        const zone = layout.zones.find((z) => z.id === id)
+        const cur = zoneOf(zoneUi, id)
+        if (!zone) return cur
+        const shelfRows = displayedMovable(cur.movableShelves, cur.shelfCount, zone.innerH, params.thickness)
+        const openings = remainingShelfOpenings(
+          rowsToSpecs(shelfRows),
+          zone.innerH,
+          params.thickness,
+          cur.shelfCount,
+        )
+        const nextRails = placeEvenLowerRails(
+          cur.clothesRails,
+          openings,
+          zone.innerH,
+          zone.y0 <= 0.5 ? floorDropMm : 0,
+        )
+        return { ...cur, clothesRails: nextRails, hasClothesRail: nextRails.length > 0 }
+      }
+      if (target === 'full') {
+        setZoneUi((z) => {
+          const next = { ...z }
+          for (const zone of layout.zones) next[zone.id] = placeIn(zone.id)
+          return next
+        })
+      } else {
+        patchZone(target, placeIn(target))
+      }
     }
     setPendingAdd(null)
   }
 
   const startAdd = (next: PendingAdd) => {
+    if (next.kind === 'rail-even') {
+      if (hasSplit && !layout.error) {
+        setPendingAdd(next)
+        return
+      }
+      setClothesRails((rows) => placeEvenLowerRails(rows, cabinetRailOpenings, innerH, floorDropMm))
+      return
+    }
     if (next.kind === 'shelf') {
       if (hasSplit && !layout.error) {
         setPendingAdd(next)
@@ -2434,7 +2553,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                 подвижните рафтове — с {shelfInsetValue} мм по-плитък от{' '}
                 {shelfFromPartition ? 'вътрешната страница' : 'страницата'} ({formatMm(shelfCutDepth)} мм). До 2
                 рафта на част. Мери се от дъното, от плота или от вече добавен рафт. Следващият тръгва от последния.
-                {layout.columns.length > 1 ? ' След разделителна страница избираш в коя част да го сложиш.' : ''}
+                {layout.columns.length > 1 ? ' След разделителна страница избираш в коя страна да го сложиш. Страна 1 е най-лявата.' : ''}
               </p>
               {fixedShelves.map((shelf, i) => (
                 <div key={i} className="mt-2 space-y-2 rounded-md border border-[var(--color-border)] p-2">
@@ -2462,7 +2581,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                   </div>
                   {layout.columns.length > 1 && (
                     <>
-                      <p className="text-xs text-[var(--color-muted-foreground)]">В коя част</p>
+                      <p className="text-xs text-[var(--color-muted-foreground)]">В коя страна</p>
                       <div className="flex flex-wrap gap-2">
                         {layout.columns.map((_, c) => {
                           const others = fixedShelves.filter((_, j) => j !== i)
@@ -2937,7 +3056,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                     label: g.label,
                   }))}
                   allowFull={false}
-                  hint="Избери в коя част да е разделителната страница по средата."
+                  hint="Избери в коя страна да е разделителната страница по средата. Страна 1 е най-лявата."
                   onPick={applyPending}
                   onCancel={() => setPendingAdd(null)}
                 />
@@ -3331,7 +3450,8 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
         >
           <p className="mt-0.5 text-xs text-[var(--color-muted-foreground)]">
             Между страниците. Отгоре обикновено 48 мм от плоскостта над отвора — плот или рафт, не винаги
-            плотът на шкафа. Лостът дели отвора: можеш да сложиш рафтове над него, поне{' '}
+            плотът на шкафа. „Още един до земята“ слага втори лост: разстоянието между лостовете е колкото
+            от долния до пода. Лостът дели отвора: можеш да сложиш рафтове над него, поне{' '}
             {MIN_CLOTHES_RAIL_TO_SHELF_MM} мм над лоста.
           </p>
           {!hasSplit &&
@@ -3425,12 +3545,19 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                 )}
                 <p className="text-xs text-[var(--color-muted-foreground)]">
                   {(() => {
-                    const cap = railOriginCaptions(layout.zones[0], i, topBoardCaption)
+                    const zone = layout.zones[0]
+                    const cap = railOriginCaptions(zone, i, topBoardCaption)
+                    const resolved = zone?.rails[i]
+                    const others = (zone?.rails ?? []).filter((_, j) => j !== i).map((r) => r.yTop)
+                    const ground =
+                      rail.from === 'bottom' && resolved && (zone?.y0 ?? 0) <= 0.5
+                        ? railToGroundNote(resolved.yTop, others, floorDropMm)
+                        : ''
                     return `${clothesRailMeasureLabel(
                       { from: rail.from, offsetMm: mmNum(rail.offsetMm) },
                       cap.top,
                       cap.bottom,
-                    )}${rail.from === 'middle' ? '.' : '. Линията е на 3D изгледа.'}`
+                    )}${rail.from === 'middle' ? '.' : '. Линията е на 3D изгледа.'}${ground}`
                   })()}
                 </p>
               </div>
@@ -3537,11 +3664,17 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                   <p className="text-xs text-[var(--color-muted-foreground)]">
                     {(() => {
                       const cap = railOriginCaptions(z, i, topBoardCaption)
+                      const resolved = z.rails[i]
+                      const others = z.rails.filter((_, j) => j !== i).map((r) => r.yTop)
+                      const ground =
+                        rail.from === 'bottom' && resolved && z.y0 <= 0.5
+                          ? railToGroundNote(resolved.yTop, others, floorDropMm)
+                          : ''
                       return `${clothesRailMeasureLabel(
                         { from: rail.from, offsetMm: mmNum(rail.offsetMm) },
                         cap.top,
                         cap.bottom,
-                      )}${rail.from === 'middle' ? '.' : '. Линията е на 3D изгледа.'}`
+                      )}${rail.from === 'middle' ? '.' : '. Линията е на 3D изгледа.'}${ground}`
                     })()}
                   </p>
                 </div>
@@ -3568,6 +3701,15 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
               <Plus className="h-4 w-4" />
               По средата
             </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={pendingAdd?.kind === 'rail-even' ? 'default' : 'outline'}
+              onClick={() => startAdd({ kind: 'rail-even' })}
+            >
+              <Plus className="h-4 w-4" />
+              Още един до земята
+            </Button>
             {counts.clothesRailCount > 0 && (
               <Button
                 type="button"
@@ -3589,6 +3731,15 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
               </Button>
             )}
           </div>
+          {pendingAdd?.kind === 'rail-even' && hasSplit && (
+            <WherePicker
+              zones={layout.zones}
+              allowFull
+              hint="Долният лост се слага така, че от него до земята е колкото между двата лоста. Цокълът и дъното влизат. В част над рафт се мери до дъното на частта."
+              onPick={applyPending}
+              onCancel={() => setPendingAdd(null)}
+            />
+          )}
           {pendingAdd?.kind === 'rail' && (hasSplit || showCabinetRailParts) && (
             <WherePicker
               zones={
@@ -4956,7 +5107,7 @@ function betweenRowExtras(
       const lower = sorted[i]
       const upper = sorted[i + 1]
       const between = `между ${rowBetweenWord(lower)} и ${rowBetweenWord(upper)}`
-      const prefix = multiCol ? `${columnLabel(c, Math.max(colCount, byCol.size)).replace(/ част$/, '')}: ` : ''
+      const prefix = multiCol ? `${columnLabel(c, Math.max(colCount, byCol.size))}: ` : ''
       extra.push({
         id: `mid:${c}:${i}`,
         label: prefix ? `${prefix}${between}` : `Между ${rowBetweenWord(lower)} и ${rowBetweenWord(upper)}`,

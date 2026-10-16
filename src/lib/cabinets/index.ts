@@ -44,6 +44,7 @@ export {
   defaultPartitionOffsetMm,
   partitionGapOpenings,
   DEFAULT_CLOTHES_RAIL_FROM_TOP_MM,
+  evenLowerRailY,
   CLOTHES_RAIL_SECTION_MM,
   MIN_CLOTHES_RAIL_TO_SHELF_MM,
   MAX_CLOTHES_RAILS,

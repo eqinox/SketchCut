@@ -46,6 +46,7 @@ import {
   BETWEEN_FACES,
   Board,
   BOX_FACES,
+  ClothesRailBar,
   DimLine,
   DimText,
   DRAW_STROKE,
@@ -1023,9 +1024,11 @@ function ColumnFill({
   fixedD,
   adjZ,
   adjD,
-  clothesZ,
   shelfHole,
   pinMark = 10,
+  clothesTrackMm = 0,
+  railSideZ,
+  railPartitionZ,
 }: {
   layout: InteriorLayout
   colIndex: number
@@ -1037,12 +1040,20 @@ function ColumnFill({
   fixedD: number
   adjZ: number
   adjD: number
-  clothesZ: number
   shelfHole?: PanelHole
   pinMark?: number
+  /** Upper sliding track height. A rod hung from the top is drawn this far lower, so it shows under the track. */
+  clothesTrackMm?: number
+  /** Front face of the outer sides. */
+  railSideZ: number
+  /** Front face of a set-back divider. Same as the sides when the divider is full depth. */
+  railPartitionZ?: number
 }) {
   const col = layout.columns[colIndex]
   if (!col || !(col.innerW > 0)) return null
+  const cabinetTop = layout.zones.reduce((max, z) => Math.max(max, z.y1), 0)
+  const zLeft = col.isFirst ? railSideZ : (railPartitionZ ?? railSideZ)
+  const zRight = col.isLast ? railSideZ : (railPartitionZ ?? railSideZ)
   return (
     <>
       {shelvesForColumn(layout.shelves, colIndex).map((s, i) => (
@@ -1114,20 +1125,25 @@ function ColumnFill({
       {layout.zones
         .filter((z) => z.colIndex === colIndex && z.rails.length > 0)
         .flatMap((z) =>
-          z.rails.map((r, i) => (
-            <Board
+          z.rails.map((r, i) => {
+            const underTrack =
+              clothesTrackMm > 0 && r.from === 'top' && r.openingY1 >= cabinetTop - 0.5
+            const yTop = underTrack ? r.yTop - clothesTrackMm : r.yTop
+            return (
+            <ClothesRailBar
               key={`rail-${z.id}-${i}`}
               x={T + z.x0}
-              y={innerFloorY - r.yTop}
-              z={clothesZ}
+              y={innerFloorY - yTop}
               w={z.innerW}
               h={22}
               d={22}
+              z0={zLeft}
+              z1={zRight}
               color={CLOTHES_RAIL_COLOR}
               cam={cam}
-              faces={BETWEEN_FACES}
             />
-          )),
+            )
+          }),
         )}
     </>
   )
@@ -1640,7 +1656,6 @@ function Front3DView({
   const zRailFront = D - R
   const zBack = D
   const zShelfFront = shelfFrontInsetMm(p)
-  const clothesZ = Math.max(40, D * 0.35)
   const shelfDepth = shelfPanelDepth(D, T, zShelfFront)
   const innerFloorY = floor - L - T
   const cavityTopY = innerFloorY - innerClearH
@@ -1719,7 +1734,7 @@ function Front3DView({
             fixedD={shelfDepth}
             adjZ={zShelfFront}
             adjD={shelfDepth}
-            clothesZ={clothesZ}
+            railSideZ={0}
             pinMark={shelfPinMark(vbH)}
           />
           {p.topStyle === 'rails' && (
@@ -1847,7 +1862,7 @@ function Front3DView({
         fontSize={railFont}
         cam={view}
         shelfZ={zShelfFront}
-        railZ={clothesZ}
+        railZ={0}
       />
       {layout.partitions.length > 0 && (
         <PartitionDimLines
@@ -2049,7 +2064,6 @@ function WallFront3DView({
   const backMx = ox + W / 2 + dx
   const backMy = topY + dy - font * 0.45
   const zShelfFront = shelfFrontInsetMm(p)
-  const clothesZ = Math.max(40, D * 0.35)
   const shelfDepth = shelfPanelDepth(D, T, zShelfFront)
   const innerFloorY = floor - T
   const innerTopY = topY + T
@@ -2107,7 +2121,7 @@ function WallFront3DView({
             fixedD={shelfDepth}
             adjZ={zShelfFront}
             adjD={shelfDepth}
-            clothesZ={clothesZ}
+            railSideZ={0}
             shelfHole={shelfHole}
             pinMark={shelfPinMark(vbH)}
           />
@@ -2186,7 +2200,7 @@ function WallFront3DView({
         fontSize={small}
         cam={view}
         shelfZ={zShelfFront}
-        railZ={clothesZ}
+        railZ={0}
       />
       {layout.partitions.length > 0 && (
         <PartitionDimLines
@@ -2530,7 +2544,6 @@ function PlinthBoxFront3DView({
       }
 
   const zShelfFront = zSide + (m.sideD - m.shelfD)
-  const clothesZ = zSide + Math.min(80, m.sideD * 0.4)
   const shelfDepth = m.shelfD
   const zPartition = zSide + (m.sideD - m.partitionD)
   const innerFloorY = bottomY
@@ -2728,8 +2741,10 @@ function PlinthBoxFront3DView({
             fixedD={m.shelfD}
             adjZ={zShelfFront}
             adjD={shelfDepth}
-            clothesZ={clothesZ}
             pinMark={shelfPinMark(vbH)}
+            clothesTrackMm={m.sliding ? SLIDING_UPPER_TRACK_HEIGHT_MM : 0}
+            railSideZ={zSide}
+            railPartitionZ={m.sliding ? zPartition : zSide}
           />
           {layout.partitions[i] && (
             <Board
@@ -2998,7 +3013,7 @@ function PlinthBoxFront3DView({
         cam={view}
         originZ={m.sliding ? zShelfFront : zSide}
         shelfZ={m.sliding ? zShelfFront : zSide}
-        railZ={clothesZ}
+        railZ={zSide}
       />
       {layout.partitions.length > 0 && (
         <PartitionDimLines

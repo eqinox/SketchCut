@@ -164,6 +164,55 @@ export function Board({
   )
 }
 
+/**
+ * Clothes rail from the left support to the right one.
+ * Each end sits on that panel's front face, so the bar starts and finishes
+ * where the side or divider is drawn.
+ */
+export function ClothesRailBar({
+  x,
+  y,
+  w,
+  h,
+  d,
+  z0,
+  z1,
+  color,
+  cam,
+  strokeWidth = 1.2,
+}: {
+  x: number
+  y: number
+  w: number
+  h: number
+  d: number
+  z0: number
+  z1: number
+  color: string
+  cam: DrawCam
+  strokeWidth?: number
+}) {
+  const c = partFaces(color)
+  const { proj } = cam
+  const yb = y + h
+  const x2 = x + w
+  const sw = strokeWidth
+  return (
+    <g>
+      <Face
+        pts={[proj(x, y, z0), proj(x2, y, z1), proj(x2, yb, z1), proj(x, yb, z0)]}
+        fill={c.front}
+        strokeWidth={sw}
+      />
+      <Face
+        pts={[proj(x, y, z0), proj(x2, y, z1), proj(x2, y, z1 + d), proj(x, y, z0 + d)]}
+        fill={c.top}
+        strokeWidth={Math.max(sw, 1.5)}
+      />
+    </g>
+  )
+}
+
 export function DimText({
   x,
   y,

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { User } from 'firebase/auth'
-import { Sparkles, Layers, Settings, Trash2 } from 'lucide-react'
+import { Sparkles, Layers, Settings, Trash2, BookOpen } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { SheetsPanel } from '@/components/SheetsPanel'
@@ -10,6 +10,7 @@ import { EdgeBandingDialog } from '@/components/EdgeBandingDialog'
 import { AuthDialog, HeaderActions, ProjectDialog } from '@/components/AuthDialog'
 import { CabinetsPanel } from '@/components/CabinetsPanel'
 import { SettingsDialog } from '@/components/SettingsDialog'
+import { RulesDialog } from '@/components/RulesDialog'
 import { optimizeAllVariants, raiseSheetQuantities } from '@/lib/packing/optimizer'
 import { syncEdgeBanding } from '@/lib/edge-banding'
 import {
@@ -54,6 +55,7 @@ function App() {
   const [authOpen, setAuthOpen] = useState(false)
   const [edgeOpen, setEdgeOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [rulesOpen, setRulesOpen] = useState(false)
   const [projectOpen, setProjectOpen] = useState(false)
   const [projectMode, setProjectMode] = useState<'save' | 'load'>('save')
   const [savedProjects, setSavedProjects] = useState<SavedProject[]>([])
@@ -527,6 +529,11 @@ function App() {
             Настройки
           </Button>
 
+          <Button size="lg" variant="outline" onClick={() => setRulesOpen(true)}>
+            <BookOpen className="h-4 w-4" />
+            Правила
+          </Button>
+
           <Button
             size="lg"
             variant="outline"
@@ -599,6 +606,8 @@ function App() {
         edgeBanding={edgeBanding}
         onChange={setEdgeBanding}
       />
+
+      <RulesDialog open={rulesOpen} onOpenChange={setRulesOpen} />
 
       <SettingsDialog
         open={settingsOpen}
