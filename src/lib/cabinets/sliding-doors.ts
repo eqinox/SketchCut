@@ -1,5 +1,5 @@
-import { pricedLine } from './hardware'
-import { DOOR_CLEARANCE_TOP } from './materials'
+import { pricedLine, SLIDE_REAR_CLEARANCE_MM } from './hardware'
+import { DOOR_CLEARANCE_TOP, DOOR_SIDE_GAP_EACH, INNER_DRAWER_SIDE_GAP_EACH } from './materials'
 import { DEFAULT_PANEL_THICKNESS, edges, type GeneratedPanel, type HardwareItem } from './types'
 import type { HardwareSettings } from '@/lib/settings'
 import type { PartitionSpec } from './zones'
@@ -100,6 +100,24 @@ export function oneSideSlidingEdges(): SlidingDoorEdges[] {
   ]
 }
 
+/**
+ * Three equal doors. Two sit on the rear rail, one on the front rail.
+ * Closed: left rear, middle front, right rear.
+ * The front door has a handle on both edges. Each rear door has a handle
+ * only on its outer edge and a D2 cap toward the middle.
+ */
+export function threeDoorSlidingEdges(): SlidingDoorEdges[] {
+  return [
+    { left: 'handle', right: 'cap' },
+    { left: 'handle', right: 'handle' },
+    { left: 'cap', right: 'handle' },
+  ]
+}
+
+export function parseSlidingDoorCount(raw: unknown): 2 | 3 {
+  return raw === 3 ? 3 : 2
+}
+
 export function slidingHandlesOnBothSides(edges: SlidingDoorEdges[]): boolean {
   return edges.length >= 2 && edges.every((row) => row.left === 'handle' && row.right === 'handle')
 }
@@ -122,7 +140,7 @@ export function centerSlidingPartition(width: number, thickness: number): Partit
 
 export interface SlidingDoorLeaf {
   index: number
-  side: 'left' | 'right'
+  side: 'left' | 'middle' | 'right'
   name: string
   /** Finished width with profiles, including the 10 mm overlap. */
   gabaritW: number
@@ -156,6 +174,21 @@ function splitXLeft(
   return { xLeft: best.xLeft, thickness }
 }
 
+/** Finished width of each of three equal doors. They overlap by SLIDING_DOOR_OVERLAP_MM at each joint. */
+export function threeDoorGabarit(innerW: number): number {
+  return Math.round((innerW + 2 * SLIDING_DOOR_OVERLAP_MM) / 3)
+}
+
+/** Clear opening when the two rear doors and the front door are stacked to one side. */
+export function threeDoorClearOpening(innerW: number): number {
+  return innerW - 2 * threeDoorGabarit(innerW)
+}
+
+/** A door may cover the bay by this much and the bay is still usable for shelves or a rail. */
+export const SLIDING_ACCESS_INTRUSION_MM = 20
+/** Extra room past the drawer front so it can be pulled out. */
+export const SLIDING_DRAWER_PASS_LUFT_MM = 20
+
 export function layoutSlidingDoors(input: {
   innerW: number
   innerH: number
@@ -167,6 +200,7 @@ export function layoutSlidingDoors(input: {
   const innerW = input.innerW
   const innerH = input.innerH
   if (!(innerW > 0) || !(innerH > 0)) return []
+  if (input.edges.length >= 3) return layoutThreeSlidingDoors(innerW, innerH, T)
   const split = splitXLeft(innerW, T, input.partitions)
   const leftBase = split.xLeft + split.thickness
   const rightBase = innerW - split.xLeft
@@ -202,6 +236,134 @@ export function layoutSlidingDoors(input: {
   return [left, right]
 }
 
+function layoutThreeSlidingDoors(innerW: number, innerH: number, thickness: number): SlidingDoorLeaf[] {
+  const gabaritW = threeDoorGabarit(innerW)
+  const edges = threeDoorSlidingEdges()
+  const names = ['Лява задна врата', 'Средна предна врата', 'Дясна задна врата'] as const
+  const sides = ['left', 'middle', 'right'] as const
+  const xs = [0, (innerW - gabaritW) / 2, innerW - gabaritW]
+  return edges.map((edge, index) => ({
+    index,
+    side: sides[index],
+    name: names[index],
+    gabaritW,
+    cutW: Math.max(thickness, gabaritW - slidingProfileMm(edge.left) - slidingProfileMm(edge.right)),
+    cutH: innerH,
+    gabaritH: innerH,
+    edges: edge,
+    x: xs[index],
+  }))
+}
+
+export type ThreeDoorColumn = {
+  x0: number
+  x1: number
+  frontX0: number
+  frontX1: number
+}
+
+/** Where to put the two dividers so each side can be reached. xLeft of each page, from the inner left. */
+export function threeDoorPartitionOffsets(
+  innerW: number,
+  thickness: number,
+  drawerColumns: number[],
+  insetDrawers: boolean,
+): [number, number] | null {
+  const T = thickness
+  const gabarit = threeDoorGabarit(innerW)
+  const clear = threeDoorClearOpening(innerW)
+  const intrusion = SLIDING_ACCESS_INTRUSION_MM
+  const luft = SLIDING_DRAWER_PASS_LUFT_MM
+  const gap = insetDrawers ? INNER_DRAWER_SIDE_GAP_EACH : DOOR_SIDE_GAP_EACH
+  if (!(clear > intrusion) || !(innerW > 2 * T + 120)) return null
+  const p1Min = gabarit - intrusion - T
+  const p1Max = clear + intrusion
+  const p2Min = innerW - clear - intrusion - T
+  const p2Max = innerW - gabarit + intrusion
+  if (p1Min > p1Max + 0.5 || p2Min > p2Max + 0.5) return null
+  let p1Lo = p1Min
+  let p1Hi = p1Max
+  let p2Lo = p2Min
+  let p2Hi = p2Max
+  const wants = new Set(drawerColumns)
+  if (wants.has(0)) {
+    const limit = insetDrawers ? clear - luft + gap : clear - luft - T + gap
+    p1Hi = Math.min(p1Hi, limit)
+  }
+  if (wants.has(2)) {
+    const limit = insetDrawers ? innerW - (clear - luft + gap) : innerW - (clear - luft - T + gap)
+    p2Lo = Math.max(p2Lo, limit - T)
+  }
+  if (wants.has(1)) {
+    const midLeft = gabarit + luft - (insetDrawers ? gap : gap - T)
+    const midRight = innerW - gabarit - luft - (insetDrawers ? 0 : T) + gap
+    p1Lo = Math.max(p1Lo, insetDrawers ? midLeft - T - gap : midLeft - gap)
+    p2Hi = Math.min(p2Hi, midRight)
+  }
+  if (p1Lo > p1Hi + 0.5 || p2Lo > p2Hi + 0.5) {
+    const bay = (innerW - 2 * T) / 3
+    return [bay, 2 * bay + T]
+  }
+  const bay = (innerW - 2 * T) / 3
+  const p1 = Math.min(p1Hi, Math.max(p1Lo, bay))
+  const p2 = Math.min(p2Hi, Math.max(p2Lo, 2 * bay + T))
+  if (p2 < p1 + T + 40) {
+    return [bay, 2 * bay + T]
+  }
+  return [p1, p2]
+}
+
+export function assessThreeSlidingDoors(input: {
+  innerW: number
+  thickness: number
+  columns: ThreeDoorColumn[]
+  drawerColumns: number[]
+  fullWidthDrawers: boolean
+  insetDrawers: boolean
+}): { issues: string[]; offsets: [number, number] | null } {
+  const innerW = input.innerW
+  const gabarit = threeDoorGabarit(innerW)
+  const clear = threeDoorClearOpening(innerW)
+  const intrusion = SLIDING_ACCESS_INTRUSION_MM
+  const luft = SLIDING_DRAWER_PASS_LUFT_MM
+  const gap = input.insetDrawers ? INNER_DRAWER_SIDE_GAP_EACH : DOOR_SIDE_GAP_EACH
+  const shelfWindows = [
+    { x0: 0, x1: clear + intrusion },
+    { x0: gabarit - intrusion, x1: innerW - gabarit + intrusion },
+    { x0: innerW - clear - intrusion, x1: innerW },
+  ]
+  const issues: string[] = []
+  if (input.fullWidthDrawers) {
+    issues.push('Чекмеджето е на целия гардероб. Сложи го в една страна, за да мине през отвора на вратите.')
+  }
+  input.columns.forEach((col, index) => {
+    const name = input.columns.length === 1 ? 'Гардеробът' : `Страна ${index + 1}`
+    const fitsShelf = shelfWindows.some((w) => col.x0 >= w.x0 - 0.5 && col.x1 <= w.x1 + 0.5)
+    if (!fitsShelf) {
+      issues.push(
+        `${name} се закрива от вратата с повече от ${intrusion} мм и не се обслужва. Отворът пред вратите е ${formatMm(clear)} мм.`,
+      )
+    }
+    if (!input.drawerColumns.includes(index)) return
+    const span = input.insetDrawers
+      ? { left: col.x0 + gap, right: col.x1 - gap }
+      : { left: col.frontX0 + gap, right: col.frontX1 - gap }
+    const width = span.right - span.left
+    const fitsLeft = span.right <= clear - luft + 0.5
+    const fitsMiddle = span.left >= gabarit + luft - 0.5 && span.right <= innerW - gabarit - luft + 0.5
+    const fitsRight = span.left >= innerW - clear + luft - 0.5
+    if (fitsLeft || fitsMiddle || fitsRight) return
+    issues.push(
+      `${name}: чекмеджето е ${formatMm(width)} мм и трябва още ${luft} мм луфт. Отворът, когато вратите са събрани встрани, е ${formatMm(clear)} мм.` +
+        (input.insetDrawers ? '' : ' Външното чело покрива страницата и не минава — сложи вътрешно чело.'),
+    )
+  })
+  return {
+    issues,
+    offsets: threeDoorPartitionOffsets(innerW, input.thickness, input.drawerColumns, input.insetDrawers),
+  }
+}
+
 export function appendSlidingDoors(
   input: {
     innerW: number
@@ -235,7 +397,12 @@ export function appendSlidingDoors(
   const softRight = Math.max(0, input.softCloseRight ?? DEFAULT_SLIDING_SOFT_CLOSE_PER_SIDE)
 
   notes.push(
-    `2 плъзгащи врати между страниците. Горната релса е ${SLIDING_UPPER_TRACK_DEPTH_MM} мм дълбока и ${SLIDING_UPPER_TRACK_HEIGHT_MM} мм висока, наравно с канта на плота. Вътрешните страници са с ${SLIDING_PARTITION_SETBACK_MM} мм по-плитки (${SLIDING_UPPER_TRACK_DEPTH_MM} мм релса + ${SLIDING_UPPER_TRACK_CLEARANCE_MM} мм запас).`,
+    leaves.length >= 3
+      ? `3 еднакви плъзгащи врати. Двете задни са на задната релса, средната е на предната. Затворено: лява отляво, средна по средата, дясна отдясно. Средната е с кант дръжка от двете страни. Лявата задна е с дръжка отляво и профил отдясно, дясната задна — с дръжка отдясно и профил отляво.`
+      : `2 плъзгащи врати между страниците.`,
+  )
+  notes.push(
+    `Горната релса е ${SLIDING_UPPER_TRACK_DEPTH_MM} мм дълбока и ${SLIDING_UPPER_TRACK_HEIGHT_MM} мм висока, наравно с канта на плота. Вътрешните страници са с ${SLIDING_PARTITION_SETBACK_MM} мм по-плитки (${SLIDING_UPPER_TRACK_DEPTH_MM} мм релса + ${SLIDING_UPPER_TRACK_CLEARANCE_MM} мм запас).`,
   )
   notes.push(
     `Долната релса е ${SLIDING_LOWER_TRACK_DEPTH_MM} мм дълбока и ${SLIDING_BOTTOM_TRACK_MM} мм висока (два канала), ${SLIDING_LOWER_TRACK_INSET_MM} мм навътре от канта на дъното, за да пасне с горната.`,
@@ -433,7 +600,9 @@ export function slidingDoorRuleSection(): RuleSection {
         lines: [
           `Написаната дълбочина е заедно с механизма. Вътрешните страници и разделителите са с ${SLIDING_PARTITION_SETBACK_MM} мм по-плитки (${SLIDING_UPPER_TRACK_DEPTH_MM} мм релса + ${SLIDING_UPPER_TRACK_CLEARANCE_MM} мм запас).`,
           `Рафтовете са още по-плитки от вътрешната страница. По подразбиране с ${SLIDING_SHELF_FROM_PARTITION_MM} мм.`,
+          `Водачът се слага на вътрешната страница и е по-къс от нея с ${SLIDE_REAR_CLEARANCE_MM} мм луфт отзад. Външно чело вади още дебелината на челото.`,
           `Двете врати се препокриват с ${SLIDING_DOOR_OVERLAP_MM} мм.`,
+          `Три врати са еднакви: габарит (отвор + 2×${SLIDING_DOOR_OVERLAP_MM}) / 3. Две на задната релса, една на предната. Страната се обслужва, ако вратата я закрива с най-много ${SLIDING_ACCESS_INTRUSION_MM} мм. Чекмеджето минава, ако отворът е по-широк от челото с ${SLIDING_DRAWER_PASS_LUFT_MM} мм.`,
         ],
       },
       {

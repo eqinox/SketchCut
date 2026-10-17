@@ -69,6 +69,7 @@ export const DEFAULT_KITCHEN_WALL_PARAMS: KitchenWallParams = {
   doorCount: 0,
   doorStyle: 'hinged',
   slidingEdges: [],
+  slidingDoorCount: 2,
   slidingUpperTrackColor: 'black',
   slidingLowerTrackColor: 'black',
   slidingHandleSkuId: '',

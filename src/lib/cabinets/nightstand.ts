@@ -2,10 +2,13 @@ import { parsePartColors, DEFAULT_PART_COLORS } from './colors'
 import {
   isSoftCloseSlide,
   confirmatCount,
+  defaultSlideLength,
   fastenerLine,
   pricedLine,
   SCREW_5X60,
   SCREW_4X16,
+  SLIDE_REAR_CLEARANCE_MM,
+  slideRunnerDepth,
 } from './hardware'
 import {
   DEFAULT_LEG_HEIGHT,
@@ -132,6 +135,7 @@ export const DEFAULT_NIGHTSTAND_PARAMS: NightstandParams = {
   doorCount: 0,
   doorStyle: 'hinged',
   slidingEdges: [],
+  slidingDoorCount: 2,
   slidingUpperTrackColor: 'black',
   slidingLowerTrackColor: 'black',
   slidingHandleSkuId: '',
@@ -196,7 +200,12 @@ export function parseNightstandParams(raw: Record<string, unknown>): NightstandP
   const provisional = parseInteriorFittings(raw, Math.max(thickness, depth))
   const boxDepth = sliding ? depth : flushCarcassDepth(depth, thickness, provisional.depthMode)
   const sideD = Math.max(thickness, boxDepth - plinthFrontOverhang(provisional, thickness))
-  const slideDepth = sliding ? Math.max(thickness, sideD - SLIDING_PARTITION_SETBACK_MM) : sideD
+  const partitionD = sliding ? Math.max(thickness, sideD - SLIDING_PARTITION_SETBACK_MM) : sideD
+  const overlayFront =
+    sliding && !provisional.innerDrawerFronts && provisional.drawerFrontHeights.some((h) => h > 0)
+      ? frontDoorOverhang(thickness)
+      : 0
+  const slideDepth = slideRunnerDepth(sliding ? partitionD : sideD, sliding, overlayFront)
   const fittings =
     slideDepth === Math.max(thickness, depth) ? provisional : parseInteriorFittings(raw, slideDepth)
   return {
@@ -620,6 +629,11 @@ export function depthRuleSection(): RuleSection {
     },
     true,
   )
+  const frontMm = frontDoorOverhang(T)
+  const innerRunner = slideRunnerDepth(slidingBox.partitionD, true, 0)
+  const overlayRunner = slideRunnerDepth(slidingBox.partitionD, true, frontMm)
+  const innerSlide = defaultSlideLength(innerRunner, 'roller')
+  const overlaySlide = defaultSlideLength(overlayRunner, 'roller')
   return {
     id: 'depth',
     title: 'Дълбочина',
@@ -639,7 +653,9 @@ export function depthRuleSection(): RuleSection {
         lines: [
           'Написаната дълбочина е заедно с механизма. Трите отметки не се сменят.',
           `Вътрешните страници са с ${SLIDING_PARTITION_SETBACK_MM} мм по-плитки. При ${slidingDepth} мм те са ${formatMm(slidingBox.partitionD)} мм, а външните страници остават ${formatMm(slidingBox.sideD)} мм.`,
-          `Разделител и водач почват от вътрешната страница. Рафтът е още ${formatMm(slidingBox.partitionD - slidingBox.shelfD)} мм по-навътре (${formatMm(slidingBox.shelfD)} мм).`,
+          `Разделителят почва от вътрешната страница. Рафтът е още ${formatMm(slidingBox.partitionD - slidingBox.shelfD)} мм по-навътре (${formatMm(slidingBox.shelfD)} мм).`,
+          `Водачът също ляга на вътрешната страница (${formatMm(slidingBox.partitionD)} мм) и спира ${SLIDE_REAR_CLEARANCE_MM} мм преди задния ръб. Влиза до ${formatMm(innerRunner)} мм, затова най-дългият е ${formatMm(innerSlide)} мм.`,
+          `Външно чело вади още ${formatMm(frontMm)} мм. Тогава водачът влиза до ${formatMm(overlayRunner)} мм и най-дългият е ${formatMm(overlaySlide)} мм.`,
         ],
       },
     ],
@@ -739,7 +755,7 @@ export function clothesRailRuleSection(): RuleSection {
         ],
       },
       {
-        title: 'Още един до земята',
+        title: '2 лоста на еднакво разстояние',
         lines: [
           `Горният лост остава на зададеното разстояние. Ако няма лост, се слага на ${DEFAULT_CLOTHES_RAIL_FROM_TOP_MM} мм отгоре.`,
           'Долният се слага така, че разстоянието от лост до лост е равно на разстоянието от долния лост до пода. Мери се до горната страна на тръбата.',

@@ -3355,12 +3355,19 @@ function PlinthBoxFront3DView({
           thickness: T,
           partitions: layout.partitions,
           edges: p.slidingEdges,
-        }).map((leaf, i) => (
+        })
+          .slice()
+          .sort((a, b) => (a.side === 'middle' ? 1 : 0) - (b.side === 'middle' ? 1 : 0))
+          .map((leaf) => (
           <Board
-            key={`slide-door-${leaf.side}`}
+            key={`slide-door-${leaf.index}`}
             x={T + leaf.x}
             y={bottomY - leaf.gabaritH}
-            z={i === 0 ? zSide + SLIDING_LOWER_TRACK_INSET_MM + 32 : zSide + SLIDING_LOWER_TRACK_INSET_MM}
+            z={
+              leaf.side === 'middle' || (p.slidingEdges.length < 3 && leaf.side === 'right')
+                ? zSide + SLIDING_LOWER_TRACK_INSET_MM
+                : zSide + SLIDING_LOWER_TRACK_INSET_MM + 32
+            }
             w={leaf.gabaritW}
             h={leaf.gabaritH}
             d={T}

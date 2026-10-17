@@ -35,6 +35,9 @@ import {
   SLIDE_KIND_LABEL,
   SLIDES_PER_DRAWER,
   eligibleSlideLengths,
+  frontDoorOverhang,
+  SLIDE_REAR_CLEARANCE_MM,
+  slideRunnerDepth,
   estimateFromPanels,
   explainCabinetPrice,
   formatArea,
@@ -85,6 +88,8 @@ import {
   slidingHandlesOnBothSides,
   centerSlidingPartition,
   layoutSlidingDoors,
+  assessThreeSlidingDoors,
+  threeDoorSlidingEdges,
   slidingEdgeLabel,
   slidingProfileMm,
   SLIDING_DRAWER_FROM_BOTTOM_MM,
@@ -1119,8 +1124,17 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
   const [doorStyle, setDoorStyle] = useState<DoorStyle>(
     editing?.typeId === 'wardrobe' ? 'sliding' : parseDoorStyle(initialFittings.doorStyle),
   )
+  const initialSlidingCount =
+    (initialFittings as { slidingDoorCount?: number }).slidingDoorCount === 3 ||
+    (Array.isArray((initialFittings as { slidingEdges?: unknown }).slidingEdges) &&
+      ((initialFittings as { slidingEdges?: unknown[] }).slidingEdges?.length ?? 0) >= 3)
+      ? 3
+      : 2
+  const [slidingDoorCount, setSlidingDoorCount] = useState<2 | 3>(initialSlidingCount)
   const [slidingEdges, setSlidingEdges] = useState<SlidingDoorEdges[]>(
-    parseSlidingEdges((initialFittings as { slidingEdges?: unknown }).slidingEdges, 2),
+    initialSlidingCount === 3
+      ? threeDoorSlidingEdges()
+      : parseSlidingEdges((initialFittings as { slidingEdges?: unknown }).slidingEdges, 2),
   )
   const [slidingUpperTrackColor, setSlidingUpperTrackColor] = useState<SlidingTrackColor>(
     (initialFittings.slidingUpperTrackColor as SlidingTrackColor | undefined) ?? 'black',
@@ -1212,7 +1226,8 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
       doorCount: noDoors ? 0 : doorCount,
       doorStyle: noDoors ? 'hinged' : typeId === 'wardrobe' ? 'sliding' : doorStyle,
       depthMode,
-      slidingEdges,
+      slidingDoorCount: noDoors ? 2 : slidingDoorCount,
+      slidingEdges: noDoors ? [] : slidingDoorCount === 3 ? threeDoorSlidingEdges() : slidingEdges,
       slidingUpperTrackColor,
       slidingLowerTrackColor,
       slidingHandleSkuId,
@@ -1331,7 +1346,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
       colors,
       ...fittings,
     })
-  }, [typeId, width, height, depth, depthMode, thickness, legHeight, shelfCount, movableShelves, hasBack, clothesRails, doorCount, doorStyle, slidingEdges, slidingUpperTrackColor, slidingLowerTrackColor, slidingHandleSkuId, slidingCapSkuId, slidingSoftCloseLeft, slidingSoftCloseRight, drawerFrontHeights, cutFromOneBoard, includeHandles, slideKind, slideLength, useLegs, plinthCount, plinthHeight, colors, topStyle, hasHood, hoodShape, hoodDiameter, hoodRectW, hoodRectD, fixedShelves, partitions, doorSpan, zoneUi, externalDoors, innerDrawerFronts, innerDoors, dimFontScale, shelfFrontInset])
+  }, [typeId, width, height, depth, depthMode, thickness, legHeight, shelfCount, movableShelves, hasBack, clothesRails, doorCount, doorStyle, slidingDoorCount, slidingEdges, slidingUpperTrackColor, slidingLowerTrackColor, slidingHandleSkuId, slidingCapSkuId, slidingSoftCloseLeft, slidingSoftCloseRight, drawerFrontHeights, cutFromOneBoard, includeHandles, slideKind, slideLength, useLegs, plinthCount, plinthHeight, colors, topStyle, hasHood, hoodShape, hoodDiameter, hoodRectW, hoodRectD, fixedShelves, partitions, doorSpan, zoneUi, externalDoors, innerDrawerFronts, innerDoors, dimFontScale, shelfFrontInset])
 
   const qty = Math.max(1, parseInt(quantity, 10) || 1)
   const result = useMemo(() => {
@@ -1363,7 +1378,14 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
     isKitchenCarcass
       ? null
       : measureNightstand(params as ReturnType<typeof parseNightstandParams>, typeId === 'section' || typeId === 'wardrobe')
-  const slideDepth = isKitchenCarcass ? params.depth : isSlidingCabinet ? nsMeasure!.partitionD : nsMeasure!.sideD
+  const slidePanelD = isKitchenCarcass ? params.depth : isSlidingCabinet ? nsMeasure!.partitionD : nsMeasure!.sideD
+  const slideOverlayMm =
+    isSlidingCabinet &&
+    !(params as { innerDrawerFronts?: boolean }).innerDrawerFronts &&
+    (params as { drawerFrontHeights?: number[] }).drawerFrontHeights?.some((h) => h > 0)
+      ? frontDoorOverhang(params.thickness)
+      : 0
+  const slideDepth = slideRunnerDepth(slidePanelD, isSlidingCabinet, slideOverlayMm)
   const shelfFromPartition = nsMeasure?.sliding === true
   const shelfReferenceD = isKitchenCarcass
     ? flushCarcassDepth(params.depth, params.thickness, depthMode)
@@ -1440,6 +1462,23 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
         )
       : params.zones,
   })
+  const threeDoorCheck =
+    isSlidingCabinet && slidingDoorCount === 3 && depthMode !== 'no-doors'
+      ? assessThreeSlidingDoors({
+          innerW,
+          thickness: params.thickness,
+          columns: layout.columns,
+          drawerColumns: [
+            ...new Set(
+              layout.zones
+                .filter((z) => z.drawerFrontHeights.some((h) => h > 0))
+                .map((z) => z.colIndex),
+            ),
+          ],
+          fullWidthDrawers: layout.fullDrawerFrontHeights.length > 0,
+          insetDrawers: innerDrawerFronts,
+        })
+      : null
   const error = validate(typeId, params, layout, overlayFrontH, drawerBottomGap, {
     drawers: innerDrawerFronts,
     doors: innerDoors,
@@ -3458,7 +3497,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
         >
           <p className="mt-0.5 text-xs text-[var(--color-muted-foreground)]">
             Между страниците. Отгоре обикновено 48 мм от плоскостта над отвора — плот или рафт, не винаги
-            плотът на шкафа. „Още един до земята“ слага втори лост: разстоянието между лостовете е колкото
+            плотът на шкафа. „2 лоста на еднакво разстояние“ слага два лоста: разстоянието между тях е колкото
             от долния до пода. Лостът дели отвора: можеш да сложиш рафтове над него, поне{' '}
             {MIN_CLOTHES_RAIL_TO_SHELF_MM} мм над лоста.
           </p>
@@ -3716,7 +3755,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
               onClick={() => startAdd({ kind: 'rail-even' })}
             >
               <Plus className="h-4 w-4" />
-              Още един до земята
+              2 лоста на еднакво разстояние
             </Button>
             {counts.clothesRailCount > 0 && (
               <Button
@@ -3784,7 +3823,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
               ? 'Без'
               : isSlidingCabinet
                 ? doorCount > 0
-                  ? `Плъзгащи ${doorCount}`
+                  ? `Плъзгащи ${slidingDoorCount}`
                   : 'Без'
                 : doorCount > 0
                   ? `${doorCount} бр.`
@@ -3795,7 +3834,9 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
             <>
               <p className="mt-0.5 text-xs text-[var(--color-muted-foreground)]">
                 {typeId === 'wardrobe'
-                  ? 'Две плъзгащи врати покриват целия гардероб и се препокриват с 10 мм. Кант дръжка D1L или профил D2 се слага след рязането.'
+                  ? slidingDoorCount === 3
+                    ? 'Три еднакви врати: две на задната релса и една на предната. Затворено лявата е отляво, средната по средата, дясната отдясно.'
+                    : 'Две плъзгащи врати покриват целия гардероб и се препокриват с 10 мм. Кант дръжка D1L или профил D2 се слага след рязането.'
                   : 'Наложени врати върху корпуса или плъзгащи между страниците.'}
               </p>
               {typeId === 'section' && (
@@ -3851,9 +3892,11 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                   <Button
                     type="button"
                     size="sm"
-                    variant={doorCount === 2 ? 'default' : 'outline'}
+                    variant={doorCount === 2 && slidingDoorCount === 2 ? 'default' : 'outline'}
                     onClick={() => {
+                      setSlidingDoorCount(2)
                       setDoorCount(2)
+                      setSlidingEdges(oneSideSlidingEdges())
                       setDoorSpan('full')
                       setPendingAdd(null)
                       clearZoneDoors()
@@ -3861,10 +3904,120 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                   >
                     2 врати
                   </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={slidingDoorCount === 3 ? 'default' : 'outline'}
+                    onClick={() => {
+                      setSlidingDoorCount(3)
+                      setDoorCount(2)
+                      setSlidingEdges(threeDoorSlidingEdges())
+                      setDoorSpan('full')
+                      setDepthMode((mode) => (mode === 'no-doors' ? 'without-door' : mode))
+                      setPendingAdd(null)
+                      clearZoneDoors()
+                    }}
+                  >
+                    3 врати
+                  </Button>
+                </div>
+              )}
+              {typeId === 'wardrobe' && (
+                <div className="mt-2 flex gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={slidingDoorCount === 2 ? 'default' : 'outline'}
+                    onClick={() => {
+                      setSlidingDoorCount(2)
+                      setDoorCount(2)
+                      setSlidingEdges(oneSideSlidingEdges())
+                    }}
+                  >
+                    2 врати
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={slidingDoorCount === 3 ? 'default' : 'outline'}
+                    onClick={() => {
+                      setSlidingDoorCount(3)
+                      setDoorCount(2)
+                      setSlidingEdges(threeDoorSlidingEdges())
+                    }}
+                  >
+                    3 врати
+                  </Button>
                 </div>
               )}
               {doorCount === 2 && (
                 <>
+                  {slidingDoorCount === 3 && (
+                    <div className="mt-3 space-y-2">
+                      <p className="text-xs text-[var(--color-muted-foreground)]">
+                        Трите врати са с еднакъв габарит. Средната, на предната релса, е с кант дръжка отляво и отдясно.
+                        Лявата задна е с дръжка отляво и профил отдясно. Дясната задна е с дръжка отдясно и профил отляво.
+                        Страна с рафт или лост може да се закрива най-много с 20 мм. Чекмеджето се дърпа, ако отворът е
+                        поне с 20 мм по-широк от челото.
+                      </p>
+                      {threeDoorCheck && threeDoorCheck.issues.length > 0 && (
+                        <div className="rounded-md border border-red-500/60 bg-red-500/10 px-2 py-1.5 text-xs text-red-200">
+                          {threeDoorCheck.issues.map((line) => (
+                            <p key={line}>{line}</p>
+                          ))}
+                          {threeDoorCheck.offsets && (
+                            <Button
+                              type="button"
+                              size="sm"
+                              className="mt-2"
+                              onClick={() => {
+                                const [a, b] = threeDoorCheck.offsets!
+                                if (partitions.length === 0) {
+                                  setZoneUi({
+                                    ...zoneUi,
+                                    c0: {
+                                      ...emptyZoneUi(),
+                                      shelfCount,
+                                      movableShelves,
+                                      clothesRails,
+                                      hasClothesRail: clothesRails.length > 0,
+                                      drawerFrontHeights,
+                                    },
+                                    c1: emptyZoneUi(),
+                                    c2: emptyZoneUi(),
+                                  })
+                                  setShelfCount(0)
+                                  setMovableShelves([])
+                                  setClothesRails([])
+                                  setDrawerFrontHeights([])
+                                }
+                                setPartitions([
+                                  {
+                                    from: 'left',
+                                    fromPartition: null,
+                                    fromFace: 'right',
+                                    toFace: 'left',
+                                    offsetMm: String(exactMm(a)),
+                                  },
+                                  {
+                                    from: 'left',
+                                    fromPartition: null,
+                                    fromFace: 'right',
+                                    toFace: 'left',
+                                    offsetMm: String(exactMm(b)),
+                                  },
+                                ])
+                              }}
+                            >
+                              Нагласи страните
+                            </Button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {slidingDoorCount === 2 && (
+                  <>
                   <div className="mt-3 space-y-1">
                     <p className="text-xs font-medium">Кант дръжка</p>
                     <div className="flex flex-wrap gap-2">
@@ -3932,6 +4085,8 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                         </div>
                       )
                     })}
+                  </>
+                  )}
                   <div className="mt-3 space-y-1">
                     <p className="text-xs font-medium">Горна релса 3 м</p>
                     <div className="flex flex-wrap gap-2">
@@ -4080,18 +4235,18 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                           innerH: nsMeasure.innerH,
                           thickness: params.thickness,
                           partitions: layout.partitions,
-                          edges: slidingEdges,
+                          edges: slidingDoorCount === 3 ? threeDoorSlidingEdges() : slidingEdges,
                         })
-                        const left = leaves[0]
-                        const right = leaves[1]
-                        const cell = (leaf: typeof left | undefined, edge: 'left' | 'right') => {
+                        const cell = (leaf: (typeof leaves)[number] | undefined, edge: 'left' | 'right') => {
                           if (!leaf) return '—'
                           const kind = leaf.edges[edge]
                           return `${slidingEdgeLabel(kind)} · ${formatMm(slidingProfileMm(kind))} мм`
                         }
-                        const size = (leaf: typeof left | undefined, w: number | undefined, h: number | undefined) =>
-                          leaf && w && h ? `${formatMm(w)} × ${formatMm(h)} мм` : '—'
-                        const cutH = left?.cutH ?? 0
+                        const size = (leaf: (typeof leaves)[number] | undefined) =>
+                          leaf ? `${formatMm(leaf.gabaritW)} × ${formatMm(leaf.gabaritH)} мм` : '—'
+                        const cut = (leaf: (typeof leaves)[number] | undefined) =>
+                          leaf ? `${formatMm(leaf.cutW)} × ${formatMm(leaf.cutH)} мм` : '—'
+                        const cutH = leaves[0]?.cutH ?? 0
                         const handleSku = pickSlidingSku(
                           settings.hardware.slidingHandleSkus ?? [],
                           cutH,
@@ -4105,30 +4260,37 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                                 <thead className="bg-[var(--color-muted)]/40">
                                   <tr>
                                     <th className="px-2 py-1.5 text-left font-medium"> </th>
-                                    <th className="px-2 py-1.5 text-left font-medium">Лява врата</th>
-                                    <th className="px-2 py-1.5 text-left font-medium">Дясна врата</th>
+                                    {leaves.map((leaf) => (
+                                      <th key={leaf.index} className="px-2 py-1.5 text-left font-medium">
+                                        {leaf.name}
+                                      </th>
+                                    ))}
                                   </tr>
                                 </thead>
                                 <tbody>
                                   <tr className="border-t border-[var(--color-border)]">
                                     <td className="px-2 py-1.5 text-[var(--color-muted-foreground)]">Габарит</td>
-                                    <td className="px-2 py-1.5">{size(left, left?.gabaritW, left?.gabaritH)}</td>
-                                    <td className="px-2 py-1.5">{size(right, right?.gabaritW, right?.gabaritH)}</td>
+                                    {leaves.map((leaf) => (
+                                      <td key={`g-${leaf.index}`} className="px-2 py-1.5">{size(leaf)}</td>
+                                    ))}
                                   </tr>
                                   <tr className="border-t border-[var(--color-border)]">
                                     <td className="px-2 py-1.5 text-[var(--color-muted-foreground)]">Рязане</td>
-                                    <td className="px-2 py-1.5">{size(left, left?.cutW, left?.cutH)}</td>
-                                    <td className="px-2 py-1.5">{size(right, right?.cutW, right?.cutH)}</td>
+                                    {leaves.map((leaf) => (
+                                      <td key={`c-${leaf.index}`} className="px-2 py-1.5">{cut(leaf)}</td>
+                                    ))}
                                   </tr>
                                   <tr className="border-t border-[var(--color-border)]">
                                     <td className="px-2 py-1.5 text-[var(--color-muted-foreground)]">Ляв профил</td>
-                                    <td className="px-2 py-1.5">{cell(left, 'left')}</td>
-                                    <td className="px-2 py-1.5">{cell(right, 'left')}</td>
+                                    {leaves.map((leaf) => (
+                                      <td key={`l-${leaf.index}`} className="px-2 py-1.5">{cell(leaf, 'left')}</td>
+                                    ))}
                                   </tr>
                                   <tr className="border-t border-[var(--color-border)]">
                                     <td className="px-2 py-1.5 text-[var(--color-muted-foreground)]">Десен профил</td>
-                                    <td className="px-2 py-1.5">{cell(left, 'right')}</td>
-                                    <td className="px-2 py-1.5">{cell(right, 'right')}</td>
+                                    {leaves.map((leaf) => (
+                                      <td key={`r-${leaf.index}`} className="px-2 py-1.5">{cell(leaf, 'right')}</td>
+                                    ))}
                                   </tr>
                                 </tbody>
                               </table>
@@ -4579,7 +4741,9 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                     </strong>
                     {eligibleSlideLengths(slideDepth, fit.slideKind).length === 0
                       ? ' · няма водач, който да влезе в тази дълбочина'
-                      : ` · влиза в корпус ${slideDepth} мм`}
+                      : isSlidingCabinet
+                        ? ` · влиза до ${formatMm(slideDepth)} мм (вътрешна страница ${formatMm(slidePanelD)} − ${SLIDE_REAR_CLEARANCE_MM} мм луфт${slideOverlayMm > 0 ? ` − ${formatMm(slideOverlayMm)} мм външно чело` : ''})`
+                        : ` · влиза в корпус ${formatMm(slideDepth)} мм`}
                     {fit.slideKind === 'roller'
                       ? ' · 3 винтчета 3.5×16 на водач'
                       : ' · 3 винтчета 3.5×16 + 4 за перките на водач'}
@@ -4956,7 +5120,16 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
           </div>
         )}
 
-        <Button className="w-full" onClick={handleSave} disabled={!!error}>
+        {threeDoorCheck && threeDoorCheck.issues.length > 0 && (
+          <p className="text-xs text-red-300">
+            Гардеробът не се записва, докато страните и чекмеджетата не се обслужват при отворени врати.
+          </p>
+        )}
+        <Button
+          className="w-full"
+          onClick={handleSave}
+          disabled={!!error || (threeDoorCheck != null && threeDoorCheck.issues.length > 0)}
+        >
           <Box className="h-4 w-4" />
           {isEdit ? 'Запази промените' : 'Добави в разкроя'}
         </Button>

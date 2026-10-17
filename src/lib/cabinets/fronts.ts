@@ -58,7 +58,9 @@ import type { RuleSection } from './rule-text'
 import {
   appendSlidingDoors,
   parseDoorStyle,
+  parseSlidingDoorCount,
   parseSlidingEdges,
+  threeDoorSlidingEdges,
   SLIDING_PARTITION_SETBACK_MM,
   SLIDING_SHELF_FROM_PARTITION_MM,
   type DoorStyle,
@@ -112,6 +114,8 @@ export interface InteriorFittings {
   doorStyle: DoorStyle
   /** Per sliding leaf: D1L handle vs D2 cap on each vertical edge. */
   slidingEdges: SlidingDoorEdges[]
+  /** 3 = two rear doors and one front door, all the same width. */
+  slidingDoorCount: 2 | 3
   slidingUpperTrackColor: SlidingTrackColor
   slidingLowerTrackColor: SlidingTrackColor
   /** Empty = shortest bar that covers the cut height. */
@@ -199,6 +203,7 @@ export const EMPTY_INTERIOR_FITTINGS: InteriorFittings = {
   doorCount: 0,
   doorStyle: 'hinged',
   slidingEdges: [],
+  slidingDoorCount: 2,
   slidingUpperTrackColor: 'black',
   slidingLowerTrackColor: 'black',
   slidingHandleSkuId: '',
@@ -227,13 +232,18 @@ export function parseInteriorFittings(raw: Record<string, unknown>, slideDepth: 
   const doorCount = parseDoorCount(raw.doorCount)
   const movableShelves = parseMovableShelves(raw.movableShelves)
   const clothesRails = parseClothesRails(raw.clothesRails, raw.hasClothesRail === true)
+  const slidingDoorCount = doorCount === 2 ? parseSlidingDoorCount(raw.slidingDoorCount) : 2
   return {
     shelfCount: movableShelves.length > 0 ? movableShelves.length : parseShelfCount(raw.shelfCount),
     movableShelves,
     hasBack: raw.hasBack === true,
     doorCount,
     doorStyle: parseDoorStyle(raw.doorStyle),
-    slidingEdges: parseSlidingEdges(raw.slidingEdges, doorCount === 2 ? 2 : 0),
+    slidingDoorCount,
+    slidingEdges:
+      doorCount === 2 && slidingDoorCount === 3
+        ? threeDoorSlidingEdges()
+        : parseSlidingEdges(raw.slidingEdges, doorCount === 2 ? 2 : 0),
     slidingUpperTrackColor: parseSlidingTrackColor(raw.slidingUpperTrackColor),
     slidingLowerTrackColor: parseSlidingTrackColor(raw.slidingLowerTrackColor),
     slidingHandleSkuId: parseSlidingSkuId(raw.slidingHandleSkuId),

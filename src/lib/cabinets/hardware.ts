@@ -155,6 +155,20 @@ export function parseSlideKind(value: unknown): SlideKind {
   return 'roller'
 }
 
+/** The runner stops this far short of the back edge of the side it is screwed to. */
+export const SLIDE_REAR_CLEARANCE_MM = 20
+
+/**
+ * Longest runner that fits on the side.
+ * A sliding cabinet mounts it on the inner side: that depth already excludes
+ * the track, and the runner still needs rear clearance. An overlay front
+ * takes its own thickness out of the same depth.
+ */
+export function slideRunnerDepth(panelDepth: number, sliding: boolean, overlayFrontMm = 0): number {
+  if (!sliding) return Math.max(0, panelDepth)
+  return Math.max(0, panelDepth - SLIDE_REAR_CLEARANCE_MM - Math.max(0, overlayFrontMm))
+}
+
 export function eligibleSlideLengths(depth: number, kind: SlideKind): number[] {
   return SLIDE_LENGTHS[kind].filter((len) => len <= depth)
 }

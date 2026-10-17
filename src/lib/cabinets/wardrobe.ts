@@ -5,7 +5,7 @@ import {
   type NightstandParams,
 } from './nightstand'
 import { DEFAULT_PANEL_THICKNESS } from './types'
-import { defaultSlidingEdges, parseSlidingEdges } from './sliding-doors'
+import { defaultSlidingEdges, parseSlidingDoorCount, parseSlidingEdges, threeDoorSlidingEdges } from './sliding-doors'
 import type { CabinetGeneratorResult, CabinetTypeDefinition } from './types'
 
 export const WARDROBE_TYPE_ID = 'wardrobe'
@@ -31,18 +31,25 @@ export const DEFAULT_WARDROBE_PARAMS: WardrobeParams = {
 
 export function parseWardrobeParams(raw: Record<string, unknown>): WardrobeParams {
   const noDoors = raw.depthMode === 'no-doors'
+  const slidingDoorCount = noDoors ? 2 : parseSlidingDoorCount(raw.slidingDoorCount)
   const merged = {
     ...DEFAULT_WARDROBE_PARAMS,
     ...raw,
     doorStyle: noDoors ? 'hinged' : 'sliding',
     doorCount: noDoors ? 0 : 2,
+    slidingDoorCount,
   }
   return {
     ...parseNightstandParams(merged),
     useLegs: false,
     doorStyle: noDoors ? 'hinged' : 'sliding',
     doorCount: noDoors ? 0 : 2,
-    slidingEdges: parseSlidingEdges(raw.slidingEdges ?? merged.slidingEdges, noDoors ? 0 : 2),
+    slidingDoorCount,
+    slidingEdges: noDoors
+      ? []
+      : slidingDoorCount === 3
+        ? threeDoorSlidingEdges()
+        : parseSlidingEdges(raw.slidingEdges ?? merged.slidingEdges, 2),
   }
 }
 
