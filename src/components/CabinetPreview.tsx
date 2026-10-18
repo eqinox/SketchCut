@@ -1,5 +1,5 @@
 import React, { type ReactNode } from 'react'
-import { exactMm, formatMm } from '@/lib/utils'
+import { formatMm } from '@/lib/utils'
 import { KITCHEN_BASE_JOINERY, KITCHEN_WALL_JOINERY, measureCarcass } from '@/lib/cabinets/joinery'
 import {
   parseKitchenBaseParams,
@@ -29,6 +29,8 @@ import {
   stackFronts,
   shelvesForColumn,
   layoutSlidingDoors,
+  slidingProfileMm,
+  threeDoorGabarit,
   SLIDING_BOTTOM_TRACK_MM,
   SLIDING_DRAWER_FROM_BOTTOM_MM,
   SLIDING_UPPER_TRACK_DEPTH_MM,
@@ -171,14 +173,6 @@ function columnsWithDrawers(layout: InteriorLayout): Set<number> {
   }
   for (const z of layout.zones) {
     if (z.drawerFrontHeights.length > 0) out.add(z.colIndex ?? 0)
-  }
-  return out
-}
-
-function crowdedDimColumns(layout: InteriorLayout): Set<number> {
-  const out = columnsWithDrawers(layout)
-  for (const s of layout.shelves) {
-    if (s.columnIndex != null) out.add(s.columnIndex)
   }
   return out
 }
@@ -614,6 +608,20 @@ function spansOverlap(
   return Math.min(a1, b1) - Math.max(a0, b0) >= opening * frac
 }
 
+/** A measure that runs across another divider, not just up to the next one. */
+function isOverallPartitionMeasure(
+  partition: InteriorLayout['partitions'][number],
+  partitions: InteriorLayout['partitions'],
+): boolean {
+  const a = Math.min(partition.startX, partition.endX)
+  const b = Math.max(partition.startX, partition.endX)
+  return partitions.some((other) => {
+    if (other === partition) return false
+    const mid = (other.xLeft + other.xRight) / 2
+    return mid > a + 0.5 && mid < b - 0.5
+  })
+}
+
 /** Clear openings that the user did not already measure (the leftover on the other side). */
 function leftoverPartitionSpans(
   partitions: InteriorLayout['partitions'],
@@ -621,7 +629,7 @@ function leftoverPartitionSpans(
 ): { startX: number; endX: number; offsetMm: number }[] {
   if (partitions.length === 0) return []
   const measured = partitions
-    .filter((p) => p.from !== 'middle')
+    .filter((p) => p.from !== 'middle' && !isOverallPartitionMeasure(p, partitions))
     .map((p) => {
       const a = Math.min(p.startX, p.endX)
       const b = Math.max(p.startX, p.endX)
@@ -632,6 +640,44 @@ function leftoverPartitionSpans(
     .map((col) => ({ startX: col.x0, endX: col.x1, offsetMm: col.innerW }))
 }
 
+/**
+ * A bay that still sits on the old equal third (776 at width 2400) is written as the
+ * door-aligned size: the ends are gabarit minus the divider, the middle is what remains.
+ */
+function doorAlignedOpeningMm(
+  startX: number,
+  endX: number,
+  offsetMm: number,
+  innerW: number,
+  thickness: number,
+): number {
+  const span = Math.abs(endX - startX)
+  const third = (innerW - 2 * thickness) / 3
+  const nearThird = Math.abs(span - third) < 0.05 || Math.abs(offsetMm - third) < 0.05
+  if (!nearThird || !(innerW > 0)) return offsetMm
+  const end = threeDoorGabarit(innerW) - thickness
+  const middle = innerW - 2 * thickness - 2 * end
+  const mid = (Math.min(startX, endX) + Math.max(startX, endX)) / 2
+  return Math.abs(mid - innerW / 2) < third * 0.6 ? middle : end
+}
+
+/** Door widths, in the same dimension row as the bay sizes. Gabarit, then the cut if it differs. */
+function slidingDoorDimSpans(
+  leaves: {
+    x: number
+    gabaritW: number
+    cutW: number
+    edges: { left: Parameters<typeof slidingProfileMm>[0]; right: Parameters<typeof slidingProfileMm>[0] }
+  }[],
+): { startX: number; endX: number; offsetMm: number }[] {
+  return leaves.flatMap((leaf) => {
+    const gabarit = { startX: leaf.x, endX: leaf.x + leaf.gabaritW, offsetMm: leaf.gabaritW }
+    if (Math.abs(leaf.cutW - leaf.gabaritW) < 1e-6) return [gabarit]
+    const left = slidingProfileMm(leaf.edges.left)
+    return [gabarit, { startX: leaf.x + left, endX: leaf.x + left + leaf.cutW, offsetMm: leaf.cutW }]
+  })
+}
+
 /** Openings not already labeled by a measure line or leftover. */
 function openingWidthSpans(
   partitions: InteriorLayout['partitions'],
@@ -639,7 +685,7 @@ function openingWidthSpans(
 ): { startX: number; endX: number; offsetMm: number }[] {
   if (columns.length <= 1) return []
   const drawn = partitions
-    .filter((p) => p.from !== 'middle')
+    .filter((p) => p.from !== 'middle' && !isOverallPartitionMeasure(p, partitions))
     .map((p) => ({ a: Math.min(p.startX, p.endX), b: Math.max(p.startX, p.endX) }))
   const leftover = leftoverPartitionSpans(partitions, columns)
   const labeled = [
@@ -651,56 +697,6 @@ function openingWidthSpans(
       (col) => col.innerW > 0.5 && !labeled.some((m) => spansOverlap(col.x0, col.x1, m.a, m.b)),
     )
     .map((col) => ({ startX: col.x0, endX: col.x1, offsetMm: col.innerW }))
-}
-
-function sameOpeningMm(a: number, b: number) {
-  return exactMm(a) === exactMm(b)
-}
-
-function columnsHaveEqualInnerW(columns: InteriorLayout['columns']): boolean {
-  if (columns.length < 2) return false
-  const w = columns[0]?.innerW ?? 0
-  return columns.every((c) => sameOpeningMm(c.innerW, w))
-}
-
-/** When every bay is the same width, keep one leftover label and put it in a quiet bay. */
-function spreadEqualOpeningSpans(
-  spans: { startX: number; endX: number; offsetMm: number }[],
-  columns: InteriorLayout['columns'],
-  crowded: Set<number>,
-): { startX: number; endX: number; offsetMm: number }[] {
-  if (spans.length === 0 || !columnsHaveEqualInnerW(columns)) return spans
-  const w = columns[0]?.innerW ?? 0
-  const equal = spans.filter((s) => sameOpeningMm(s.offsetMm, w))
-  const rest = spans.filter((s) => !sameOpeningMm(s.offsetMm, w))
-  if (equal.length === 0) return spans
-
-  const spanColumn = (s: { startX: number; endX: number }) => {
-    const a = Math.min(s.startX, s.endX)
-    const b = Math.max(s.startX, s.endX)
-    return columns.findIndex((c) => Math.abs(c.x0 - a) < 0.5 && Math.abs(c.x1 - b) < 0.5)
-  }
-  const originalsCrowded = equal.some((s) => {
-    const i = spanColumn(s)
-    return i >= 0 && crowded.has(i)
-  })
-
-  const quiet = columns
-    .map((col, i) => ({ col, i }))
-    .filter(({ i }) => !crowded.has(i))
-  if (quiet.length === 0) {
-    return equal.length >= 2 ? [...rest, equal[0]!] : spans
-  }
-  if (!originalsCrowded && equal.length === 1) return spans
-
-  const pick = quiet
-    .map(({ col, i }) => ({
-      col,
-      i,
-      dist: crowded.size === 0 ? 0 : Math.min(...[...crowded].map((c) => Math.abs(c - i))),
-    }))
-    .sort((a, b) => b.dist - a.dist || a.i - b.i)[0]!
-  return [...rest, { startX: pick.col.x0, endX: pick.col.x1, offsetMm: pick.col.innerW }]
 }
 
 function clearSpans(length: number, occupied: { a: number; b: number }[]): { start: number; end: number }[] {
@@ -826,9 +822,21 @@ function RemainingHeightDimLines({
 
 type DimBox = { x: number; y: number; w: number; h: number }
 
+/** Width of a dimension number. Digits are ~0.62 em; the comma is narrower. */
+function dimLabelWidth(label: string, fontSize: number): number {
+  let em = 0
+  for (const ch of label) {
+    if (ch === ',' || ch === '.') em += 0.32
+    else if (ch === ' ') em += 0.28
+    else if (ch === '1') em += 0.4
+    else em += 0.62
+  }
+  return fontSize * Math.max(0.95, em)
+}
+
 function dimLabelBox(cx: number, cy: number, label: string, fontSize: number, rotated: boolean): DimBox {
-  const along = Math.max(fontSize * 0.95, fontSize * 0.68 * label.length)
-  const across = fontSize * 1.15
+  const along = dimLabelWidth(label, fontSize)
+  const across = fontSize * 1.05
   if (rotated) return { x: cx - across / 2, y: cy - along / 2, w: across, h: along }
   return { x: cx - along / 2, y: cy - across / 2, w: along, h: across }
 }
@@ -885,6 +893,8 @@ type WidthLabelPlace = {
   labelY: number
   font: number
   outside: boolean
+  /** Runs across another divider and is drawn under the cabinet. */
+  overall?: boolean
 }
 
 /** A shelf face the width number can sit on, instead of leaving the cabinet. */
@@ -935,6 +945,8 @@ function placePartitionDimLabels(input: {
   innerLeft: number
   insideY: number
   outsideY: number
+  /** World Y of the underside of the top. Numbers may rise up to here before leaving the cabinet. */
+  ceilingWorldY?: number
   z?: number
   zAtX?: (x: number) => number
   leftoverZ?: number
@@ -947,9 +959,12 @@ function placePartitionDimLabels(input: {
   const raw = [
     ...input.partitions
       .filter((p) => p.from !== 'middle')
-      .map((p) => ({ startX: p.startX, endX: p.endX, offsetMm: p.offsetMm, flat: false })),
-    ...input.leftovers.map((p) => ({ ...p, flat: true })),
-  ]
+      .map((p) => {
+        const overall = isOverallPartitionMeasure(p, input.partitions)
+        return { startX: p.startX, endX: p.endX, offsetMm: p.offsetMm, flat: overall, overall }
+      }),
+    ...input.leftovers.map((p) => ({ ...p, flat: true, overall: false })),
+  ].sort((a, b) => Number(a.overall) - Number(b.overall))
   const obstacles = [...input.obstacles]
   let outsideRows = 0
   const places: WidthLabelPlace[] = raw.map((p) => {
@@ -983,58 +998,110 @@ function placePartitionDimLabels(input: {
         const rc = (right.x0 + right.x1) / 2
         return Math.abs(lc - spanMid) - Math.abs(rc - spanMid)
       })
+    const labelWiderThan = (font: number, lo: number, hi: number) => {
+      const box = dimLabelBox(0, 0, label, font, false)
+      return box.w + Math.max(2, font * 0.08) > Math.abs(hi - lo)
+    }
+    /** Center range that keeps the whole number between the two faces. */
+    const contain = (font: number, lo: number, hi: number) => {
+      const box = dimLabelBox(0, 0, label, font, false)
+      const pad = Math.max(2, font * 0.08)
+      const innerLo = Math.min(lo, hi) + box.w / 2 + pad
+      const innerHi = Math.max(lo, hi) - box.w / 2 - pad
+      if (innerHi < innerLo - 0.5) return null
+      return { lo: innerLo, hi: innerHi }
+    }
     const keep = (x: number, labelY: number, font: number) => {
       obstacles.push(dimLabelBox(x, labelY, label, font, false))
       return { ...p, yy: input.insideY, labelX: x, labelY, font, outside: false }
     }
-    const onFloor = (font: number) => {
+    const atLine = (font: number) => {
+      const bounds = contain(font, spanLo, spanHi)
+      if (!bounds) return null
       const labelY = lineY - font * 0.62
-      const slack = font * 0.45
-      const x = fitLabelX(centerX, labelY, label, font, obstacles, spanLo - slack, spanHi + slack)
+      const x = fitLabelX(centerX, labelY, label, font, obstacles, bounds.lo, bounds.hi)
       return x == null ? null : keep(x, labelY, font)
+    }
+    const raiseThisOne = (font: number) => {
+      const bounds = contain(font, spanLo, spanHi)
+      if (!bounds) return null
+      const boxH = dimLabelBox(0, 0, label, font, false).h
+      const nearLine = lineY - font * 0.62
+      const step = Math.max(12, font * 0.75)
+      const ceilingScreen =
+        input.ceilingWorldY == null
+          ? nearLine - step * 8
+          : input.cam.proj(
+              input.innerLeft + (p.startX + p.endX) / 2,
+              input.ceilingWorldY,
+              leftoverDepth,
+            ).y
+      const highest = ceilingScreen + boxH * 0.5 + Math.max(4, font * 0.15)
+      for (let labelY = nearLine - step; labelY >= highest - 0.5; labelY -= step) {
+        const x = fitLabelX(centerX, labelY, label, font, obstacles, bounds.lo, bounds.hi)
+        if (x != null) return keep(x, labelY, font)
+      }
+      return null
     }
     const onShelf = (font: number) => {
       for (const seat of seats) {
         const sa = input.cam.proj(seat.x0, seat.yTop, seat.z)
         const sb = input.cam.proj(seat.x1, seat.yTop, seat.z)
         const mid = input.cam.proj((seat.x0 + seat.x1) / 2, seat.yTop, seat.z)
+        const shelfLo = Math.max(spanLo, Math.min(sa.x, sb.x))
+        const shelfHi = Math.min(spanHi, Math.max(sa.x, sb.x))
+        const bounds = contain(font, shelfLo, shelfHi)
+        if (!bounds) continue
         const labelY = mid.y - font * 0.45
-        const x = fitLabelX(
-          mid.x,
-          labelY,
-          label,
-          font,
-          obstacles,
-          Math.min(sa.x, sb.x),
-          Math.max(sa.x, sb.x),
-        )
+        const x = fitLabelX(mid.x, labelY, label, font, obstacles, bounds.lo, bounds.hi)
         if (x != null) return keep(x, labelY, font)
       }
       return null
     }
-    const full = onFloor(input.fontSize) ?? onShelf(input.fontSize)
-    if (full) return full
-    for (const scale of [0.9, 0.8]) {
-      const font = input.fontSize * scale
-      const shrunk = onFloor(font) ?? onShelf(font)
-      if (shrunk) return shrunk
-    }
-    const pitch = Math.max(48, input.fontSize * 1.35)
-    for (let row = 0; row < 4; row += 1) {
-      const yy = input.outsideY + row * pitch
-      const font = input.fontSize
+    const placeOutside = () => {
+      const pitch = Math.max(48, input.fontSize * 1.35)
+      const scales = [1, 0.9, 0.8, 0.7, 0.6, 0.5, 0.42]
+      for (const scale of scales) {
+        const font = input.fontSize * scale
+        if (labelWiderThan(font, spanLo, spanHi)) continue
+        const bounds = contain(font, spanLo, spanHi)
+        if (!bounds) continue
+        for (let row = 0; row < 4; row += 1) {
+          const yy = input.outsideY + row * pitch
+          const labelY = yy + font * 0.62
+          const x = fitLabelX(centerX, labelY, label, font, obstacles, bounds.lo, bounds.hi)
+          if (x != null) {
+            outsideRows = Math.max(outsideRows, row + 1)
+            obstacles.push(dimLabelBox(x, labelY, label, font, false))
+            return { ...p, yy, labelX: x, labelY, font, outside: true }
+          }
+        }
+      }
+      outsideRows = Math.max(outsideRows, 1)
+      const font = input.fontSize * 0.42
+      const yy = input.outsideY
       const labelY = yy + font * 0.62
-      const x = fitLabelX(centerX, labelY, label, font, obstacles, spanLo - font, spanHi + font)
-      if (x != null) {
-        outsideRows = Math.max(outsideRows, row + 1)
-        obstacles.push(dimLabelBox(x, labelY, label, font, false))
-        return { ...p, yy, labelX: x, labelY, font, outside: true }
+      return { ...p, yy, labelX: centerX, labelY, font, outside: true }
+    }
+    if (p.overall) return placeOutside()
+    const fitted = atLine(input.fontSize)
+    if (fitted) return fitted
+    const minFont = Math.max(16, Math.round(input.fontSize * 0.45))
+    let font = input.fontSize
+    if (labelWiderThan(font, spanLo, spanHi)) {
+      for (font = input.fontSize - 10; font >= minFont - 0.5; font -= 10) {
+        const smaller = atLine(font) ?? onShelf(font)
+        if (smaller) return smaller
+        if (!labelWiderThan(font, spanLo, spanHi)) break
       }
     }
-    outsideRows = Math.max(outsideRows, 1)
-    const yy = input.outsideY
-    const labelY = yy + input.fontSize * 0.62
-    return { ...p, yy, labelX: centerX, labelY, font: input.fontSize, outside: true }
+    const raised = raiseThisOne(Math.max(minFont, font)) ?? onShelf(Math.max(minFont, font))
+    if (raised) return raised
+    for (let next = Math.max(minFont, font) - 10; next >= minFont - 0.5; next -= 10) {
+      const smaller = atLine(next) ?? onShelf(next) ?? raiseThisOne(next)
+      if (smaller) return smaller
+    }
+    return placeOutside()
   })
   return { places, outsideRows }
 }
@@ -1067,7 +1134,9 @@ function PartitionDimLines({
   innerLeft,
   insideY,
   outsideY,
+  ceilingWorldY,
   anchorY,
+  belowAnchorY,
   z = 0,
   zAtX,
   leftoverZ,
@@ -1081,10 +1150,14 @@ function PartitionDimLines({
   innerLeft: number
   /** Dimension line inside the cabinet, just above the inner floor. */
   insideY: number
-  /** Used only when a number still overlaps after a sideways move and a smaller font. */
+  /** Used only when the number still does not fit inside the bay, even higher up and in a smaller font. */
   outsideY: number
+  /** World Y of the underside of the top. */
+  ceilingWorldY?: number
   /** Inner floor — extension lines drop to the measured faces here. */
   anchorY: number
+  /** Bottom of the cabinet. Overall widths draw their line under this. */
+  belowAnchorY?: number
   z?: number
   /** Depth of each measured face (set-back partition vs full-depth side). */
   zAtX?: (x: number) => number
@@ -1105,6 +1178,7 @@ function PartitionDimLines({
     innerLeft,
     insideY,
     outsideY,
+    ceilingWorldY,
     z,
     zAtX,
     leftoverZ,
@@ -1129,8 +1203,9 @@ function PartitionDimLines({
               y: cam.proj(innerLeft + p.endX, p.yy, leftoverDepth).y,
             }
           : cam.proj(innerLeft + p.endX, p.yy, zb)
-        const footA = cam.proj(innerLeft + p.startX, anchorY, za)
-        const footB = cam.proj(innerLeft + p.endX, anchorY, zb)
+        const footY = p.overall && belowAnchorY != null ? belowAnchorY : anchorY
+        const footA = cam.proj(innerLeft + p.startX, footY, za)
+        const footB = cam.proj(innerLeft + p.endX, footY, zb)
         const dx = b.x - a.x
         const dy = b.y - a.y
         const len = Math.hypot(dx, dy) || 1
@@ -1919,15 +1994,12 @@ function Front3DView({
   ]
   const widthLabels = placePartitionDimLabels({
     partitions: layout.partitions,
-    leftovers: spreadEqualOpeningSpans(
-      showOpeningDims ? [...leftovers, ...openingWidths] : leftovers,
-      layout.columns,
-      crowdedDimColumns(layout),
-    ),
+    leftovers: showOpeningDims ? [...leftovers, ...openingWidths] : leftovers,
     cam: view,
     innerLeft: T,
     insideY: widthInsideY,
     outsideY: widthOutsideY,
+    ceilingWorldY: topY + T,
     fontSize: railFont,
     obstacles: widthAvoid,
     shelves: shelfSeats(layout, T, innerFloorY, zShelfFront),
@@ -2143,16 +2215,14 @@ function Front3DView({
       {layout.partitions.length > 0 && (
         <PartitionDimLines
           partitions={layout.partitions}
-          leftovers={spreadEqualOpeningSpans(
-            showOpeningDims ? [...leftovers, ...openingWidths] : leftovers,
-            layout.columns,
-            crowdedDimColumns(layout),
-          )}
+          leftovers={showOpeningDims ? [...leftovers, ...openingWidths] : leftovers}
           cam={view}
           innerLeft={T}
           insideY={widthInsideY}
           outsideY={widthOutsideY}
+          ceilingWorldY={topY + T}
           anchorY={innerFloorY}
+          belowAnchorY={floor}
           fontSize={railFont}
           obstacles={widthAvoid}
           shelves={shelfSeats(layout, T, innerFloorY, zShelfFront)}
@@ -2358,15 +2428,12 @@ function WallFront3DView({
   ]
   const widthLabels = placePartitionDimLabels({
     partitions: layout.partitions,
-    leftovers: spreadEqualOpeningSpans(
-      showOpeningDims ? [...leftovers, ...openingWidths] : leftovers,
-      layout.columns,
-      crowdedDimColumns(layout),
-    ),
+    leftovers: showOpeningDims ? [...leftovers, ...openingWidths] : leftovers,
     cam: view,
     innerLeft: T,
     insideY: widthInsideY,
     outsideY: widthOutsideY,
+    ceilingWorldY: topY + T,
     fontSize: small,
     obstacles: widthAvoid,
     shelves: shelfSeats(layout, T, innerFloorY, zShelfFront),
@@ -2512,16 +2579,14 @@ function WallFront3DView({
       {layout.partitions.length > 0 && (
         <PartitionDimLines
           partitions={layout.partitions}
-          leftovers={spreadEqualOpeningSpans(
-            showOpeningDims ? [...leftovers, ...openingWidths] : leftovers,
-            layout.columns,
-            crowdedDimColumns(layout),
-          )}
+          leftovers={showOpeningDims ? [...leftovers, ...openingWidths] : leftovers}
           cam={view}
           innerLeft={T}
           insideY={widthInsideY}
           outsideY={widthOutsideY}
+          ceilingWorldY={topY + T}
           anchorY={innerFloorY}
+          belowAnchorY={floor}
           fontSize={small}
           obstacles={widthAvoid}
           shelves={shelfSeats(layout, T, innerFloorY, zShelfFront)}
@@ -2802,6 +2867,17 @@ function PlinthBoxFront3DView({
   const leftovers = leftoverPartitionSpans(layout.partitions, layout.columns)
   const openingWidths = openingWidthSpans(layout.partitions, layout.columns)
   const openingHeights = remainingHeightSpans(layout, m.innerH)
+  const slidingLeaves =
+    m.sliding && p.doorCount === 2
+      ? layoutSlidingDoors({
+          innerW: m.innerW,
+          innerH: m.innerH,
+          thickness: T,
+          partitions: layout.partitions,
+          edges: p.slidingEdges,
+        })
+      : []
+  const doorWidthSpans = showFronts ? slidingDoorDimSpans(slidingLeaves) : []
 
   const vbW = padL + W + dx + padR
   const ox = padL
@@ -2915,15 +2991,12 @@ function PlinthBoxFront3DView({
   ]
   const widthLabels = placePartitionDimLabels({
     partitions: layout.partitions,
-    leftovers: spreadEqualOpeningSpans(
-      showOpeningDims ? [...leftovers, ...openingWidths] : leftovers,
-      layout.columns,
-      crowdedDimColumns(layout),
-    ),
+    leftovers: showOpeningDims ? [...leftovers, ...openingWidths] : leftovers,
     cam: view,
     innerLeft: T,
     insideY: widthInsideY,
     outsideY: widthOutsideY,
+    ceilingWorldY: topY + T,
     z: zPartition,
     leftoverZ: zSide,
     zAtX: widthZAtX,
@@ -3348,35 +3421,32 @@ function PlinthBoxFront3DView({
         </>
       )}
 
-      {showFronts && m.sliding && p.doorCount === 2 &&
-        layoutSlidingDoors({
-          innerW: m.innerW,
-          innerH: m.innerH,
-          thickness: T,
-          partitions: layout.partitions,
-          edges: p.slidingEdges,
-        })
+      {showFronts &&
+        slidingLeaves
           .slice()
           .sort((a, b) => (a.side === 'middle' ? 1 : 0) - (b.side === 'middle' ? 1 : 0))
-          .map((leaf) => (
-          <Board
-            key={`slide-door-${leaf.index}`}
-            x={T + leaf.x}
-            y={bottomY - leaf.gabaritH}
-            z={
-              leaf.side === 'middle' || (p.slidingEdges.length < 3 && leaf.side === 'right')
-                ? zSide + SLIDING_LOWER_TRACK_INSET_MM
-                : zSide + SLIDING_LOWER_TRACK_INSET_MM + 32
-            }
-            w={leaf.gabaritW}
-            h={leaf.gabaritH}
-            d={T}
-            color={FRONT_FILL}
-            cam={view}
-            faces={{ front: true, top: true, right: true }}
-            opacity={0.88}
-          />
-        ))}
+          .map((leaf) => {
+          const zDoor =
+            leaf.side === 'middle' || (p.slidingEdges.length < 3 && leaf.side === 'right')
+              ? zSide + SLIDING_LOWER_TRACK_INSET_MM
+              : zSide + SLIDING_LOWER_TRACK_INSET_MM + 32
+          return (
+            <g key={`slide-door-${leaf.index}`}>
+              <Board
+                x={T + leaf.x}
+                y={bottomY - leaf.gabaritH}
+                z={zDoor}
+                w={leaf.gabaritW}
+                h={leaf.gabaritH}
+                d={T}
+                color={FRONT_FILL}
+                cam={view}
+                faces={{ front: true, top: true, right: true }}
+                opacity={0.88}
+              />
+            </g>
+          )
+        })}
 
       {showFronts && (
         <FrontsOnCabinet
@@ -3410,19 +3480,32 @@ function PlinthBoxFront3DView({
         shelfZ={m.sliding ? zShelfFront : zSide}
         railZ={zSide}
       />
-      {layout.partitions.length > 0 && (
+      {(layout.partitions.length > 0 || doorWidthSpans.length > 0) && (
         <PartitionDimLines
-          partitions={layout.partitions}
-          leftovers={spreadEqualOpeningSpans(
-            showOpeningDims ? [...leftovers, ...openingWidths] : leftovers,
-            layout.columns,
-            crowdedDimColumns(layout),
+          partitions={layout.partitions.map((part) =>
+            m.sliding && p.slidingEdges.length >= 3
+              ? {
+                  ...part,
+                  offsetMm: doorAlignedOpeningMm(part.startX, part.endX, part.offsetMm, m.innerW, T),
+                }
+              : part,
+          )}
+          leftovers={(showOpeningDims ? [...leftovers, ...openingWidths, ...doorWidthSpans] : [...leftovers, ...doorWidthSpans]).map(
+            (part) =>
+              m.sliding && p.slidingEdges.length >= 3
+                ? {
+                    ...part,
+                    offsetMm: doorAlignedOpeningMm(part.startX, part.endX, part.offsetMm, m.innerW, T),
+                  }
+                : part,
           )}
           cam={view}
           innerLeft={T}
           insideY={widthInsideY}
           outsideY={widthOutsideY}
+          ceilingWorldY={topY + T}
           anchorY={innerFloorY}
+          belowAnchorY={floor}
           z={zPartition}
           leftoverZ={zSide}
           zAtX={widthZAtX}

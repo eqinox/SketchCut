@@ -19,11 +19,21 @@ export function exactMm(n: number): number {
   return Math.round(n * 1000) / 1000
 }
 
-/** Millimetres on drawings and notes: exact figure, Bulgarian decimal comma. */
+/** Nearest 0,5 мм. A decimal is only ,0 or ,5. */
+export function halfMm(n: number): number {
+  if (!Number.isFinite(n)) return 0
+  return Math.round(n * 2) / 2
+}
+
+/** Millimetres on drawings and notes. Decimal mark is a comma. Not rounded up. */
 export function formatMm(n: number): string {
-  const t = exactMm(n)
-  if (Number.isInteger(t)) return String(t)
-  return String(t).replace('.', ',')
+  if (!Number.isFinite(n)) return '0'
+  const whole = Math.round(n)
+  if (Math.abs(n - whole) < 1e-6) return String(whole)
+  const milli = exactMm(n)
+  if (Math.abs(n - milli) < 1e-6) return String(milli).replace('.', ',')
+  const truncated = Math.trunc(n * 1000) / 1000
+  return String(truncated).replace('.', ',')
 }
 
 export function parseMm(raw: unknown): number | null {

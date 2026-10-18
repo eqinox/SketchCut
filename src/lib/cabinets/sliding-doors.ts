@@ -2,7 +2,7 @@ import { pricedLine, SLIDE_REAR_CLEARANCE_MM } from './hardware'
 import { DOOR_CLEARANCE_TOP, DOOR_SIDE_GAP_EACH, INNER_DRAWER_SIDE_GAP_EACH } from './materials'
 import { DEFAULT_PANEL_THICKNESS, edges, type GeneratedPanel, type HardwareItem } from './types'
 import type { HardwareSettings } from '@/lib/settings'
-import type { PartitionSpec } from './zones'
+import { MIN_ZONE_CLEAR_MM, type PartitionSpec } from './zones'
 import { formatMm } from '../utils'
 import type { RuleSection } from './rule-text'
 import {
@@ -174,9 +174,16 @@ function splitXLeft(
   return { xLeft: best.xLeft, thickness }
 }
 
-/** Finished width of each of three equal doors. They overlap by SLIDING_DOOR_OVERLAP_MM at each joint. */
+/** Finished width of each of three equal doors. They overlap by SLIDING_DOOR_OVERLAP_MM at each joint. Not rounded. */
 export function threeDoorGabarit(innerW: number): number {
-  return Math.round((innerW + 2 * SLIDING_DOOR_OVERLAP_MM) / 3)
+  return (innerW + 2 * SLIDING_DOOR_OVERLAP_MM) / 3
+}
+
+/** Shown when the three equal doors do not come out to a whole millimetre. */
+export function threeDoorSizeNote(innerW: number): string | null {
+  const gabarit = threeDoorGabarit(innerW)
+  if (Math.abs(gabarit - Math.round(gabarit)) < 1e-6) return null
+  return `Неточна сметка: (${formatMm(innerW)} + 2×${SLIDING_DOOR_OVERLAP_MM}) / 3 = ${formatMm(gabarit)} мм. Не излиза цяло число.`
 }
 
 /** Clear opening when the two rear doors and the front door are stacked to one side. */
@@ -184,10 +191,12 @@ export function threeDoorClearOpening(innerW: number): number {
   return innerW - 2 * threeDoorGabarit(innerW)
 }
 
-/** A door may cover the bay by this much and the bay is still usable for shelves or a rail. */
-export const SLIDING_ACCESS_INTRUSION_MM = 20
+/** A door may cover a bay without drawers by this much. A drawer still needs its own luft. */
+export const SLIDING_ACCESS_INTRUSION_MM = 50
 /** Extra room past the drawer front so it can be pulled out. */
 export const SLIDING_DRAWER_PASS_LUFT_MM = 20
+/** Added on top of the luft when the sides are moved, then the width is rounded down to 5 мм. */
+export const SLIDING_DRAWER_EXTRA_ADVANCE_MM = 10
 
 export function layoutSlidingDoors(input: {
   innerW: number
@@ -262,55 +271,116 @@ export type ThreeDoorColumn = {
   frontX1: number
 }
 
+function snapDown5(n: number): number {
+  return Math.floor(n / 5) * 5
+}
+
+function snapUp5(n: number): number {
+  return Math.ceil((n - 1e-6) / 5) * 5
+}
+
+/** Equal bays, or a custom split where one side can stay a different width. */
+export type SlidingBayMode = 'equal' | 'custom'
+
 /** Where to put the two dividers so each side can be reached. xLeft of each page, from the inner left. */
 export function threeDoorPartitionOffsets(
   innerW: number,
   thickness: number,
   drawerColumns: number[],
   insetDrawers: boolean,
-): [number, number] | null {
+  mode: SlidingBayMode = 'equal',
+  current: [number, number] | null = null,
+): { offsets: [number, number] | null; error: string | null } {
   const T = thickness
-  const gabarit = threeDoorGabarit(innerW)
   const clear = threeDoorClearOpening(innerW)
-  const intrusion = SLIDING_ACCESS_INTRUSION_MM
-  const luft = SLIDING_DRAWER_PASS_LUFT_MM
+  const gabarit = threeDoorGabarit(innerW)
   const gap = insetDrawers ? INNER_DRAWER_SIDE_GAP_EACH : DOOR_SIDE_GAP_EACH
-  if (!(clear > intrusion) || !(innerW > 2 * T + 120)) return null
-  const p1Min = gabarit - intrusion - T
-  const p1Max = clear + intrusion
-  const p2Min = innerW - clear - intrusion - T
-  const p2Max = innerW - gabarit + intrusion
-  if (p1Min > p1Max + 0.5 || p2Min > p2Max + 0.5) return null
-  let p1Lo = p1Min
-  let p1Hi = p1Max
-  let p2Lo = p2Min
-  let p2Hi = p2Max
+  const spare = SLIDING_DRAWER_PASS_LUFT_MM + SLIDING_DRAWER_EXTRA_ADVANCE_MM
+  const cover = SLIDING_ACCESS_INTRUSION_MM
+  if (!(clear > SLIDING_DRAWER_PASS_LUFT_MM) || !(innerW > 2 * T + 120)) {
+    return { offsets: null, error: 'Отворът е твърде тесен за три еднакви врати.' }
+  }
+  // Ends follow the door: gabarit minus the divider. The 2/3 мм is kept, not floored to a whole bay.
+  const equalBay = threeDoorGabarit(innerW) - T
+  const symmetric = (end: number): [number, number] => [end, innerW - T - end]
   const wants = new Set(drawerColumns)
-  if (wants.has(0)) {
-    const limit = insetDrawers ? clear - luft + gap : clear - luft - T + gap
-    p1Hi = Math.min(p1Hi, limit)
+  const endWanted = wants.has(0) || wants.has(2)
+  if (endWanted && wants.has(1)) {
+    return {
+      offsets: null,
+      error: 'Чекмеджета има и в крайна страна, и в средната. Трите отвора на вратите не стигат за три чекмеджета с аванс.',
+    }
   }
-  if (wants.has(2)) {
-    const limit = insetDrawers ? innerW - (clear - luft + gap) : innerW - (clear - luft - T + gap)
-    p2Lo = Math.max(p2Lo, limit - T)
+  const rawEnd = (spareMm: number) => (insetDrawers ? clear - spareMm + gap : clear - spareMm - T + gap)
+  const endTight = snapDown5(rawEnd(spare))
+  const endLuft = snapDown5(rawEnd(SLIDING_DRAWER_PASS_LUFT_MM))
+  const maxShelfEnd = snapDown5(clear + cover)
+  const minEndForMiddle = gabarit - cover - T
+  const [currentLeft, currentRightOff] = current ?? symmetric(equalBay)
+  const currentRight = innerW - T - currentRightOff
+  const place = (leftBay: number, rightBayWidth: number) => {
+    const middle = innerW - 2 * T - leftBay - rightBayWidth
+    if (leftBay < MIN_ZONE_CLEAR_MM || rightBayWidth < MIN_ZONE_CLEAR_MM || middle < MIN_ZONE_CLEAR_MM) {
+      return {
+        offsets: null as [number, number] | null,
+        error: `Лявата става ${formatMm(leftBay)} мм, дясната ${formatMm(rightBayWidth)} мм, средната ${formatMm(middle)} мм и няма място.`,
+      }
+    }
+    return {
+      offsets: [leftBay, innerW - T - rightBayWidth] as [number, number],
+      error: null,
+    }
   }
-  if (wants.has(1)) {
-    const midLeft = gabarit + luft - (insetDrawers ? gap : gap - T)
-    const midRight = innerW - gabarit - luft - (insetDrawers ? 0 : T) + gap
-    p1Lo = Math.max(p1Lo, insetDrawers ? midLeft - T - gap : midLeft - gap)
-    p2Hi = Math.min(p2Hi, midRight)
+  /** No drawers here: keep the width, and only pull it in when the door covers more than 5 см. */
+  const shelfBay = (bay: number) => (bay > maxShelfEnd + 0.5 ? maxShelfEnd : bay)
+  /** Drawers here: the 2 см luft applies. The extra advance is kept when the next bay without drawers still fits under 5 см. */
+  const drawerBay = (): number | null => {
+    if (wants.has(1) || endTight + 0.5 >= minEndForMiddle) return endTight
+    const need = snapUp5(minEndForMiddle)
+    if (need > endLuft + 0.5) return null
+    return need
   }
-  if (p1Lo > p1Hi + 0.5 || p2Lo > p2Hi + 0.5) {
-    const bay = (innerW - 2 * T) / 3
-    return [bay, 2 * bay + T]
+  const crowded =
+    'Страната с чекмеджето не може да се отвори, ако съседната без чекмедже остане закрита с най-много 50 мм.'
+  if (mode === 'custom' && !endWanted && !wants.has(1)) {
+    if (!current) {
+      return {
+        offsets: null,
+        error: 'При нестандартен гардероб сложи разделителите и задай широчината на всяка страна.',
+      }
+    }
+    return place(shelfBay(currentLeft), shelfBay(currentRight))
   }
-  const bay = (innerW - 2 * T) / 3
-  const p1 = Math.min(p1Hi, Math.max(p1Lo, bay))
-  const p2 = Math.min(p2Hi, Math.max(p2Lo, 2 * bay + T))
-  if (p2 < p1 + T + 40) {
-    return [bay, 2 * bay + T]
+  if (mode === 'custom') {
+    const drawer = drawerBay()
+    if (drawer == null) return { offsets: null, error: crowded }
+    if (wants.has(0) && wants.has(2)) return place(drawer, drawer)
+    if (wants.has(0)) return place(drawer, shelfBay(currentRight))
+    if (wants.has(2)) return place(shelfBay(currentLeft), drawer)
+    const middleMax = snapDown5(clear - spare + (insetDrawers ? 2 * gap : 0))
+    return place(shelfBay(currentLeft), innerW - 2 * T - shelfBay(currentLeft) - middleMax)
   }
-  return [p1, p2]
+  if (!endWanted && !wants.has(1)) {
+    if (!current) return { offsets: symmetric(equalBay), error: null }
+    const left = shelfBay(currentLeft)
+    const right = shelfBay(currentRight)
+    const end = Math.min(left, right)
+    return place(end, end)
+  }
+  if (endWanted) {
+    const drawer = drawerBay()
+    if (drawer == null) return { offsets: null, error: crowded }
+    return place(drawer, drawer)
+  }
+  const middleMax = snapDown5(clear - spare + (insetDrawers ? 2 * gap : 0))
+  const endForMiddle = (innerW - 2 * T - middleMax) / 2
+  if (endForMiddle < MIN_ZONE_CLEAR_MM || middleMax < MIN_ZONE_CLEAR_MM) {
+    return {
+      offsets: null,
+      error: `Средната страна трябва да е ${formatMm(middleMax)} мм, за да мине чекмеджето, и крайните страни не остават достатъчно широки.`,
+    }
+  }
+  return { offsets: symmetric(endForMiddle), error: null }
 }
 
 export function assessThreeSlidingDoors(input: {
@@ -320,7 +390,9 @@ export function assessThreeSlidingDoors(input: {
   drawerColumns: number[]
   fullWidthDrawers: boolean
   insetDrawers: boolean
-}): { issues: string[]; offsets: [number, number] | null } {
+  bayMode?: SlidingBayMode
+  currentOffsets?: [number, number] | null
+}): { issues: string[]; offsets: [number, number] | null; adjustError: string | null } {
   const innerW = input.innerW
   const gabarit = threeDoorGabarit(innerW)
   const clear = threeDoorClearOpening(innerW)
@@ -338,13 +410,16 @@ export function assessThreeSlidingDoors(input: {
   }
   input.columns.forEach((col, index) => {
     const name = input.columns.length === 1 ? 'Гардеробът' : `Страна ${index + 1}`
-    const fitsShelf = shelfWindows.some((w) => col.x0 >= w.x0 - 0.5 && col.x1 <= w.x1 + 0.5)
-    if (!fitsShelf) {
-      issues.push(
-        `${name} се закрива от вратата с повече от ${intrusion} мм и не се обслужва. Отворът пред вратите е ${formatMm(clear)} мм.`,
-      )
+    const hasDrawer = input.drawerColumns.includes(index)
+    if (!hasDrawer) {
+      const fitsShelf = shelfWindows.some((w) => col.x0 >= w.x0 - 0.5 && col.x1 <= w.x1 + 0.5)
+      if (!fitsShelf) {
+        issues.push(
+          `${name} се закрива от вратата с повече от ${intrusion} мм. Без чекмедже това е най-многото. Отворът пред вратите е ${formatMm(clear)} мм.`,
+        )
+      }
     }
-    if (!input.drawerColumns.includes(index)) return
+    if (!hasDrawer) return
     const span = input.insetDrawers
       ? { left: col.x0 + gap, right: col.x1 - gap }
       : { left: col.frontX0 + gap, right: col.frontX1 - gap }
@@ -358,9 +433,18 @@ export function assessThreeSlidingDoors(input: {
         (input.insetDrawers ? '' : ' Външното чело покрива страницата и не минава — сложи вътрешно чело.'),
     )
   })
+  const plan = threeDoorPartitionOffsets(
+    innerW,
+    input.thickness,
+    input.drawerColumns,
+    input.insetDrawers,
+    input.bayMode ?? 'equal',
+    input.currentOffsets ?? null,
+  )
   return {
     issues,
-    offsets: threeDoorPartitionOffsets(innerW, input.thickness, input.drawerColumns, input.insetDrawers),
+    offsets: plan.offsets,
+    adjustError: plan.error,
   }
 }
 
@@ -602,7 +686,7 @@ export function slidingDoorRuleSection(): RuleSection {
           `Рафтовете са още по-плитки от вътрешната страница. По подразбиране с ${SLIDING_SHELF_FROM_PARTITION_MM} мм.`,
           `Водачът се слага на вътрешната страница и е по-къс от нея с ${SLIDE_REAR_CLEARANCE_MM} мм луфт отзад. Външно чело вади още дебелината на челото.`,
           `Двете врати се препокриват с ${SLIDING_DOOR_OVERLAP_MM} мм.`,
-          `Три врати са еднакви: габарит (отвор + 2×${SLIDING_DOOR_OVERLAP_MM}) / 3. Две на задната релса, една на предната. Страната се обслужва, ако вратата я закрива с най-много ${SLIDING_ACCESS_INTRUSION_MM} мм. Чекмеджето минава, ако отворът е по-широк от челото с ${SLIDING_DRAWER_PASS_LUFT_MM} мм.`,
+          `Три врати са еднакви: габарит (отвор + 2×${SLIDING_DOOR_OVERLAP_MM}) / 3, без закръгляне. Ако не излезе цяло число, сметката се пише както е. Две на задната релса, една на предната. Страна без чекмедже може да се закрива с до ${SLIDING_ACCESS_INTRUSION_MM} мм. Чекмеджето минава само ако отворът е по-широк от челото с ${SLIDING_DRAWER_PASS_LUFT_MM} мм — иначе не се отваря. При равни страни крайните следват вратата (габарит минус разделителя) и ако не е цяло число, на чертежа се пише със запетая. „Нагласи страните“ прави лявата и дясната еднакво широки, по размера за чекмеджето, кръгло, с още ${SLIDING_DRAWER_EXTRA_ADVANCE_MM} мм аванс. При нестандартен гардероб мести само страната с чекмеджето, другата си остава.`,
         ],
       },
       {

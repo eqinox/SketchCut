@@ -89,6 +89,8 @@ import {
   centerSlidingPartition,
   layoutSlidingDoors,
   assessThreeSlidingDoors,
+  threeDoorPartitionOffsets,
+  threeDoorSizeNote,
   threeDoorSlidingEdges,
   slidingEdgeLabel,
   slidingProfileMm,
@@ -1131,6 +1133,9 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
       ? 3
       : 2
   const [slidingDoorCount, setSlidingDoorCount] = useState<2 | 3>(initialSlidingCount)
+  const [slidingBayMode, setSlidingBayMode] = useState<'equal' | 'custom'>(
+    (initialFittings.partitions ?? []).length > 0 ? 'custom' : 'equal',
+  )
   const [slidingEdges, setSlidingEdges] = useState<SlidingDoorEdges[]>(
     initialSlidingCount === 3
       ? threeDoorSlidingEdges()
@@ -1477,6 +1482,11 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
           ],
           fullWidthDrawers: layout.fullDrawerFrontHeights.length > 0,
           insetDrawers: innerDrawerFronts,
+          bayMode: slidingBayMode,
+          currentOffsets: (() => {
+            const xs = [...layout.partitions].sort((a, b) => a.xLeft - b.xLeft)
+            return xs.length >= 2 ? ([xs[0].xLeft, xs[1].xLeft] as [number, number]) : null
+          })(),
         })
       : null
   const error = validate(typeId, params, layout, overlayFrontH, drawerBottomGap, {
@@ -2134,6 +2144,46 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
     }
   }
 
+  const splitEqualBays = (count: 2 | 3) => {
+    if (count === 3) {
+      const plan = threeDoorPartitionOffsets(innerW, params.thickness, [], innerDrawerFronts, 'equal')
+      if (plan.offsets) applySlidingBays(plan.offsets)
+      return
+    }
+    applySlidingBays([(innerW - params.thickness) / 2])
+  }
+
+  const applySlidingBays = (offsets: number[]) => {
+    if (partitions.length === 0) {
+      setZoneUi({
+        ...zoneUi,
+        c0: {
+          ...emptyZoneUi(),
+          shelfCount,
+          movableShelves,
+          clothesRails,
+          hasClothesRail: clothesRails.length > 0,
+          drawerFrontHeights,
+        },
+        c1: emptyZoneUi(),
+        c2: emptyZoneUi(),
+      })
+      setShelfCount(0)
+      setMovableShelves([])
+      setClothesRails([])
+      setDrawerFrontHeights([])
+    }
+    setPartitions(
+      offsets.map((off) => ({
+        from: 'left' as const,
+        fromPartition: null,
+        fromFace: 'right' as const,
+        toFace: 'left' as const,
+        offsetMm: String(off),
+      })),
+    )
+  }
+
   const handleSave = () => {
     if (error) return
     onSave({ typeId, params: { ...params }, quantity: qty })
@@ -2289,6 +2339,37 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
             <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
               {CABINET_TYPES.find((t) => t.id === typeId)?.description}
             </p>
+            {isSlidingCabinet && depthMode !== 'no-doors' && (
+              <div className="mt-2">
+                <p className="text-xs font-medium">Страни</p>
+                <div className="mt-1 flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={slidingBayMode === 'equal' ? 'default' : 'outline'}
+                    onClick={() => {
+                      setSlidingBayMode('equal')
+                      splitEqualBays(slidingDoorCount)
+                    }}
+                  >
+                    Равни страни
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={slidingBayMode === 'custom' ? 'default' : 'outline'}
+                    onClick={() => setSlidingBayMode('custom')}
+                  >
+                    Нестандартен
+                  </Button>
+                </div>
+                <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
+                  {slidingBayMode === 'equal'
+                    ? 'Крайните страни са еднакви и следват вратата. Ако не излезе цяло число, на чертежа се пише със запетая. „Нагласи страните“ прави лявата и дясната еднакво широки, по размера за чекмеджето.'
+                    : 'Лявата и дясната могат да са различни. „Нагласи страните“ мести само страната с чекмеджето. Другата си остава.'}
+                </p>
+              </div>
+            )}
           </div>
           <div>
             <Label htmlFor="cab-qty">Брой еднакви</Label>
@@ -3900,6 +3981,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                       setDoorSpan('full')
                       setPendingAdd(null)
                       clearZoneDoors()
+                      if (slidingBayMode === 'equal') splitEqualBays(2)
                     }}
                   >
                     2 врати
@@ -3916,6 +3998,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                       setDepthMode((mode) => (mode === 'no-doors' ? 'without-door' : mode))
                       setPendingAdd(null)
                       clearZoneDoors()
+                      if (slidingBayMode === 'equal') splitEqualBays(3)
                     }}
                   >
                     3 врати
@@ -3932,6 +4015,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                       setSlidingDoorCount(2)
                       setDoorCount(2)
                       setSlidingEdges(oneSideSlidingEdges())
+                      if (slidingBayMode === 'equal') splitEqualBays(2)
                     }}
                   >
                     2 врати
@@ -3944,6 +4028,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                       setSlidingDoorCount(3)
                       setDoorCount(2)
                       setSlidingEdges(threeDoorSlidingEdges())
+                      if (slidingBayMode === 'equal') splitEqualBays(3)
                     }}
                   >
                     3 врати
@@ -3957,15 +4042,26 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                       <p className="text-xs text-[var(--color-muted-foreground)]">
                         Трите врати са с еднакъв габарит. Средната, на предната релса, е с кант дръжка отляво и отдясно.
                         Лявата задна е с дръжка отляво и профил отдясно. Дясната задна е с дръжка отдясно и профил отляво.
-                        Страна с рафт или лост може да се закрива най-много с 20 мм. Чекмеджето се дърпа, ако отворът е
-                        поне с 20 мм по-широк от челото.
+                        Страна без чекмедже може да се закрива с до 50 мм. Ако има чекмедже, отворът трябва да е поне с 20 мм
+                        по-широк от челото, иначе чекмеджето не се отваря.
                       </p>
+                      {threeDoorSizeNote(innerW) && (
+                        <p className="text-xs text-amber-200">{threeDoorSizeNote(innerW)}</p>
+                      )}
                       {threeDoorCheck && threeDoorCheck.issues.length > 0 && (
                         <div className="rounded-md border border-red-500/60 bg-red-500/10 px-2 py-1.5 text-xs text-red-200">
                           {threeDoorCheck.issues.map((line) => (
                             <p key={line}>{line}</p>
                           ))}
-                          {threeDoorCheck.offsets && (
+                          {threeDoorCheck.offsets &&
+                          partitions.length === 2 &&
+                          Math.abs(mmNum(partitions[0]?.offsetMm) - threeDoorCheck.offsets[0]) < 0.26 &&
+                          Math.abs(mmNum(partitions[1]?.offsetMm) - threeDoorCheck.offsets[1]) < 0.26 ? (
+                            <p className="mt-1">
+                              Страните вече са на тези размери
+                              {threeDoorCheck.adjustError ? `. ${threeDoorCheck.adjustError}` : '.'}
+                            </p>
+                          ) : threeDoorCheck.offsets ? (
                             <Button
                               type="button"
                               size="sm"
@@ -3997,20 +4093,24 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                                     fromPartition: null,
                                     fromFace: 'right',
                                     toFace: 'left',
-                                    offsetMm: String(exactMm(a)),
+                                    offsetMm: String(a),
                                   },
                                   {
                                     from: 'left',
                                     fromPartition: null,
                                     fromFace: 'right',
                                     toFace: 'left',
-                                    offsetMm: String(exactMm(b)),
+                                    offsetMm: String(b),
                                   },
                                 ])
                               }}
                             >
                               Нагласи страните
                             </Button>
+                          ) : (
+                            <p className="mt-1">
+                              {threeDoorCheck.adjustError ?? 'Страните не могат да се нагласят за този отвор.'}
+                            </p>
                           )}
                         </div>
                       )}
@@ -4977,6 +5077,28 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
           />
         </label>
 
+        {showFronts && isSlidingCabinet && doorCount === 2 && nsMeasure && (
+          <div className="rounded-md border border-[var(--color-border)] px-3 py-2 text-xs">
+            <p className="font-medium">Размери на вратите</p>
+            <ul className="mt-1 space-y-1">
+              {layoutSlidingDoors({
+                innerW: nsMeasure.innerW,
+                innerH: nsMeasure.innerH,
+                thickness: params.thickness,
+                partitions: layout.partitions,
+                edges: slidingDoorCount === 3 ? threeDoorSlidingEdges() : slidingEdges,
+              }).map((leaf) => (
+                <li key={leaf.index}>
+                  <span className="font-medium">{leaf.name}:</span>{' '}
+                  с кант дръжка {formatMm(leaf.gabaritW)} × {formatMm(leaf.gabaritH)} мм
+                  {' · '}
+                  без профилите {formatMm(leaf.cutW)} × {formatMm(leaf.cutH)} мм
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
         <CabinetPreview
           typeId={typeId}
           params={{ ...params }}
@@ -5030,7 +5152,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                         {panel.name}
                       </td>
                       <td className={cn('px-3 py-2 tabular-nums', groupEdge('mid'))}>
-                        {panel.width} × {panel.height} мм
+                        {formatMm(panel.width)} × {formatMm(panel.height)} мм
                       </td>
                       <td className={cn('px-3 py-2', groupEdge('mid'))}>
                         {panel.quantity}

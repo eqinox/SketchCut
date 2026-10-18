@@ -308,6 +308,7 @@ export {
   threeDoorSlidingEdges,
   parseSlidingDoorCount,
   threeDoorGabarit,
+  threeDoorSizeNote,
   threeDoorClearOpening,
   threeDoorPartitionOffsets,
   assessThreeSlidingDoors,
