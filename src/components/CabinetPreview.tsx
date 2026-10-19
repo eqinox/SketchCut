@@ -32,6 +32,7 @@ import {
   slidingProfileMm,
   threeDoorGabarit,
   SLIDING_BOTTOM_TRACK_MM,
+  SLIDING_DOOR_BOTTOM_CLEAR_MM,
   SLIDING_DRAWER_FROM_BOTTOM_MM,
   SLIDING_UPPER_TRACK_DEPTH_MM,
   SLIDING_UPPER_TRACK_HEIGHT_MM,
@@ -3434,7 +3435,7 @@ function PlinthBoxFront3DView({
             <g key={`slide-door-${leaf.index}`}>
               <Board
                 x={T + leaf.x}
-                y={bottomY - leaf.gabaritH}
+                y={bottomY - SLIDING_DOOR_BOTTOM_CLEAR_MM - leaf.gabaritH}
                 z={zDoor}
                 w={leaf.gabaritW}
                 h={leaf.gabaritH}

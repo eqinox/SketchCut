@@ -452,6 +452,26 @@ export function generatePlinthCabinet(
         : []),
   ]
 
+  const sideEdges = edges(
+    { top: innerTop || !hasTopPanel, bottom: !p.useLegs, left: true, right: false },
+    'mm05',
+  )
+  if (m.sliding) sideEdges.sideThickness = { left: 'mm2' }
+  const sideNote = m.sliding
+    ? p.useLegs
+      ? `Кант 2 мм: предна (вратата се удря в страницата)${!hasTopPanel ? '. Кант 0.5 мм: горна' : ''}. Долната сяда в дъното. Дълбочина ${m.sideD} мм.`
+      : innerTop
+        ? `Кант 2 мм: предна (вратата се удря в страницата). Кант 0.5 мм: горна и долна (страниците захлупват плота и опират в земята). Дълбочина ${m.sideD} мм.`
+        : hasTopPanel
+          ? `Кант 2 мм: предна (вратата се удря в страницата). Кант 0.5 мм: долна (долу опира в земята). Дълбочина ${m.sideD} мм.`
+          : `Кант 2 мм: предна (вратата се удря в страницата). Кант 0.5 мм: горна и долна (отворен корпус отгоре, долу опира в земята). Дълбочина ${m.sideD} мм.`
+    : p.useLegs
+      ? `Кант 0.5 мм: предна${!hasTopPanel ? ' и горна' : ''}. Долната сяда в дъното. Дълбочина ${m.sideD} мм.`
+      : innerTop
+        ? `Кант 0.5 мм: предна, горна и долна (страниците захлупват плота и опират в земята). Дълбочина ${m.sideD} мм.`
+        : hasTopPanel
+          ? `Кант 0.5 мм: предна и долна (долу опира в земята). Дълбочина ${m.sideD} мм.`
+          : `Кант 0.5 мм: предна, горна и долна (отворен корпус отгоре, долу опира в земята). Дълбочина ${m.sideD} мм.`
   const panels: GeneratedPanel[] = [
     {
       role: 'side' as const,
@@ -460,14 +480,8 @@ export function generatePlinthCabinet(
       height: m.sideH,
       quantity: 2,
       canRotate: false,
-      edges: edges({ top: innerTop || !hasTopPanel, bottom: !p.useLegs, left: true, right: false }, 'mm05'),
-      note: p.useLegs
-        ? `Кант 0.5 мм: предна${!hasTopPanel ? ' и горна' : ''}. Долната сяда в дъното. Дълбочина ${m.sideD} мм.`
-        : innerTop
-          ? `Кант 0.5 мм: предна, горна и долна (страниците захлупват плота и опират в земята). Дълбочина ${m.sideD} мм.`
-          : hasTopPanel
-            ? `Кант 0.5 мм: предна и долна (долу опира в земята). Дълбочина ${m.sideD} мм.`
-            : `Кант 0.5 мм: предна, горна и долна (отворен корпус отгоре, долу опира в земята). Дълбочина ${m.sideD} мм.`,
+      edges: sideEdges,
+      note: sideNote,
     },
     {
       role: 'bottom' as const,

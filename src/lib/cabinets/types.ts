@@ -117,13 +117,22 @@ export interface CabinetDimensions {
   thickness: number
 }
 
+export type EdgeSideName = 'top' | 'bottom' | 'left' | 'right'
+export type EdgeThickness = 'mm2' | 'mm05'
+
 /** Edge flags relative to the generated part: top/bottom = width edges, left/right = height edges. */
 export interface PanelEdgePlan {
   top: boolean
   bottom: boolean
   left: boolean
   right: boolean
-  thickness: 'mm2' | 'mm05'
+  thickness: EdgeThickness
+  /** Per-side thickness. The front of a side panel is `left`. */
+  sideThickness?: Partial<Record<EdgeSideName, EdgeThickness>>
+}
+
+export function edgeSideThickness(plan: PanelEdgePlan, side: EdgeSideName): EdgeThickness {
+  return plan.sideThickness?.[side] ?? plan.thickness
 }
 
 export interface GeneratedPanel {

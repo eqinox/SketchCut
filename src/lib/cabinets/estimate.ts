@@ -5,6 +5,7 @@ import { DEFAULT_HARDWARE_SETTINGS, omitsCuttingEdgingLabor } from '@/lib/settin
 import { hardwareCostEur } from './hardware'
 import {
   CUTTING_MINUTES_PER_SHEET,
+  HARDBOARD_CUTTING_MINUTES_PER_SHEET,
   EDGING_MINUTES_PER_SHEET,
   EDGE_PRICE_MM2_EUR,
   EDGE_PRICE_MM05_EUR,
@@ -13,7 +14,7 @@ import {
   sheetFraction,
   usedBoardCostEur,
 } from './materials'
-import { WORK_HOURS_PER_DAY, type GeneratedPanel, type HardwareItem, type LaborEstimate } from './types'
+import { WORK_HOURS_PER_DAY, edgeSideThickness, type GeneratedPanel, type HardwareItem, type LaborEstimate } from './types'
 import { exactMm } from '../utils'
 import type { RuleBlock } from './rule-text'
 
@@ -76,18 +77,28 @@ export function panelsEdgeMeters(panels: GeneratedPanel[]): { mm2: number; mm05:
   let mm05 = 0
   for (const p of panels) {
     if (p.excludeFromCutting) continue
-    const widthEdge = p.width * p.quantity
-    const heightEdge = p.height * p.quantity
-    const add = (len: number, thickness: GeneratedPanel['edges']['thickness']) => {
-      if (thickness === 'mm2') mm2 += len
-      else mm05 += len
-    }
-    if (p.edges.top) add(widthEdge, p.edges.thickness)
-    if (p.edges.bottom) add(widthEdge, p.edges.thickness)
-    if (p.edges.left) add(heightEdge, p.edges.thickness)
-    if (p.edges.right) add(heightEdge, p.edges.thickness)
+    const meters = panelEdgeMeters(p)
+    mm2 += meters.mm2
+    mm05 += meters.mm05
   }
-  return { mm2: mm2 / 1000, mm05: mm05 / 1000 }
+  return { mm2, mm05 }
+}
+
+/** Edge length in metres, split when one panel mixes 2 mm and 0.5 mm. */
+export function panelEdgeMeters(panel: GeneratedPanel): { mm2: number; mm05: number } {
+  let mm2 = 0
+  let mm05 = 0
+  const add = (on: boolean, len: number, side: 'top' | 'bottom' | 'left' | 'right') => {
+    if (!on) return
+    if (edgeSideThickness(panel.edges, side) === 'mm2') mm2 += len
+    else mm05 += len
+  }
+  add(panel.edges.top, panel.width, 'top')
+  add(panel.edges.bottom, panel.width, 'bottom')
+  add(panel.edges.left, panel.height, 'left')
+  add(panel.edges.right, panel.height, 'right')
+  const q = panel.quantity
+  return { mm2: (mm2 * q) / 1000, mm05: (mm05 * q) / 1000 }
 }
 
 export function hourlyRateEur(dailyRateEur: number): number {
@@ -126,16 +137,45 @@ export function laborFromPanels(
     hardboard.height,
   )
   return {
-    cuttingMinutes: CUTTING_MINUTES_PER_SHEET * (chipFrac + hardFrac),
+    cuttingMinutes:
+      CUTTING_MINUTES_PER_SHEET * chipFrac + HARDBOARD_CUTTING_MINUTES_PER_SHEET * hardFrac,
     edgingMinutes: EDGING_MINUTES_PER_SHEET * chipFrac,
     assemblyMinutes,
   }
 }
 
 export function formatMinutes(value: number): string {
+  return appendSpokenHours(`${minuteAmount(value)} мин`, value)
+}
+
+/** Keeps the minutes text and, from 60 up, adds „час и … мин“. */
+export function appendSpokenHours(text: string, minutes: number): string {
+  const rounded = Math.round(Math.max(0, minutes) * 10) / 10
+  if (rounded < 60) return text
+  return `${text} · ${formatHoursFromMinutes(rounded)}`
+}
+
+function minuteAmount(value: number): string {
   const rounded = Math.round(value * 10) / 10
-  const text = Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1).replace('.', ',')
-  return `${text} мин`
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1).replace('.', ',')
+}
+
+/** 1 → „час“, 2 → „2 часа“, 21 → „21 час“, 11 → „11 часа“. */
+function hourPhrase(hours: number): string {
+  const mod100 = hours % 100
+  const mod10 = hours % 10
+  if (mod10 === 1 && mod100 !== 11) return hours === 1 ? 'час' : `${hours} час`
+  return `${hours} часа`
+}
+
+/** 102,6 мин → „час и 42,6 мин“. Под час остават само минутите. */
+export function formatHoursFromMinutes(minutes: number): string {
+  const total = Math.round(Math.max(0, minutes) * 10) / 10
+  const hours = Math.floor(total / 60 + 1e-9)
+  const rest = Math.round((total - hours * 60) * 10) / 10
+  if (hours <= 0) return `${minuteAmount(total)} мин`
+  if (rest <= 0) return hourPhrase(hours)
+  return `${hourPhrase(hours)} и ${minuteAmount(rest)} мин`
 }
 
 export interface CabinetPrice {

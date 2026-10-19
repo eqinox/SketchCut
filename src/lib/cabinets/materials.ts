@@ -27,8 +27,10 @@ export const EDGE_PRICE_MM2_EUR = 0.7
 /** Regular edge banding (0.5 mm). */
 export const EDGE_PRICE_MM05_EUR = 0.35
 
-/** Saw time for one full sheet, including chipboard and hardboard. */
+/** Saw time for one full chipboard sheet. */
 export const CUTTING_MINUTES_PER_SHEET = 40
+/** Saw time for one full hardboard sheet. */
+export const HARDBOARD_CUTTING_MINUTES_PER_SHEET = 20
 /** Edgebander time for one full chipboard sheet (hardboard is not edged). */
 export const EDGING_MINUTES_PER_SHEET = 30
 
@@ -603,7 +605,7 @@ export function boardRuleBlocks(): RuleBlock[] {
       title: 'Разкрой и труд',
       lines: [
         `Дискът на триона е ${KERF} мм и се оставя между детайлите.`,
-        `Рязането се смята ${CUTTING_MINUTES_PER_SHEET} мин на цяла плоча, умножено по използваната част (ПДЧ и фазер отделно).`,
+        `Рязането на ПДЧ е ${CUTTING_MINUTES_PER_SHEET} мин на цяла плоча, на фазер ${HARDBOARD_CUTTING_MINUTES_PER_SHEET} мин, умножено по използваната част.`,
         `Кантирането е ${EDGING_MINUTES_PER_SHEET} мин на цяла ПДЧ плоча, пак по използваната част.`,
         `Отметката за цели плочи закръгля нагоре: 3,5 плочи се таксуват като ${formatMm(billed)}.`,
       ],

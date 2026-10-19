@@ -16,6 +16,7 @@ import {
   ALL_SLIDE_LENGTHS,
   SLIDE_LENGTHS,
   formatEur,
+  formatMinutes,
 } from '@/lib/cabinets'
 import {
   DEFAULT_HARDWARE_SETTINGS,
@@ -495,6 +496,17 @@ export function SettingsDialog({
   
   const handleResetAssemblyTime = () => {
     applyAssemblyTimeSettings(onResetAssemblyTime())
+  }
+
+  const handlePlinthDefaults = () => {
+    const next: AssemblyTimeSettings = {
+      ...assemblyTimeSettings,
+      plinthSmallMinutes: DEFAULT_ASSEMBLY_TIME_SETTINGS.plinthSmallMinutes,
+      plinthMediumMinutes: DEFAULT_ASSEMBLY_TIME_SETTINGS.plinthMediumMinutes,
+      plinthLargeMinutes: DEFAULT_ASSEMBLY_TIME_SETTINGS.plinthLargeMinutes,
+    }
+    applyAssemblyTimeSettings(next)
+    onSaveAssemblyTime(next)
   }
 
   const currentHinge = useNormal ? hingeNormal : hingeSoftClose
@@ -1270,6 +1282,11 @@ export function SettingsDialog({
                     <Label htmlFor="plinth-large">Цокъл — голям</Label>
                     <Input id="plinth-large" type="number" step="0.5" min="0" value={plinthLarge} onChange={(e) => setPlinthLarge(e.target.value)} />
                   </div>
+                  <div className="sm:col-span-3">
+                    <Button type="button" variant="outline" onClick={handlePlinthDefaults}>
+                      Вземи стандартните за цокъла (6, 9 и 11)
+                    </Button>
+                  </div>
                   <div>
                     <Label htmlFor="sides-small">Страници към дъното — малък</Label>
                     <Input id="sides-small" type="number" step="0.5" min="0" value={sidesSmall} onChange={(e) => setSidesSmall(e.target.value)} />
@@ -1535,13 +1552,13 @@ export function SettingsDialog({
                 </div>
                 <p className="mt-3 text-xs text-[var(--color-muted-foreground)]">
                   <strong>Общо време за 1 чекмедже:</strong> {' '}
-                  {(
+                  {formatMinutes(
                     (parseFloat(drawerBox) || 0) +
                     (parseFloat(drawerBack) || 0) +
                     (parseFloat(drawerRunners) || 0) +
                     (parseFloat(drawerFront) || 0) +
-                    (parseFloat(frontEdgeSmall) || 0)
-                  ).toFixed(1)} минути
+                    (parseFloat(frontEdgeSmall) || 0),
+                  )}
                   <span className="block mt-1">Включва 4 ръбчета на челото ({parseFloat(frontEdgeSmall) || 0} мин).</span>
                 </p>
               </div>

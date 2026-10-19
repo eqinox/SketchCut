@@ -90,12 +90,14 @@ import {
   layoutSlidingDoors,
   assessThreeSlidingDoors,
   threeDoorPartitionOffsets,
-  threeDoorSizeNote,
   threeDoorSlidingEdges,
   slidingEdgeLabel,
   slidingProfileMm,
   SLIDING_DRAWER_FROM_BOTTOM_MM,
   SLIDING_HANDLE_PROFILE_MM,
+  SLIDING_THREE_DOOR_OVERLAP_MM,
+  SLIDING_DOOR_BOTTOM_CLEAR_MM,
+  SLIDING_DOOR_TOP_CLEAR_MM,
   SLIDING_PARTITION_SETBACK_MM,
   isBuyoutDoorPanel,
   type CabinetInstance,
@@ -3916,7 +3918,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
               <p className="mt-0.5 text-xs text-[var(--color-muted-foreground)]">
                 {typeId === 'wardrobe'
                   ? slidingDoorCount === 3
-                    ? 'Три еднакви врати: две на задната релса и една на предната. Затворено лявата е отляво, средната по средата, дясната отдясно.'
+                    ? `Три еднакви врати: две на задната релса и една на предната. Затворено лявата е отляво, средната по средата, дясната отдясно. Средната препокрива профила на другите две с ${SLIDING_THREE_DOOR_OVERLAP_MM} мм.`
                     : 'Две плъзгащи врати покриват целия гардероб и се препокриват с 10 мм. Кант дръжка D1L или профил D2 се слага след рязането.'
                   : 'Наложени врати върху корпуса или плъзгащи между страниците.'}
               </p>
@@ -4045,9 +4047,6 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                         Страна без чекмедже може да се закрива с до 50 мм. Ако има чекмедже, отворът трябва да е поне с 20 мм
                         по-широк от челото, иначе чекмеджето не се отваря.
                       </p>
-                      {threeDoorSizeNote(innerW) && (
-                        <p className="text-xs text-amber-200">{threeDoorSizeNote(innerW)}</p>
-                      )}
                       {threeDoorCheck && threeDoorCheck.issues.length > 0 && (
                         <div className="rounded-md border border-red-500/60 bg-red-500/10 px-2 py-1.5 text-xs text-red-200">
                           {threeDoorCheck.issues.map((line) => (
@@ -4397,7 +4396,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                             </div>
                             <p className="text-xs text-[var(--color-muted-foreground)]">
                               Рязане по широчина = габарит − ляв профил − десен профил. D1L добавя {formatMm(SLIDING_HANDLE_PROFILE_MM)} мм;
-                              D2 не добавя. Височина на рязане = габарит. Горе и долу се лепи тънък кант 0,5 мм.
+                              D2 не добавя. Височина на рязане = отвор − {SLIDING_DOOR_BOTTOM_CLEAR_MM} мм отдолу − {SLIDING_DOOR_TOP_CLEAR_MM} мм отгоре. Горе и долу тънък кант 0,5 мм, без да се вади още.
                             </p>
                             {handleSku ? (
                               <p className="text-xs text-[var(--color-muted-foreground)]">

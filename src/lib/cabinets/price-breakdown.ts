@@ -3,6 +3,7 @@ import type { HardwareSettings } from '@/lib/settings'
 import { DEFAULT_HARDWARE_SETTINGS, omitsCuttingEdgingLabor } from '@/lib/settings'
 import {
   CUTTING_MINUTES_PER_SHEET,
+  HARDBOARD_CUTTING_MINUTES_PER_SHEET,
   EDGING_MINUTES_PER_SHEET,
   EDGE_PRICE_MM2_EUR,
   EDGE_PRICE_MM05_EUR,
@@ -26,7 +27,7 @@ import {
 } from './hardware'
 import type { AssemblyStep } from '@/lib/assembly-time'
 import { assemblyMinutesFromSteps, describeAssemblyCalc, rescaleProjectScopedStep } from '@/lib/assembly-time'
-import { WORK_HOURS_PER_DAY, type GeneratedPanel, type HardwareItem } from './types'
+import { edgeSideThickness, type GeneratedPanel, type HardwareItem } from './types'
 import {
   formatArea,
   formatEur,
@@ -36,6 +37,7 @@ import {
   billedLaborFromPanels,
   laborMinutes,
   panelsAreaM2,
+  panelEdgeMeters,
   groupBuyoutDoors,
 } from './estimate'
 import { formatMm } from '../utils'
@@ -93,20 +95,26 @@ function bgCount(n: number, one: string, many: string): string {
   return `${n} ${n === 1 ? one : many}`
 }
 
-function edgePatternHint(panel: GeneratedPanel, totalM: number, unitEur: number): string {
+function edgePatternHint(
+  panel: GeneratedPanel,
+  totalM: number,
+  unitEur: number,
+  only?: 'mm2' | 'mm05',
+): string {
   const longLen = Math.max(panel.width, panel.height)
   const equal = panel.width === panel.height
   let long = 0
   let short = 0
-  const add = (on: boolean, len: number) => {
+  const add = (on: boolean, len: number, side: 'top' | 'bottom' | 'left' | 'right') => {
     if (!on) return
+    if (only && edgeSideThickness(panel.edges, side) !== only) return
     if (equal || len === longLen) long += 1
     else short += 1
   }
-  add(panel.edges.top, panel.width)
-  add(panel.edges.bottom, panel.width)
-  add(panel.edges.left, panel.height)
-  add(panel.edges.right, panel.height)
+  add(panel.edges.top, panel.width, 'top')
+  add(panel.edges.bottom, panel.width, 'bottom')
+  add(panel.edges.left, panel.height, 'left')
+  add(panel.edges.right, panel.height, 'right')
   const pattern = equal
     ? bgCount(long, 'страна', 'страни')
     : [long > 0 ? bgCount(long, 'дълга', 'дълги') : '', short > 0 ? bgCount(short, 'къса', 'къси') : '']
@@ -193,22 +201,20 @@ function edgeSection(panels: GeneratedPanel[], settings: HardwareSettings): Pric
   let mm2 = 0
   let mm05 = 0
   for (const p of billablePanels(panels)) {
-    const panelMeters =
-      (p.edges.top ? p.width : 0) +
-      (p.edges.bottom ? p.width : 0) +
-      (p.edges.left ? p.height : 0) +
-      (p.edges.right ? p.height : 0)
-    if (panelMeters <= 0) continue
-    const thick = p.edges.thickness === 'mm2' ? '2 мм' : '0.5 мм'
-    const totalM = (panelMeters * p.quantity) / 1000
-    const unit = p.edges.thickness === 'mm2' ? mm2Price : mm05Price
-    if (p.edges.thickness === 'mm2') mm2 += totalM
-    else mm05 += totalM
-    lines.push({
-      label: `${p.name} · кант ${thick} · ${p.quantity} бр.`,
-      hint: skipCost ? 'кантът не влиза в сметката' : edgePatternHint(p, totalM, unit),
-      amountEur: skipCost ? 0 : totalM * unit,
-    })
+    const meters = panelEdgeMeters(p)
+    const pushBand = (kind: 'mm2' | 'mm05', totalM: number) => {
+      if (!(totalM > 0)) return
+      const unit = kind === 'mm2' ? mm2Price : mm05Price
+      if (kind === 'mm2') mm2 += totalM
+      else mm05 += totalM
+      lines.push({
+        label: `${p.name} · кант ${kind === 'mm2' ? '2 мм' : '0.5 мм'} · ${p.quantity} бр.`,
+        hint: skipCost ? 'кантът не влиза в сметката' : edgePatternHint(p, totalM, unit, kind),
+        amountEur: skipCost ? 0 : totalM * unit,
+      })
+    }
+    pushBand('mm2', meters.mm2)
+    pushBand('mm05', meters.mm05)
   }
   const cost = skipCost ? 0 : edgeBandingCostEur(mm2, mm05, { mm2: mm2Price, mm05: mm05Price })
   if (mm2 > 0) {
@@ -417,7 +423,7 @@ function laborSection(
   const cutMin = computed.cuttingMinutes ?? 0
   const edgeMin = computed.edgingMinutes ?? 0
   const chipCut = skipCutEdge ? 0 : chipFrac * CUTTING_MINUTES_PER_SHEET
-  const hardCut = skipCutEdge ? 0 : hardFrac * CUTTING_MINUTES_PER_SHEET
+  const hardCut = skipCutEdge ? 0 : hardFrac * HARDBOARD_CUTTING_MINUTES_PER_SHEET
   const chipEdge = skipCutEdge ? 0 : chipFrac * EDGING_MINUTES_PER_SHEET
   const lines: PriceBreakdownLine[] = [
     {
@@ -425,7 +431,7 @@ function laborSection(
       hint: skipCutEdge
         ? 'трудът за рязане е изключен от сметката'
         : `${formatPct(chipFrac)} × ${CUTTING_MINUTES_PER_SHEET} мин (ПДЧ) = ${formatMinutes(chipCut)}` +
-          ` + ${formatPct(hardFrac)} × ${CUTTING_MINUTES_PER_SHEET} мин (фазер) = ${formatMinutes(hardCut)}` +
+          ` + ${formatPct(hardFrac)} × ${HARDBOARD_CUTTING_MINUTES_PER_SHEET} мин (фазер) = ${formatMinutes(hardCut)}` +
           ` → ${formatMinutes(cutMin)}`,
       amountEur: minutesCostEur(cutMin, hourly),
     },
@@ -495,12 +501,11 @@ function laborSection(
     })
   }
 
+  const laborMins = minutes ?? 0
+  const laborTime = formatMinutes(laborMins)
   lines.push({
     label: 'Общо труд',
-    hint:
-      hourly > 0
-        ? `${formatEur(dailyRateEur)}/ден ÷ ${WORK_HOURS_PER_DAY} ч = ${formatEur(hourly)}/ч · ${minutes != null ? formatMinutes(minutes) : '0 мин'} ÷ 60 × ${formatEur(hourly)}/ч = ${cost != null ? formatEur(cost) : '—'}`
-        : 'задай ставка €/ден в панела Шкафове, за да влезе трудът в цената',
+    hint: cost != null ? `${laborTime} · ${formatEur(cost)}` : laborTime,
     amountEur: cost,
   })
 

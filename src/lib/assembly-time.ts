@@ -2,6 +2,7 @@
  * Assembly time calculation settings and functions.
  * All time values are in minutes unless otherwise specified.
  */
+import { appendSpokenHours, formatMinutes } from '@/lib/cabinets/estimate'
 
 export interface EdgeBandingTimeSettings {
   /** Time per thin edge for parts up to 50cm long (seconds) */
@@ -371,9 +372,9 @@ export const DEFAULT_ASSEMBLY_TIME_SETTINGS: AssemblyTimeSettings = {
   shelfPinDeepMinDepthMm: SHELF_PIN_DEEP_MIN_DEPTH_MM,
   backSmallMinutes: 6,
   backLargeMinutes: 10,
-  plinthSmallMinutes: 7,
-  plinthMediumMinutes: 10,
-  plinthLargeMinutes: 13,
+  plinthSmallMinutes: 6,
+  plinthMediumMinutes: 9,
+  plinthLargeMinutes: 11,
   sidesToBottomSmallMinutes: 6,
   sidesToBottomMediumMinutes: 10,
   sidesToBottomLargeMinutes: 14,
@@ -743,9 +744,8 @@ function minText(minutes: number): string {
   const totalSec = Math.round(rounded * 60)
   const m = Math.floor(totalSec / 60)
   const sec = totalSec % 60
-  if (sec === 0) return `${formatQty(m)} мин`
-  if (m === 0) return `${sec} сек`
-  return `${m} мин ${sec} сек`
+  const text = sec === 0 ? `${formatQty(m)} мин` : m === 0 ? `${sec} сек` : `${m} мин ${sec} сек`
+  return appendSpokenHours(text, rounded)
 }
 
 function partitionPagesPhrase(n: number): string {
@@ -1465,16 +1465,5 @@ export function calculateDrawerAssemblyTime(
  * Format time in minutes to a human-readable string.
  */
 export function formatAssemblyTime(minutes: number): string {
-  if (minutes < 60) {
-    const rounded = Math.round(minutes * 10) / 10
-    const text = Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1).replace('.', ',')
-    return `${text} мин`
-  }
-  
-  const hours = Math.floor(minutes / 60)
-  const mins = Math.round(minutes % 60)
-  if (mins === 0) {
-    return `${hours} ч`
-  }
-  return `${hours} ч ${mins} мин`
+  return formatMinutes(minutes)
 }

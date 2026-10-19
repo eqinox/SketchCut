@@ -2,16 +2,15 @@ import type { CabinetInstance, Part, PartEdgeBanding } from '@/types'
 import { createDefaultEdgeBanding } from '@/lib/edge-banding'
 import { generateId } from '@/lib/utils'
 import { cabinetDisplayName, generateCabinet, scaleCabinetResult } from './catalog'
-import { EMPTY_EDGES, type GeneratedPanel, type PanelEdgePlan } from './types'
+import { edgeSideThickness, type GeneratedPanel, type PanelEdgePlan } from './types'
 
 function bandingFromPlan(partId: string, plan: PanelEdgePlan): PartEdgeBanding {
   const band = createDefaultEdgeBanding(partId)
-  const sides = { ...EMPTY_EDGES }
-  sides.top = plan.top
-  sides.bottom = plan.bottom
-  sides.left = plan.left
-  sides.right = plan.right
-  return { ...band, [plan.thickness]: sides }
+  for (const side of ['top', 'bottom', 'left', 'right'] as const) {
+    if (!plan[side]) continue
+    band[edgeSideThickness(plan, side)][side] = true
+  }
+  return band
 }
 
 function panelToPart(

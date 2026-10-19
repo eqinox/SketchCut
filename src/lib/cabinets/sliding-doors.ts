@@ -42,6 +42,19 @@ export { SLIDING_LOWER_TRACK_DEPTH_MM, SLIDING_LOWER_TRACK_INSET_MM, SLIDING_UPP
 export const SLIDING_DRAWER_FROM_BOTTOM_MM = 20
 /** Vertical handle profile D1L, mm added after the cut. */
 export const SLIDING_HANDLE_PROFILE_MM = 20
+/**
+ * Three equal doors. The middle one, on the front rail, overlaps each rear
+ * door by the profile width. The two rear doors do not overlap each other.
+ */
+export const SLIDING_THREE_DOOR_OVERLAP_MM = SLIDING_HANDLE_PROFILE_MM
+/** Sliding door board is this much shorter than the clear opening at the bottom. */
+export const SLIDING_DOOR_BOTTOM_CLEAR_MM = 10
+/** Sliding door board is this much shorter than the clear opening at the top. */
+export const SLIDING_DOOR_TOP_CLEAR_MM = 40
+
+export function slidingDoorBoardHeight(innerH: number): number {
+  return Math.max(0, Math.round(innerH - SLIDING_DOOR_BOTTOM_CLEAR_MM - SLIDING_DOOR_TOP_CLEAR_MM))
+}
 /** Soft-close dampers assumed on each side when the count is left unset. */
 export const DEFAULT_SLIDING_SOFT_CLOSE_PER_SIDE = 1
 /** D2 aluminium cap does not add width — it sits on the 18 mm board edge. */
@@ -142,7 +155,7 @@ export interface SlidingDoorLeaf {
   index: number
   side: 'left' | 'middle' | 'right'
   name: string
-  /** Finished width with profiles, including the 10 mm overlap. */
+  /** Finished width with profiles, including the overlap. */
   gabaritW: number
   /** Saw size — profiles are applied after cutting. */
   cutW: number
@@ -174,16 +187,9 @@ function splitXLeft(
   return { xLeft: best.xLeft, thickness }
 }
 
-/** Finished width of each of three equal doors. They overlap by SLIDING_DOOR_OVERLAP_MM at each joint. Not rounded. */
+/** Finished width of each of three equal doors, rounded to a whole millimetre. 801,333 → 801. */
 export function threeDoorGabarit(innerW: number): number {
-  return (innerW + 2 * SLIDING_DOOR_OVERLAP_MM) / 3
-}
-
-/** Shown when the three equal doors do not come out to a whole millimetre. */
-export function threeDoorSizeNote(innerW: number): string | null {
-  const gabarit = threeDoorGabarit(innerW)
-  if (Math.abs(gabarit - Math.round(gabarit)) < 1e-6) return null
-  return `Неточна сметка: (${formatMm(innerW)} + 2×${SLIDING_DOOR_OVERLAP_MM}) / 3 = ${formatMm(gabarit)} мм. Не излиза цяло число.`
+  return Math.round((innerW + 2 * SLIDING_THREE_DOOR_OVERLAP_MM) / 3)
 }
 
 /** Clear opening when the two rear doors and the front door are stacked to one side. */
@@ -214,8 +220,9 @@ export function layoutSlidingDoors(input: {
   const leftBase = split.xLeft + split.thickness
   const rightBase = innerW - split.xLeft
   const overlap = SLIDING_DOOR_OVERLAP_MM
-  const gabaritH = innerH
-  const cutH = gabaritH
+  const boardH = slidingDoorBoardHeight(innerH)
+  const gabaritH = boardH
+  const cutH = boardH
   const pair = input.edges.length >= 2 ? input.edges : defaultSlidingEdges(2)
 
   const make = (
@@ -225,7 +232,7 @@ export function layoutSlidingDoors(input: {
     edges: SlidingDoorEdges,
     x: number,
   ): SlidingDoorLeaf => {
-    const gabaritW = base + overlap
+    const gabaritW = Math.round(base + overlap)
     const cutW = Math.max(T, gabaritW - slidingProfileMm(edges.left) - slidingProfileMm(edges.right))
     return {
       index,
@@ -241,12 +248,14 @@ export function layoutSlidingDoors(input: {
   }
 
   const left = make(0, 'left', leftBase, pair[0], 0)
-  const right = make(1, 'right', rightBase, pair[1], innerW - (rightBase + overlap))
+  const rightGabarit = Math.round(rightBase + overlap)
+  const right = make(1, 'right', rightBase, pair[1], innerW - rightGabarit)
   return [left, right]
 }
 
 function layoutThreeSlidingDoors(innerW: number, innerH: number, thickness: number): SlidingDoorLeaf[] {
   const gabaritW = threeDoorGabarit(innerW)
+  const boardH = slidingDoorBoardHeight(innerH)
   const edges = threeDoorSlidingEdges()
   const names = ['Лява задна врата', 'Средна предна врата', 'Дясна задна врата'] as const
   const sides = ['left', 'middle', 'right'] as const
@@ -257,8 +266,8 @@ function layoutThreeSlidingDoors(innerW: number, innerH: number, thickness: numb
     name: names[index],
     gabaritW,
     cutW: Math.max(thickness, gabaritW - slidingProfileMm(edge.left) - slidingProfileMm(edge.right)),
-    cutH: innerH,
-    gabaritH: innerH,
+    cutH: boardH,
+    gabaritH: boardH,
     edges: edge,
     x: xs[index],
   }))
@@ -495,8 +504,14 @@ export function appendSlidingDoors(
     `Релсите се продават по ${formatMm(SLIDING_TRACK_LENGTH_MM)} мм — влиза цялата цена на пръта, дори да се отреже.`,
   )
   notes.push(
-    `Вратите се препокриват с ${SLIDING_DOOR_OVERLAP_MM} мм. Кант дръжка D1L добавя ${SLIDING_HANDLE_PROFILE_MM} мм към широчината; профил D2 не добавя. Рязането е без вертикалните профили. Височината е равна на габарита. Горе и долу се лепи тънък кант 0,5 мм.`,
+    leaves.length >= 3
+      ? `Трите врати са еднакви. Средната е на предната релса и затворена стои по средата. Тя препокрива профила на всяка задна врата с ${SLIDING_THREE_DOOR_OVERLAP_MM} мм. Друго препокриване няма.`
+      : `Двете врати се препокриват с ${SLIDING_DOOR_OVERLAP_MM} мм.`,
   )
+  notes.push(
+    `Кант дръжка D1L добавя ${SLIDING_HANDLE_PROFILE_MM} мм към широчината; профил D2 не добавя. Рязането е без вертикалните профили. Височината на рязане е отворът минус ${SLIDING_DOOR_BOTTOM_CLEAR_MM} мм отдолу и ${SLIDING_DOOR_TOP_CLEAR_MM} мм отгоре. Горе и долу се лепи тънък кант 0,5 мм и той не се вади от размера.`,
+  )
+  notes.push('Крайните страници, лява и дясна, се кантират отпред с дебел кант 2 мм — вратата се удря в тях.')
   notes.push(
     `Чекмеджета отдолу започват на ${SLIDING_DRAWER_FROM_BOTTOM_MM} мм от дъното — аванс над долната релса. Челото сяда там, без още 3 мм фуга отдолу.`,
   )
@@ -686,13 +701,14 @@ export function slidingDoorRuleSection(): RuleSection {
           `Рафтовете са още по-плитки от вътрешната страница. По подразбиране с ${SLIDING_SHELF_FROM_PARTITION_MM} мм.`,
           `Водачът се слага на вътрешната страница и е по-къс от нея с ${SLIDE_REAR_CLEARANCE_MM} мм луфт отзад. Външно чело вади още дебелината на челото.`,
           `Двете врати се препокриват с ${SLIDING_DOOR_OVERLAP_MM} мм.`,
-          `Три врати са еднакви: габарит (отвор + 2×${SLIDING_DOOR_OVERLAP_MM}) / 3, без закръгляне. Ако не излезе цяло число, сметката се пише както е. Две на задната релса, една на предната. Страна без чекмедже може да се закрива с до ${SLIDING_ACCESS_INTRUSION_MM} мм. Чекмеджето минава само ако отворът е по-широк от челото с ${SLIDING_DRAWER_PASS_LUFT_MM} мм — иначе не се отваря. При равни страни крайните следват вратата (габарит минус разделителя) и ако не е цяло число, на чертежа се пише със запетая. „Нагласи страните“ прави лявата и дясната еднакво широки, по размера за чекмеджето, кръгло, с още ${SLIDING_DRAWER_EXTRA_ADVANCE_MM} мм аванс. При нестандартен гардероб мести само страната с чекмеджето, другата си остава.`,
+          `Три врати са еднакви: габарит (отвор + 2×${SLIDING_THREE_DOOR_OVERLAP_MM}) / 3, закръглен до цял милиметър (801,333 става 801). Средната е на предната релса и затворена стои по средата. Тя препокрива профила на всяка задна врата с ${SLIDING_THREE_DOOR_OVERLAP_MM} мм — колкото е самият профил. Друго препокриване няма. Страна без чекмедже може да се закрива с до ${SLIDING_ACCESS_INTRUSION_MM} мм. Чекмеджето минава само ако отворът е по-широк от челото с ${SLIDING_DRAWER_PASS_LUFT_MM} мм — иначе не се отваря. При равни страни крайните следват вратата (габарит минус разделителя). „Нагласи страните“ прави лявата и дясната еднакво широки, по размера за чекмеджето, кръгло, с още ${SLIDING_DRAWER_EXTRA_ADVANCE_MM} мм аванс. При нестандартен гардероб мести само страната с чекмеджето, другата си остава.`,
+          `Крайните страници, лява и дясна, се кантират отпред с дебел кант 2 мм. Останалите им кантове са 0,5 мм.`,
         ],
       },
       {
         title: 'Размер на една врата',
         lines: [
-          `Рязане по височина = светъл отвор. Горе и долу се лепи тънък кант 0,5 мм и размерът не се скъсява.`,
+          `Рязане по височина = светъл отвор − ${SLIDING_DOOR_BOTTOM_CLEAR_MM} мм отдолу − ${SLIDING_DOOR_TOP_CLEAR_MM} мм отгоре. Горе и долу се лепи тънък кант 0,5 мм и той не се вади допълнително.`,
           `Кант дръжка D1L добавя ${SLIDING_HANDLE_PROFILE_MM} мм. Профил D2 за ${T} мм плоскост добавя ${SLIDING_CAP_PROFILE_MM} мм.`,
           handleLeaf
             ? `Отвор ${innerW} × ${innerH} мм, D1L от двете страни: габарит ${formatMm(handleLeaf.gabaritW)} × ${formatMm(handleLeaf.gabaritH)} мм, рязане ${formatMm(handleLeaf.cutW)} × ${formatMm(handleLeaf.cutH)} мм.`
