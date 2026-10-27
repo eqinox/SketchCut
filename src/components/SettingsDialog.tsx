@@ -181,6 +181,8 @@ export function SettingsDialog({
   const [shelfPinDeepMinDepth, setShelfPinDeepMinDepth] = useState('')
   const [backSmall, setBackSmall] = useState('')
   const [backLarge, setBackLarge] = useState('')
+  const [backNailSeconds, setBackNailSeconds] = useState('')
+  const [backJointNailSeconds, setBackJointNailSeconds] = useState('')
   const [plinthSmall, setPlinthSmall] = useState('')
   const [plinthMedium, setPlinthMedium] = useState('')
   const [plinthLarge, setPlinthLarge] = useState('')
@@ -287,6 +289,8 @@ export function SettingsDialog({
     setShelfPinDeepMinDepth(String(s.shelfPinDeepMinDepthMm ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.shelfPinDeepMinDepthMm))
     setBackSmall(String(s.backSmallMinutes))
     setBackLarge(String(s.backLargeMinutes))
+    setBackNailSeconds(String(s.backNailSeconds ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.backNailSeconds))
+    setBackJointNailSeconds(String(s.backJointNailSeconds ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.backJointNailSeconds))
     setPlinthSmall(String(s.plinthSmallMinutes))
     setPlinthMedium(String(s.plinthMediumMinutes))
     setPlinthLarge(String(s.plinthLargeMinutes))
@@ -438,6 +442,8 @@ export function SettingsDialog({
       shelfPinPairDeepMinutes: parseFloat(shelfPinPairDeep) || DEFAULT_ASSEMBLY_TIME_SETTINGS.shelfPinPairDeepMinutes,
       backSmallMinutes: parseFloat(backSmall) || DEFAULT_ASSEMBLY_TIME_SETTINGS.backSmallMinutes,
       backLargeMinutes: parseFloat(backLarge) || DEFAULT_ASSEMBLY_TIME_SETTINGS.backLargeMinutes,
+      backNailSeconds: parseFloat(backNailSeconds) || DEFAULT_ASSEMBLY_TIME_SETTINGS.backNailSeconds,
+      backJointNailSeconds: parseFloat(backJointNailSeconds) || DEFAULT_ASSEMBLY_TIME_SETTINGS.backJointNailSeconds,
       plinthSmallMinutes: parseFloat(plinthSmall) || DEFAULT_ASSEMBLY_TIME_SETTINGS.plinthSmallMinutes,
       plinthMediumMinutes: parseFloat(plinthMedium) || DEFAULT_ASSEMBLY_TIME_SETTINGS.plinthMediumMinutes,
       plinthLargeMinutes: parseFloat(plinthLarge) || DEFAULT_ASSEMBLY_TIME_SETTINGS.plinthLargeMinutes,
@@ -1363,6 +1369,34 @@ export function SettingsDialog({
                     />
                     <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
                       Голям гръб: над {previewBackHeight} мм висок и над {previewBackWidth} мм широк.
+                    </p>
+                  </div>
+                  <div>
+                    <Label htmlFor="back-nail-seconds">Пирон на гърба (секунди)</Label>
+                    <Input
+                      id="back-nail-seconds"
+                      type="number"
+                      step="1"
+                      min="0"
+                      value={backNailSeconds}
+                      onChange={(e) => setBackNailSeconds(e.target.value)}
+                    />
+                    <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
+                      През 12 см, по контура, разделителните страници и фиксираните рафтове.
+                    </p>
+                  </div>
+                  <div>
+                    <Label htmlFor="back-joint-nail-seconds">Пирон на снадка (секунди)</Label>
+                    <Input
+                      id="back-joint-nail-seconds"
+                      type="number"
+                      step="1"
+                      min="0"
+                      value={backJointNailSeconds}
+                      onChange={(e) => setBackJointNailSeconds(e.target.value)}
+                    />
+                    <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
+                      Където два фазера се срещат — от двете страни, по-бавно и под наклон.
                     </p>
                   </div>
                   <div>

@@ -28,7 +28,7 @@ export const MAX_FIXED_SHELF_SPECS = MAX_FIXED_SHELVES * (MAX_PARTITIONS + 1)
 /** Minimum clear opening of a compartment, mm. */
 export const MIN_ZONE_CLEAR_MM = 40
 
-export type FixedShelfFrom = 'bottom' | 'top'
+export type FixedShelfFrom = 'bottom' | 'top' | 'middle'
 export type PartitionFrom = 'left' | 'right' | 'middle'
 /** Which face of a board: горна or долна. */
 export type PanelFace = 'top' | 'bottom'
@@ -52,6 +52,21 @@ export interface FixedShelfSpec {
    * `null` / omitted: same height in every bay (на целия шкаф).
    */
   columnIndex?: number | null
+  /**
+   * Opening inside a side, such as "1.1" after the left side is split into three.
+   * The shelf fills only that opening. Omitted: the whole chosen side.
+   */
+  bayPath?: string
+  /**
+   * Which stacked opening, when Страна 1 is split into горе and долу.
+   * Omitted: the single opening with this path.
+   */
+  opening?: 'top' | 'bottom'
+  /**
+   * Adjacent openings covered by this one shelf, left to right, such as ["1.1", "1.2"].
+   * The board is one piece. Dividers strictly between those openings stay only below the shelf.
+   */
+  spanPaths?: string[]
   /**
    * Measure from an already added fixed shelf (0-based index in the user list).
    * `null` / omitted: from the carcass bottom or top (`from`).
@@ -78,6 +93,18 @@ export interface PartitionSpec {
    * already placed dividers. Each new middle page sits in the chosen bay.
    */
   gapIndex?: number
+  /**
+   * User-list index of the fixed shelf this page stops at.
+   * The page sits on the bottom and does not continue above the shelf.
+   * It does not split the cabinet above the shelf. The shelf stays one piece.
+   */
+  stopsAtShelf?: number | null
+  /**
+   * Path of the bay this full-height page splits.
+   * Empty: it splits the whole cabinet into Страна 1, Страна 2, …
+   * "1": it splits Страна 1 into Страна 1.1, Страна 1.2, …
+   */
+  splitsPath?: string
 }
 
 /** Pin-shelf origin: from a board, or centered in the remaining opening. */
@@ -295,13 +322,15 @@ export interface ResolvedFixedShelf extends FixedShelfSpec {
   /** Inner-floor coords of the two measure endpoints (start on carcass or shelf, end on shelf). */
   startY: number
   endY: number
+  /** Inner-left span when the shelf fills only one opening, such as side 1.1. */
+  spanX0?: number
+  spanX1?: number
 }
 
 /** Inner faces: from the inside of the carcass to the facing face of the shelf. */
 export function defaultShelfFaces(from: FixedShelfFrom): { fromFace: PanelFace; toFace: PanelFace } {
-  return from === 'bottom'
-    ? { fromFace: 'top', toFace: 'bottom' }
-    : { fromFace: 'bottom', toFace: 'top' }
+  if (from === 'top') return { fromFace: 'bottom', toFace: 'top' }
+  return { fromFace: 'top', toFace: 'bottom' }
 }
 
 function parseFace(raw: unknown, fallback: PanelFace): PanelFace {
@@ -321,6 +350,17 @@ export function measureFixedShelf(
   origin?: { yBottom: number; yTop: number } | null,
 ): { startY: number; endY: number; yBottom: number; yTop: number; fromFace: PanelFace; toFace: PanelFace } {
   const T = thickness
+  if (spec.from === 'middle') {
+    const yBottom = (innerH - T) / 2
+    return {
+      startY: 0,
+      endY: yBottom,
+      yBottom,
+      yTop: yBottom + T,
+      fromFace: 'top',
+      toFace: 'bottom',
+    }
+  }
   const faces = defaultShelfFaces(spec.from)
   const fromFace = spec.fromFace ?? faces.fromFace
   const toFace = spec.toFace ?? faces.toFace
@@ -354,6 +394,7 @@ export function fixedShelfMeasureLabel(
   topBoardName = 'горната плоскост',
   bottomBoardName = 'дъното',
 ): string {
+  if (spec.from === 'middle') return 'по средата на отвора — равни празнини над и под рафта'
   const faces = defaultShelfFaces(spec.from)
   const fromFace = spec.fromFace ?? faces.fromFace
   const toFace = spec.toFace ?? faces.toFace
@@ -996,6 +1037,11 @@ export interface ResolvedPartition extends PartitionSpec {
   /** Inner-left coords of the two measure endpoints (start on origin, end on divider). */
   startX: number
   endX: number
+  /**
+   * When set, the page rises only this far from the inner floor.
+   * A shelf across the neighboring sides stops it; it does not continue above that shelf.
+   */
+  riseMm?: number
 }
 
 /** Inner faces: from the inside of the carcass to the facing face of the divider. */
@@ -1009,10 +1055,46 @@ function parseSideFace(raw: unknown, fallback: SideFace): SideFace {
   return raw === 'left' || raw === 'right' ? raw : fallback
 }
 
+function parseStopsAtShelf(raw: unknown): number | null {
+  if (raw == null || raw === '') return null
+  const n = typeof raw === 'number' ? raw : Number.parseInt(String(raw), 10)
+  return Number.isInteger(n) && n >= 0 ? n : null
+}
+
 function parseFromPartition(raw: unknown): number | null {
   if (typeof raw === 'number' && Number.isInteger(raw) && raw >= 0) return raw
   const n = Number.parseInt(String(raw ?? ''), 10)
   return Number.isInteger(n) && n >= 0 ? n : null
+}
+
+function parseShelfOpening(raw: unknown): 'top' | 'bottom' | undefined {
+  return raw === 'top' || raw === 'bottom' ? raw : undefined
+}
+
+/** Side number such as 1.1. Empty and anything else is "the whole side". */
+export function parseBayPath(raw: unknown): string | undefined {
+  if (typeof raw !== 'string') return undefined
+  const path = raw.trim()
+  return /^\d+(?:\.\d+)*$/.test(path) ? path : undefined
+}
+
+function shelfFillsOpening(spec: { bayPath?: string; spanPaths?: string[] }): boolean {
+  if ((spec.spanPaths?.length ?? 0) >= 2) return false
+  return typeof spec.bayPath === 'string' && spec.bayPath.length > 0
+}
+
+function shelfSpansBays(spec: { spanPaths?: string[] }): boolean {
+  return (spec.spanPaths?.length ?? 0) >= 2
+}
+
+function parseSpanPaths(raw: unknown): string[] | undefined {
+  if (!Array.isArray(raw)) return undefined
+  const paths: string[] = []
+  for (const item of raw) {
+    const path = parseBayPath(item)
+    if (path && !paths.includes(path)) paths.push(path)
+  }
+  return paths.length >= 2 ? paths : undefined
 }
 
 export function parseColumnIndex(raw: unknown): number | null {
@@ -1108,6 +1190,9 @@ export function measurePartition(
 }
 
 export function partitionMeasureLabel(spec: PartitionSpec): string {
+  if (spec.from === 'middle' && spec.stopsAtShelf != null) {
+    return 'по средата отдолу — стига до фиксирания рафт и не продължава до горе'
+  }
   if (spec.from === 'middle') {
     return 'по средата на отвора — равни разстояния отляво и отдясно'
   }
@@ -1117,7 +1202,9 @@ export function partitionMeasureLabel(spec: PartitionSpec): string {
   const fromPanel = partitionOriginCaption(spec)
   const fromWord = fromFace === 'left' ? 'лявата' : 'дясната'
   const toWord = toFace === 'left' ? 'лявата' : 'дясната'
-  return `${formatMm(spec.offsetMm)} мм от ${fromWord} страна на ${fromPanel} до ${toWord} страна на разделителната страница`
+  const measure = `${formatMm(spec.offsetMm)} мм от ${fromWord} страна на ${fromPanel} до ${toWord} страна на разделителната страница`
+  if (spec.stopsAtShelf != null) return `${measure}. Стига до фиксирания рафт и не продължава до плота`
+  return measure
 }
 
 export interface ResolvedZone {
@@ -1159,6 +1246,8 @@ export interface ResolvedZone {
   frontX0: number
   frontX1: number
   frontWidth: number
+  /** Hierarchical side number. Empty while the cabinet is still one bay. */
+  path: string
 }
 
 export const ZONE_LABELS: Record<CabinetRowId, string> = {
@@ -1167,10 +1256,50 @@ export const ZONE_LABELS: Record<CabinetRowId, string> = {
   top: 'Горна част',
 }
 
-/** Bay between vertical dividers. Страна 1 is the leftmost; numbers grow to the right. */
-export function columnLabel(index: number, count: number): string {
+/** Bay between vertical dividers. A path keeps the side that was split: 1.1, 1.2, 1.3, 2. */
+export function columnLabel(index: number, count: number, path?: string): string {
+  if (path) return `Страна ${path}`
   if (count <= 1) return 'Шкаф'
   return `Страна ${index + 1}`
+}
+
+function labelBay(
+  path: string,
+  x0: number,
+  x1: number,
+  parts: { xLeft: number; xRight: number; splitsPath?: string | null }[],
+): string[] {
+  const cutters = parts
+    .filter((part) => (part.splitsPath ?? '') === path && part.xLeft > x0 + 0.5 && part.xRight < x1 - 0.5)
+    .sort((a, b) => a.xLeft - b.xLeft)
+  if (cutters.length === 0) return path === '' ? [] : [path]
+  const spans: { x0: number; x1: number; child: string }[] = []
+  let cursor = x0
+  cutters.forEach((cutter, i) => {
+    spans.push({ x0: cursor, x1: cutter.xLeft, child: path === '' ? String(i + 1) : `${path}.${i + 1}` })
+    cursor = cutter.xRight
+  })
+  spans.push({
+    x0: cursor,
+    x1,
+    child: path === '' ? String(cutters.length + 1) : `${path}.${cutters.length + 1}`,
+  })
+  return spans.flatMap((span) => {
+    const nested = labelBay(span.child, span.x0, span.x1, parts)
+    return nested.length > 0 ? nested : [span.child]
+  })
+}
+
+/** Side numbers after nested splits. Страна 1 split into 3 stays beside Страна 2 as 1.1, 1.2, 1.3. */
+export function columnPaths(
+  partitions: { xLeft: number; xRight: number; splitsPath?: string | null }[],
+  innerW: number,
+): string[] {
+  const count = partitions.length + 1
+  if (partitions.length === 0) return ['']
+  const labels = labelBay('', 0, innerW, partitions)
+  if (labels.length !== count) return Array.from({ length: count }, (_, i) => String(i + 1))
+  return labels
 }
 
 export function compartmentId(
@@ -1189,10 +1318,12 @@ export function compartmentLabel(
   colCount: number,
   rowId: CabinetRowId,
   rowCount: number,
+  path?: string,
 ): string {
-  if (colCount <= 1) return rowCount <= 1 ? 'Шкаф' : ZONE_LABELS[rowId]
-  if (rowCount <= 1) return columnLabel(colIndex, colCount)
-  return `${columnLabel(colIndex, colCount)} · ${ZONE_LABELS[rowId]}`
+  const side = columnLabel(colIndex, colCount, path)
+  if (colCount <= 1 && !path) return rowCount <= 1 ? 'Шкаф' : ZONE_LABELS[rowId]
+  if (rowCount <= 1) return side
+  return `${side} · ${ZONE_LABELS[rowId]}`
 }
 
 export function parseDoorSpan(raw: unknown): DoorSpan {
@@ -1205,10 +1336,29 @@ export function parseFixedShelves(raw: unknown): FixedShelfSpec[] {
   for (const item of raw) {
     if (!item || typeof item !== 'object' || Array.isArray(item)) continue
     const src = item as Record<string, unknown>
+    if (src.from === 'middle') {
+      const bayPath = parseBayPath(src.bayPath)
+      const spanPaths = parseSpanPaths(src.spanPaths)
+      const opening = parseShelfOpening(src.opening)
+      out.push({
+        from: 'middle',
+        offsetMm: 0,
+        fromFace: 'top',
+        toFace: 'bottom',
+        columnIndex: parseColumnIndex(src.columnIndex),
+        fromShelf: null,
+        ...(spanPaths ? { spanPaths } : bayPath ? { bayPath, ...(opening ? { opening } : {}) } : {}),
+      })
+      if (out.length >= MAX_FIXED_SHELF_SPECS) break
+      continue
+    }
     const from: FixedShelfFrom = src.from === 'top' ? 'top' : 'bottom'
     const n = parseOffsetMm(src.offsetMm)
     if (n == null) continue
     const faces = defaultShelfFaces(from)
+    const bayPath = parseBayPath(src.bayPath)
+    const spanPaths = parseSpanPaths(src.spanPaths)
+    const opening = parseShelfOpening(src.opening)
     out.push({
       from,
       offsetMm: n,
@@ -1216,6 +1366,7 @@ export function parseFixedShelves(raw: unknown): FixedShelfSpec[] {
       toFace: parseFace(src.toFace, faces.toFace),
       columnIndex: parseColumnIndex(src.columnIndex),
       fromShelf: parseFromPartition(src.fromShelf),
+      ...(spanPaths ? { spanPaths } : bayPath ? { bayPath, ...(opening ? { opening } : {}) } : {}),
     })
     if (out.length >= MAX_FIXED_SHELF_SPECS) break
   }
@@ -1238,6 +1389,8 @@ export function parsePartitions(raw: unknown): PartitionSpec[] {
         toFace: 'left',
         fromPartition: null,
         ...(Number.isFinite(gapN) && gapN >= 0 ? { gapIndex: Math.round(gapN) } : {}),
+        stopsAtShelf: parseStopsAtShelf(src.stopsAtShelf),
+        ...(typeof src.splitsPath === 'string' && src.splitsPath ? { splitsPath: src.splitsPath } : {}),
       })
       if (out.length >= MAX_PARTITIONS) break
       continue
@@ -1246,12 +1399,17 @@ export function parsePartitions(raw: unknown): PartitionSpec[] {
     const n = parseOffsetMm(src.offsetMm)
     if (n == null) continue
     const faces = defaultPartitionFaces(from)
+    const gapRaw = src.gapIndex
+    const gapN = typeof gapRaw === 'number' ? gapRaw : Number.parseInt(String(gapRaw ?? ''), 10)
     out.push({
       from,
       offsetMm: n,
       fromFace: parseSideFace(src.fromFace, faces.fromFace),
       toFace: parseSideFace(src.toFace, faces.toFace),
       fromPartition: parseFromPartition(src.fromPartition),
+      ...(Number.isFinite(gapN) && gapN >= 0 ? { gapIndex: Math.round(gapN) } : {}),
+      stopsAtShelf: parseStopsAtShelf(src.stopsAtShelf),
+      ...(typeof src.splitsPath === 'string' && src.splitsPath ? { splitsPath: src.splitsPath } : {}),
     })
     if (out.length >= MAX_PARTITIONS) break
   }
@@ -1316,6 +1474,50 @@ function validateShelfGroup(group: ResolvedFixedShelf[], innerH: number): string
   return null
 }
 
+function placeMiddleFixedShelves(
+  middles: { spec: FixedShelfSpec; specIndex: number }[],
+  placed: ResolvedFixedShelf[],
+  into: Map<number, ResolvedFixedShelf>,
+  innerH: number,
+  thickness: number,
+  columnCount: number,
+): string | null {
+  const T = thickness
+  const groups = new Map<string, { spec: FixedShelfSpec; specIndex: number }[]>()
+  for (const item of middles) {
+    const key = item.spec.columnIndex == null ? 'full' : String(item.spec.columnIndex)
+    const group = groups.get(key) ?? []
+    group.push(item)
+    groups.set(key, group)
+  }
+  for (const [key, group] of groups) {
+    const occupied = key === 'full' ? placed : shelvesForColumn(placed, Number(key))
+    const gaps = remainingOpenings(innerH, occupied)
+    const gap = gaps.length > 0 ? largestOpening(gaps) : { start: 0, end: innerH }
+    const count = group.length
+    const opening = (gap.end - gap.start - count * T) / (count + 1)
+    if (!(opening >= MIN_ZONE_CLEAR_MM)) return 'Няма място за фиксиран рафт по средата.'
+    group.forEach((item, i) => {
+      const yBottom = gap.start + opening * (i + 1) + T * i
+      into.set(item.specIndex, {
+        ...item.spec,
+        specIndex: item.specIndex,
+        columnIndex: normalizeShelfColumnIndex(item.spec.columnIndex, columnCount),
+        from: 'middle',
+        offsetMm: 0,
+        fromFace: 'top',
+        toFace: 'bottom',
+        fromShelf: null,
+        yBottom,
+        yTop: yBottom + T,
+        startY: gap.start,
+        endY: yBottom,
+      })
+    })
+  }
+  return null
+}
+
 export function resolveFixedShelves(
   specs: FixedShelfSpec[],
   innerH: number,
@@ -1328,14 +1530,21 @@ export function resolveFixedShelves(
   }
 
   const cols = Math.max(1, columnCount)
+  const middleSpecs = specs.flatMap((spec, specIndex) =>
+    spec.from === 'middle' && !shelfFillsOpening(spec) && !shelfSpansBays(spec) ? [{ spec, specIndex }] : [],
+  )
+  const openingCount = specs.filter((spec) => shelfFillsOpening(spec)).length
+  const spanCount = specs.filter((spec) => shelfSpansBays(spec)).length
+  const anchoredCount = specs.length - middleSpecs.length - openingCount - spanCount
   const byIndex = new Map<number, ResolvedFixedShelf>()
   let guard = 0
-  while (byIndex.size < specs.length && guard < specs.length + 2) {
+  while (byIndex.size < anchoredCount && guard < anchoredCount + 2) {
     guard += 1
     let progress = false
     for (let specIndex = 0; specIndex < specs.length; specIndex++) {
       if (byIndex.has(specIndex)) continue
       const spec = specs[specIndex]!
+      if (spec.from === 'middle' || shelfFillsOpening(spec) || shelfSpansBays(spec)) continue
       const ref = spec.fromShelf
       let origin: { yBottom: number; yTop: number } | null = null
       if (typeof ref === 'number') {
@@ -1369,6 +1578,10 @@ export function resolveFixedShelves(
     }
   }
 
+  const placed = [...byIndex.values()]
+  const middleError = placeMiddleFixedShelves(middleSpecs, placed, byIndex, innerH, T, cols)
+  if (middleError) return { shelves: [], error: middleError }
+
   const resolved = [...byIndex.values()]
   let error: string | null = null
   const kept: ResolvedFixedShelf[] = []
@@ -1401,6 +1614,7 @@ export function defaultPartitionOffsetMm(innerW: number, thickness: number, alre
 export function partitionGapOpenings(
   placed: { xLeft: number; xRight: number }[],
   innerW: number,
+  paths?: string[],
 ): { index: number; start: number; end: number; label: string }[] {
   const gaps = remainingSpans(
     innerW,
@@ -1411,8 +1625,111 @@ export function partitionGapOpenings(
     index: i,
     start: g.start,
     end: g.end,
-    label: columnLabel(i, gaps.length),
+    label: columnLabel(i, gaps.length, paths?.[i]),
   }))
+}
+
+/**
+ * Split one bay into `parts` equal openings.
+ * Dividers already inside that bay are replaced. The pages that bound the bay stay.
+ * When `stopsAtShelf` is set, the new pages stop at that shelf and do not add columns.
+ */
+export function evenBayDividerSpecs(
+  specs: PartitionSpec[],
+  resolved: { specIndex: number; xLeft: number; xRight: number }[],
+  bayX0: number,
+  bayX1: number,
+  parts: number,
+  thickness: number,
+  columnIndex: number,
+  stopsAtShelf?: number | null,
+  parentPath = '',
+): { specs: PartitionSpec[]; columnShift: number; error: string | null } {
+  const T = thickness
+  const count = parts - 1
+  if (count < 1) return { specs, columnShift: 0, error: 'Избери поне 2 равни части.' }
+  const span = bayX1 - bayX0
+  const opening = (span - count * T) / parts
+  if (!(opening >= MIN_ZONE_CLEAR_MM)) {
+    return {
+      specs,
+      columnShift: 0,
+      error: `Няма място за ${parts} равни части. Отворът трябва да е поне ${MIN_ZONE_CLEAR_MM} мм.`,
+    }
+  }
+  const underShelf = stopsAtShelf != null
+  const inside = new Set(
+    underShelf
+      ? specs.flatMap((spec, i) =>
+          spec.stopsAtShelf != null && spec.gapIndex === columnIndex ? [i] : [],
+        )
+      : resolved.filter((p) => p.xLeft > bayX0 + 0.5 && p.xRight < bayX1 - 0.5).map((p) => p.specIndex),
+  )
+  if (specs.length - inside.size + count > MAX_PARTITIONS) {
+    return {
+      specs,
+      columnShift: 0,
+      error: `Най-много ${MAX_PARTITIONS} разделителни страници. ${parts} равни части в тази страна искат ${count} страници.`,
+    }
+  }
+  const left = resolved.find((p) => Math.abs(p.xRight - bayX0) < 0.5)
+  const keptIndexes = specs.map((_, i) => i).filter((i) => !inside.has(i))
+  const newIndex = new Map<number, number>()
+  keptIndexes.forEach((old, i) => newIndex.set(old, i))
+  const columnShift = underShelf ? 0 : count - inside.size
+  const kept = keptIndexes.map((old) => {
+    const spec = specs[old]!
+    let fromPartition = spec.fromPartition ?? null
+    let from = spec.from
+    let fromFace = spec.fromFace
+    let toFace = spec.toFace
+    let offsetMm = spec.offsetMm
+    let gapIndex = spec.gapIndex
+    if (typeof fromPartition === 'number') {
+      const mapped = newIndex.get(fromPartition)
+      if (mapped == null) {
+        const place = resolved.find((p) => p.specIndex === old)
+        from = 'left'
+        fromPartition = null
+        fromFace = 'right'
+        toFace = 'left'
+        offsetMm = place?.xLeft ?? offsetMm
+        gapIndex = undefined
+      } else {
+        fromPartition = mapped
+      }
+    }
+    if (spec.stopsAtShelf != null && gapIndex != null && gapIndex > columnIndex) {
+      gapIndex += columnShift
+    }
+    return { ...spec, from, fromPartition, fromFace, toFace, offsetMm, gapIndex }
+  })
+  const leftIndex = left ? (newIndex.get(left.specIndex) ?? null) : null
+  const added: PartitionSpec[] = []
+  for (let i = 0; i < count; i++) {
+    if (underShelf) {
+      added.push({
+        from: 'left',
+        fromPartition: null,
+        fromFace: 'right',
+        toFace: 'left',
+        offsetMm: bayX0 + (i + 1) * opening + i * T,
+        gapIndex: columnIndex,
+        stopsAtShelf,
+      })
+      continue
+    }
+    const origin = i === 0 ? leftIndex : kept.length + i - 1
+    added.push({
+      from: 'left',
+      fromPartition: origin,
+      fromFace: 'right',
+      toFace: 'left',
+      offsetMm: opening,
+      ...(parentPath ? { splitsPath: parentPath } : {}),
+    })
+  }
+  return { specs: [...kept, ...added], columnShift, error: null }
 }
 
 export function resolvePartitions(
@@ -1557,6 +1874,139 @@ export function resolvePartitions(
   return { partitions: resolved, error: null }
 }
 
+/** A page that fills only the opening under a fixed shelf. */
+export interface ResolvedPartialPartition {
+  specIndex: number
+  stopsAtShelf: number
+  columnIndex: number
+  xLeft: number
+  xRight: number
+  /** From the top of the bottom to the underside of the shelf. */
+  height: number
+}
+
+/** Pages placed under a fixed shelf. They do not split the cabinet above that shelf. */
+export function resolvePartialPartitions(
+  specs: PartitionSpec[],
+  columns: ResolvedColumn[],
+  shelves: ResolvedFixedShelf[],
+  thickness: number,
+): { partials: ResolvedPartialPartition[]; error: string | null } {
+  const T = thickness
+  const partials: ResolvedPartialPartition[] = []
+  const seenMiddle = new Set<string>()
+  const innerW = columns.length > 0 ? columns[columns.length - 1]!.x1 : 0
+  if (columns.length === 0) return { partials, error: null }
+  for (let specIndex = 0; specIndex < specs.length; specIndex++) {
+    const spec = specs[specIndex]!
+    if (spec.stopsAtShelf == null) continue
+    const shelf = shelves.find((s) => s.specIndex === spec.stopsAtShelf)
+    if (!shelf) {
+      return { partials: [], error: 'Разделителната страница отдолу няма рафт, до който да стигне.' }
+    }
+    let colIndex = typeof spec.gapIndex === 'number' && Number.isFinite(spec.gapIndex) ? Math.round(spec.gapIndex) : 0
+    if (shelf.columnIndex != null) colIndex = shelf.columnIndex
+    colIndex = Math.min(columns.length - 1, Math.max(0, colIndex))
+    if (shelf.columnIndex != null && shelf.columnIndex !== colIndex) {
+      return { partials: [], error: 'Рафтът не е в тази страна.' }
+    }
+    const col = columns[colIndex]
+    if (!col) return { partials: [], error: 'Няма страна за разделителната страница отдолу.' }
+    if (shelf.yBottom < MIN_ZONE_CLEAR_MM) {
+      return { partials: [], error: 'Под рафта няма място за разделителна страница.' }
+    }
+    const measured = spec.from !== 'middle' && spec.offsetMm > 0
+    let xLeft: number
+    if (!measured) {
+      const key = `${colIndex}:${shelf.specIndex}`
+      if (seenMiddle.has(key)) {
+        return { partials: [], error: 'В тази долна част вече има разделителна страница.' }
+      }
+      seenMiddle.add(key)
+      if (col.innerW < T + MIN_ZONE_CLEAR_MM * 2) {
+        return { partials: [], error: 'Няма място за разделителна страница по средата отдолу.' }
+      }
+      xLeft = col.x0 + (col.innerW - T) / 2
+    } else {
+      xLeft = measurePartition(spec, innerW, T, null).xLeft
+    }
+    const xRight = xLeft + T
+    if (xLeft < col.x0 + MIN_ZONE_CLEAR_MM - 0.5 || xRight > col.x1 - MIN_ZONE_CLEAR_MM + 0.5) {
+      return { partials: [], error: 'Разделителната страница под рафта излиза от страната.' }
+    }
+    for (const prev of partials) {
+      if (prev.columnIndex !== colIndex || prev.stopsAtShelf !== shelf.specIndex) continue
+      const gap = xLeft >= prev.xRight ? xLeft - prev.xRight : prev.xLeft - xRight
+      if (gap < MIN_ZONE_CLEAR_MM - 0.5) {
+        return {
+          partials: [],
+          error: `Между разделителните страници под рафта трябва да има поне ${MIN_ZONE_CLEAR_MM} мм.`,
+        }
+      }
+    }
+    partials.push({
+      specIndex,
+      stopsAtShelf: shelf.specIndex,
+      columnIndex: colIndex,
+      xLeft,
+      xRight,
+      height: shelf.yBottom,
+    })
+  }
+  return { partials, error: null }
+}
+
+function splitZonesByPartialPartitions(
+  zones: ResolvedZone[],
+  partials: ResolvedPartialPartition[],
+): ResolvedZone[] {
+  const out: ResolvedZone[] = []
+  for (const z of zones) {
+    const cuts = partials
+      .filter(
+        (part) =>
+          part.columnIndex === z.colIndex &&
+          z.y0 < part.height - 0.5 &&
+          z.y1 <= part.height + 0.5 &&
+          part.xLeft > z.x0 + 1 &&
+          part.xRight < z.x1 - 1,
+      )
+      .sort((a, b) => a.xLeft - b.xLeft)
+    if (cuts.length === 0) {
+      out.push(z)
+      continue
+    }
+    const spans: { x0: number; x1: number; frontX0: number; frontX1: number }[] = []
+    let x0 = z.x0
+    let frontX0 = z.frontX0
+    for (const cut of cuts) {
+      spans.push({ x0, x1: cut.xLeft, frontX0, frontX1: cut.xRight })
+      x0 = cut.xRight
+      frontX0 = cut.xLeft
+    }
+    spans.push({ x0, x1: z.x1, frontX0, frontX1: z.frontX1 })
+    const parent = z.path || String(z.colIndex + 1)
+    spans.forEach((span, index) => {
+      const child = `${parent}.${index + 1}`
+      out.push({
+        ...z,
+        id: index === 0 ? z.id : spans.length === 2 ? `${z.id}-r` : `${z.id}-p${index + 1}`,
+        innerW: span.x1 - span.x0,
+        x0: span.x0,
+        x1: span.x1,
+        isLeft: index === 0 ? z.isLeft : false,
+        isRight: index === spans.length - 1 ? z.isRight : false,
+        frontX0: span.frontX0,
+        frontX1: span.frontX1,
+        frontWidth: Math.max(0, span.frontX1 - span.frontX0),
+        path: child,
+        label: `Страна ${child}`,
+      })
+    })
+  }
+  return out
+}
+
 export function zoneHasOverlayFronts(z: {
   doorCount: DoorCount
   drawerFrontHeights: number[]
@@ -1578,10 +2028,13 @@ export function joinAdjacentZoneFronts(zones: LaidOutZone[]): void {
     byCol.set(c, arr)
   }
   for (const colZones of byCol.values()) {
-    colZones.sort((a, b) => a.y0 - b.y0)
+    colZones.sort((a, b) => a.y0 - b.y0 || a.x0 - b.x0)
     for (let i = 0; i < colZones.length - 1; i++) {
       const lower = colZones[i]
       const upper = colZones[i + 1]
+      if (!lower || !upper) continue
+      if (upper.y0 < lower.y1 - 0.5) continue
+      if (Math.abs(lower.x0 - upper.x0) > 0.5 || Math.abs(lower.x1 - upper.x1) > 0.5) continue
       if (!zoneHasOverlayFronts(lower) || !zoneHasOverlayFronts(upper)) continue
       upper.frontY0 = lower.frontY1
       upper.frontHeight = Math.max(0, upper.frontY1 - upper.frontY0)
@@ -1635,14 +2088,23 @@ export function consecutiveZoneFrontRuns(zones: LaidOutZone[]): LaidOutZone[][] 
   }
   const runs: LaidOutZone[][] = []
   for (const colZones of byCol.values()) {
-    colZones.sort((a, b) => a.y0 - b.y0)
+    colZones.sort((a, b) => a.y0 - b.y0 || a.x0 - b.x0)
     let current: LaidOutZone[] = []
     for (const z of colZones) {
-      if (zoneHasOverlayFronts(z)) {
-        current.push(z)
-      } else if (current.length > 0) {
+      if (!zoneHasOverlayFronts(z)) {
+        if (current.length > 0) {
+          runs.push(current)
+          current = []
+        }
+        continue
+      }
+      const prev = current[current.length - 1]
+      const stacked = !prev || (z.y0 >= prev.y1 - 0.5 && Math.abs(z.x0 - prev.x0) < 0.5)
+      if (prev && !stacked) {
         runs.push(current)
-        current = []
+        current = [z]
+      } else {
+        current.push(z)
       }
     }
     if (current.length > 0) runs.push(current)
@@ -1712,6 +2174,8 @@ export interface ResolvedColumn {
   frontX0: number
   frontX1: number
   frontWidth: number
+  /** Hierarchical side number. Empty while the cabinet is still one bay. */
+  path: string
 }
 
 export function cabinetColumns(
@@ -1727,6 +2191,7 @@ export function cabinetColumns(
   }
   openings.push({ x0: cursor, x1: innerW })
   const extent = overlayFrontExtentX(innerW, thickness)
+  const paths = columnPaths(partitions, innerW)
 
   return openings.map((o, i) => {
     const isFirst = i === 0
@@ -1744,6 +2209,7 @@ export function cabinetColumns(
       frontX0,
       frontX1,
       frontWidth: Math.max(0, frontX1 - frontX0),
+      path: paths[i] ?? '',
     }
   })
 }
@@ -1757,7 +2223,9 @@ function composeCompartments(
 ): ResolvedZone[] {
   const out: ResolvedZone[] = []
   for (let c = 0; c < cols.length; c++) {
-    const colShelves = [...shelvesForColumn(shelves, c)].sort((a, b) => a.yBottom - b.yBottom)
+    const colShelves = shelvesForColumn(shelves, c)
+      .filter((shelf) => !shelfSpansBays(shelf))
+      .sort((a, b) => a.yBottom - b.yBottom)
     const rows = cabinetZones(colShelves, innerH, thickness, overlayCovers)
     const col = cols[c]
     for (let r = 0; r < rows.length; r++) {
@@ -1766,7 +2234,8 @@ function composeCompartments(
       out.push({
         ...row,
         id: compartmentId(c, cols.length, rowId, rows.length),
-        label: compartmentLabel(c, cols.length, rowId, rows.length),
+        label: compartmentLabel(c, cols.length, rowId, rows.length, col.path),
+        path: col.path,
         colIndex: c,
         rowIndex: r,
         isLeft: col.isFirst,
@@ -1831,6 +2300,7 @@ export function cabinetZones(
       frontX0: 0,
       frontX1: 0,
       frontWidth: 0,
+      path: '',
     }
   })
 }
@@ -1844,6 +2314,8 @@ export interface LaidOutZone extends ResolvedZone, ZoneFittings {
 export interface InteriorLayout {
   shelves: ResolvedFixedShelf[]
   partitions: ResolvedPartition[]
+  /** Dividers that stop at a fixed shelf and do not reach the top. */
+  partialPartitions: ResolvedPartialPartition[]
   columns: ResolvedColumn[]
   zones: LaidOutZone[]
   doorSpan: DoorSpan
@@ -1858,6 +2330,401 @@ export function zoneFittingsOf(
   id: CabinetZoneId,
 ): ZoneFittings {
   return { ...EMPTY_ZONE_FITTINGS, ...(zones?.[id] ?? {}) }
+}
+
+/** A shelf aimed at one numbered opening, such as side 1.1 under a whole shelf. */
+function placeBayFixedShelves(
+  specs: FixedShelfSpec[],
+  zones: ResolvedZone[],
+  placed: ResolvedFixedShelf[],
+  thickness: number,
+): { shelves: ResolvedFixedShelf[]; error: string | null } {
+  const T = thickness
+  const shelves: ResolvedFixedShelf[] = []
+  const known = () => [...placed, ...shelves]
+  for (let specIndex = 0; specIndex < specs.length; specIndex++) {
+    const spec = specs[specIndex]!
+    if (!shelfFillsOpening(spec)) continue
+    if (placed.some((row) => row.specIndex === specIndex)) continue
+    const band = spec.opening === 'top' ? ' горе' : spec.opening === 'bottom' ? ' долу' : ''
+    const matches = zones.filter(
+      (row) => row.path === spec.bayPath && (band === '' || row.label.endsWith(band)),
+    )
+    if (matches.length === 0) {
+      if (band) continue
+      return { shelves: [], error: `Няма страна ${spec.bayPath} за фиксирания рафт.` }
+    }
+    const zone = matches.sort((a, b) => b.innerH - a.innerH)[0]!
+    let yBottom: number
+    if (spec.from === 'middle') {
+      yBottom = zone.y0 + (zone.innerH - T) / 2
+    } else if (typeof spec.fromShelf === 'number') {
+      const ref = known().find((row) => row.specIndex === spec.fromShelf)
+      if (!ref) return { shelves: [], error: `Няма рафт ${spec.fromShelf + 1}, от който да се мери.` }
+      yBottom = spec.from === 'top' ? ref.yBottom - spec.offsetMm - T : ref.yTop + spec.offsetMm
+    } else if (spec.from === 'top') {
+      yBottom = zone.y1 - spec.offsetMm - T
+    } else {
+      yBottom = zone.y0 + spec.offsetMm
+    }
+    const yTop = yBottom + T
+    if (yBottom < zone.y0 + MIN_ZONE_CLEAR_MM - 0.5 || yTop > zone.y1 - MIN_ZONE_CLEAR_MM + 0.5) {
+      return { shelves: [], error: `Фиксираният рафт не се събира в страна ${spec.bayPath}.` }
+    }
+    const peers = shelves.filter((row) => row.bayPath === spec.bayPath)
+    if (peers.length + 1 > MAX_FIXED_SHELVES) {
+      return { shelves: [], error: `До ${MAX_FIXED_SHELVES} фиксирани рафта в една част.` }
+    }
+    for (const peer of peers) {
+      const gap = yBottom >= peer.yTop ? yBottom - peer.yTop : peer.yBottom - yTop
+      if (gap < MIN_ZONE_CLEAR_MM) {
+        return { shelves: [], error: `Между фиксираните рафтове трябва да има поне ${MIN_ZONE_CLEAR_MM} мм.` }
+      }
+    }
+    const faces = defaultShelfFaces(spec.from === 'top' ? 'top' : 'bottom')
+    shelves.push({
+      ...spec,
+      specIndex,
+      columnIndex: zone.colIndex,
+      fromFace: spec.from === 'middle' ? 'top' : (spec.fromFace ?? faces.fromFace),
+      toFace: spec.from === 'middle' ? 'bottom' : (spec.toFace ?? faces.toFace),
+      yBottom,
+      yTop,
+      startY: spec.from === 'top' ? zone.y1 : zone.y0,
+      endY: spec.from === 'top' ? yTop : yBottom,
+      spanX0: zone.x0,
+      spanX1: zone.x1,
+    })
+  }
+  return { shelves, error: null }
+}
+
+/** Split an opening vertically when a shelf fills only that opening. */
+function splitZonesByBayShelves(zones: ResolvedZone[], shelves: ResolvedFixedShelf[]): ResolvedZone[] {
+  const out: ResolvedZone[] = []
+  for (const zone of zones) {
+    const cuts = shelves
+      .filter(
+        (shelf) =>
+          shelf.spanX0 != null &&
+          shelf.spanX1 != null &&
+          Math.abs(shelf.spanX0 - zone.x0) < 0.5 &&
+          Math.abs(shelf.spanX1 - zone.x1) < 0.5 &&
+          shelf.yBottom > zone.y0 + 0.5 &&
+          shelf.yTop < zone.y1 - 0.5,
+      )
+      .sort((a, b) => a.yBottom - b.yBottom)
+    if (cuts.length === 0) {
+      out.push(zone)
+      continue
+    }
+    const pieces: { y0: number; y1: number }[] = []
+    let cursor = zone.y0
+    for (const cut of cuts) {
+      pieces.push({ y0: cursor, y1: cut.yBottom })
+      cursor = cut.yTop
+    }
+    pieces.push({ y0: cursor, y1: zone.y1 })
+    const rowIds: CabinetRowId[] =
+      pieces.length === 2 ? ['bottom', 'top'] : ['bottom', 'middle', 'top']
+    const side = zone.path ? `Страна ${zone.path}` : zone.label.split('·')[0]?.trim() || zone.label
+    pieces.forEach((piece, index) => {
+      const rowId = rowIds[index] ?? 'bottom'
+      const shelfBelow = index > 0 ? cuts[index - 1] : undefined
+      const shelfAbove = index < cuts.length ? cuts[index] : undefined
+      const frontY0 = index === 0 ? zone.frontY0 : (shelfBelow?.yBottom ?? piece.y0)
+      const frontY1 = index === pieces.length - 1 ? zone.frontY1 : (shelfAbove?.yTop ?? piece.y1)
+      out.push({
+        ...zone,
+        id: index === 0 ? zone.id : `${zone.id}-b${index + 1}`,
+        innerH: Math.max(0, piece.y1 - piece.y0),
+        y0: piece.y0,
+        y1: piece.y1,
+        isFirst: zone.isFirst && index === 0,
+        isLast: zone.isLast && index === pieces.length - 1,
+        frontY0,
+        frontY1,
+        frontHeight: Math.max(0, frontY1 - frontY0),
+        rowIndex: index,
+        label: `${side} · ${ZONE_LABELS[rowId]}`,
+      })
+    })
+  }
+  return out
+}
+
+/** One shelf across adjacent sides. Dividers between those sides are capped afterwards. */
+function placeSpanFixedShelves(
+  specs: FixedShelfSpec[],
+  columns: ResolvedColumn[],
+  innerH: number,
+  thickness: number,
+): { shelves: ResolvedFixedShelf[]; error: string | null } {
+  const T = thickness
+  const shelves: ResolvedFixedShelf[] = []
+  for (let specIndex = 0; specIndex < specs.length; specIndex++) {
+    const spec = specs[specIndex]!
+    if (!shelfSpansBays(spec)) continue
+    const indexes = spec.spanPaths!.map((path) => columns.findIndex((column) => column.path === path))
+    if (indexes.every((index) => index < 0)) continue
+    if (indexes.some((index) => index < 0)) {
+      return { shelves: [], error: 'Няма такава страна за общия рафт.' }
+    }
+    const ordered = [...indexes].sort((a, b) => a - b)
+    for (let i = 1; i < ordered.length; i++) {
+      if (ordered[i] !== ordered[i - 1]! + 1) {
+        return { shelves: [], error: 'Общият рафт хваща само съседни страни.' }
+      }
+    }
+    const first = columns[ordered[0]!]!
+    const last = columns[ordered[ordered.length - 1]!]!
+    let yBottom: number
+    if (spec.from === 'middle') yBottom = (innerH - T) / 2
+    else if (spec.from === 'top') yBottom = innerH - spec.offsetMm - T
+    else yBottom = spec.offsetMm
+    const yTop = yBottom + T
+    if (yBottom < MIN_ZONE_CLEAR_MM - 0.5 || yTop > innerH - MIN_ZONE_CLEAR_MM + 0.5) {
+      return { shelves: [], error: 'Фиксираният рафт не се събира в тези страни.' }
+    }
+    const faces = defaultShelfFaces(spec.from === 'top' ? 'top' : 'bottom')
+    shelves.push({
+      ...spec,
+      specIndex,
+      columnIndex: ordered[0]!,
+      fromFace: spec.from === 'middle' ? 'top' : (spec.fromFace ?? faces.fromFace),
+      toFace: spec.from === 'middle' ? 'bottom' : (spec.toFace ?? faces.toFace),
+      yBottom,
+      yTop,
+      startY: spec.from === 'top' ? innerH : 0,
+      endY: spec.from === 'top' ? yTop : yBottom,
+      spanX0: first.x0,
+      spanX1: last.x1,
+    })
+  }
+  return { shelves, error: null }
+}
+
+/**
+ * A divider that sits inside a shelf spanning several sides rises only to that shelf.
+ * It stays in the partition list so each column still has its right-hand page,
+ * and it is also returned as a partial so the drawing and the cut use the short height.
+ */
+function capDividersUnderSpanShelves(
+  partitions: ResolvedPartition[],
+  shelves: ResolvedFixedShelf[],
+): { partitions: ResolvedPartition[]; partials: ResolvedPartialPartition[] } {
+  const partials: ResolvedPartialPartition[] = []
+  const next = partitions.map((part) => {
+    let rise: number | undefined
+    let shelfIndex = 0
+    let columnIndex = 0
+    for (const shelf of shelves) {
+      if (!shelfSpansBays(shelf) || shelf.spanX0 == null || shelf.spanX1 == null) continue
+      if (part.xLeft < shelf.spanX0 + 0.5 || part.xRight > shelf.spanX1 - 0.5) continue
+      if (rise == null || shelf.yBottom < rise) {
+        rise = shelf.yBottom
+        shelfIndex = shelf.specIndex
+        columnIndex = shelf.columnIndex ?? 0
+      }
+    }
+    if (rise == null) return part
+    partials.push({
+      specIndex: part.specIndex,
+      stopsAtShelf: shelfIndex,
+      columnIndex,
+      xLeft: part.xLeft,
+      xRight: part.xRight,
+      height: rise,
+    })
+    return { ...part, riseMm: rise }
+  })
+  return { partitions: next, partials }
+}
+
+/** 1.1 and 1.2 share parent 1. Full-height sides 1 and 2 have no parent. */
+function sharedParentPath(paths: string[]): string {
+  const parts = paths.map((path) => path.split('.'))
+  if (parts.length < 2 || parts.some((part) => part.length < 2)) return ''
+  const parent = parts[0]!.slice(0, -1).join('.')
+  if (!parent) return ''
+  return parts.every((part) => part.slice(0, -1).join('.') === parent) ? parent : ''
+}
+
+/** Split the spanned sides at the shelf and join the part above it into one opening. */
+function splitZonesBySpanShelves(zones: ResolvedZone[], shelves: ResolvedFixedShelf[]): ResolvedZone[] {
+  let current = zones
+  const spans = shelves
+    .filter((shelf) => shelfSpansBays(shelf))
+    .sort((a, b) => a.yBottom - b.yBottom)
+  for (const shelf of spans) {
+    const paths = new Set(shelf.spanPaths ?? [])
+    const out: ResolvedZone[] = []
+    const uppers: ResolvedZone[] = []
+    for (const zone of current) {
+      const covered =
+        paths.has(zone.path) && zone.y0 < shelf.yBottom - 0.5 && zone.y1 > shelf.yTop + 0.5
+      if (!covered) {
+        out.push(zone)
+        continue
+      }
+      const lowerH = shelf.yBottom - zone.y0
+      out.push({
+        ...zone,
+        innerH: Math.max(0, lowerH),
+        y1: shelf.yBottom,
+        isLast: false,
+        frontY1: shelf.yTop,
+        frontHeight: Math.max(0, shelf.yTop - zone.frontY0),
+        label: zone.path ? `Страна ${zone.path}` : zone.label,
+      })
+      uppers.push(zone)
+    }
+    if (uppers.length > 0) {
+      const ordered = [...uppers].sort((a, b) => a.x0 - b.x0)
+      const first = ordered[0]!
+      const last = ordered[ordered.length - 1]!
+      const names = ordered.map((zone) => zone.path).filter((path) => path.length > 0)
+      const spanName = names.length >= 2 ? `${names[0]}–${names[names.length - 1]}` : (names[0] ?? '')
+      const parent = sharedParentPath(names)
+      const y0 = shelf.yTop
+      const y1 = Math.max(...ordered.map((zone) => zone.y1))
+      const above = parent
+        ? out
+            .filter((zone) => zone.path === parent && zone.y0 >= shelf.yTop - 0.5)
+            .sort((a, b) => a.y0 - b.y0)[0]
+        : undefined
+      if (above) above.label = `Страна ${parent} горе`
+      const mergedPath = parent || spanName
+      const mergedLabel = parent
+        ? above
+          ? `Страна ${parent} долу`
+          : `Страна ${parent}`
+        : spanName
+          ? `Страна ${spanName}`
+          : 'Горна част'
+      out.push({
+        ...first,
+        id: `${first.id}-span`,
+        innerH: Math.max(0, y1 - y0),
+        y0,
+        y1,
+        isFirst: false,
+        isLast: ordered.some((zone) => zone.isLast),
+        innerW: last.x1 - first.x0,
+        x0: first.x0,
+        x1: last.x1,
+        isRight: last.isRight,
+        frontX1: last.frontX1,
+        frontWidth: Math.max(0, last.frontX1 - first.frontX0),
+        frontY0: shelf.yBottom,
+        frontY1: Math.max(...ordered.map((zone) => zone.frontY1)),
+        frontHeight: Math.max(0, Math.max(...ordered.map((zone) => zone.frontY1)) - shelf.yBottom),
+        path: mergedPath,
+        label: mergedLabel,
+      })
+    }
+    current = out
+  }
+  return current
+}
+
+/**
+ * One shelf across openings that are not full-height columns, such as 1.1 and 1.2
+ * under side 1. The height is the shared opening, not the whole cabinet.
+ */
+function placeOpeningSpanShelves(
+  specs: FixedShelfSpec[],
+  zones: ResolvedZone[],
+  thickness: number,
+  already: ResolvedFixedShelf[],
+): { shelves: ResolvedFixedShelf[]; error: string | null } {
+  const T = thickness
+  const placed = new Set(already.map((shelf) => shelf.specIndex))
+  const shelves: ResolvedFixedShelf[] = []
+  const known = () => [...already, ...shelves]
+  for (let specIndex = 0; specIndex < specs.length; specIndex++) {
+    const spec = specs[specIndex]!
+    if (!shelfSpansBays(spec) || placed.has(specIndex)) continue
+    const chosen: ResolvedZone[] = []
+    for (const path of spec.spanPaths!) {
+      const zone = zones
+        .filter((row) => row.path === path)
+        .sort((a, b) => b.innerH - a.innerH)[0]
+      if (!zone) return { shelves: [], error: 'Няма такава страна за общия рафт.' }
+      chosen.push(zone)
+    }
+    const ordered = [...chosen].sort((a, b) => a.x0 - b.x0 || a.y0 - b.y0)
+    const y0 = ordered[0]!.y0
+    const y1 = ordered[0]!.y1
+    if (ordered.some((zone) => Math.abs(zone.y0 - y0) > 0.5 || Math.abs(zone.y1 - y1) > 0.5)) {
+      return { shelves: [], error: 'Общият рафт хваща само страни на една височина.' }
+    }
+    for (let i = 1; i < ordered.length; i++) {
+      const gap = ordered[i]!.x0 - ordered[i - 1]!.x1
+      if (gap < -0.5 || gap > T + 1) {
+        return { shelves: [], error: 'Общият рафт хваща само съседни страни.' }
+      }
+    }
+    let yBottom: number
+    if (spec.from === 'middle') yBottom = y0 + (y1 - y0 - T) / 2
+    else if (typeof spec.fromShelf === 'number') {
+      const ref = known().find((row) => row.specIndex === spec.fromShelf)
+      if (!ref) return { shelves: [], error: `Няма рафт ${spec.fromShelf + 1}, от който да се мери.` }
+      yBottom = spec.from === 'top' ? ref.yBottom - spec.offsetMm - T : ref.yTop + spec.offsetMm
+    } else if (spec.from === 'top') yBottom = y1 - spec.offsetMm - T
+    else yBottom = y0 + spec.offsetMm
+    const yTop = yBottom + T
+    if (yBottom < y0 + MIN_ZONE_CLEAR_MM - 0.5 || yTop > y1 - MIN_ZONE_CLEAR_MM + 0.5) {
+      return { shelves: [], error: 'Фиксираният рафт не се събира в тези страни.' }
+    }
+    const faces = defaultShelfFaces(spec.from === 'top' ? 'top' : 'bottom')
+    shelves.push({
+      ...spec,
+      specIndex,
+      columnIndex: ordered[0]!.colIndex,
+      fromFace: spec.from === 'middle' ? 'top' : (spec.fromFace ?? faces.fromFace),
+      toFace: spec.from === 'middle' ? 'bottom' : (spec.toFace ?? faces.toFace),
+      yBottom,
+      yTop,
+      startY: spec.from === 'top' ? y1 : y0,
+      endY: spec.from === 'top' ? yTop : yBottom,
+      spanX0: ordered[0]!.x0,
+      spanX1: ordered[ordered.length - 1]!.x1,
+    })
+  }
+  return { shelves, error: null }
+}
+
+/** A divider inside a shelf that crosses several openings stops at that shelf. */
+function trimPartialsUnderOpeningShelves(
+  partials: ResolvedPartialPartition[],
+  shelves: ResolvedFixedShelf[],
+): ResolvedPartialPartition[] {
+  return partials.map((part) => {
+    let height = part.height
+    let stopsAtShelf = part.stopsAtShelf
+    for (const shelf of shelves) {
+      if (!shelfSpansBays(shelf) || shelf.spanX0 == null || shelf.spanX1 == null) continue
+      if (part.xLeft < shelf.spanX0 + 0.5 || part.xRight > shelf.spanX1 - 0.5) continue
+      if (shelf.yBottom >= height - 0.5) continue
+      height = shelf.yBottom
+      stopsAtShelf = shelf.specIndex
+    }
+    if (height === part.height && stopsAtShelf === part.stopsAtShelf) return part
+    return { ...part, height, stopsAtShelf }
+  })
+}
+
+/** 1.1 and 1.2 stay sides. Side 1 above them is not split into an upper 1.1. */
+function plainSideLabels(zones: ResolvedZone[]): ResolvedZone[] {
+  const paths = zones.map((zone) => zone.path)
+  return zones.map((zone) => {
+    if (!zone.path || zone.path.includes('–') || zone.label.endsWith(' горе') || zone.label.endsWith(' долу')) return zone
+    const hasChild = paths.some((path) => path.startsWith(`${zone.path}.`))
+    const alone = paths.filter((path) => path === zone.path).length === 1
+    if ((hasChild && alone) || zone.path.includes('.')) return { ...zone, label: `Страна ${zone.path}` }
+    return zone
+  })
 }
 
 export function layoutInterior(input: {
@@ -1879,16 +2746,63 @@ export function layoutInterior(input: {
 }): InteriorLayout {
   const innerW = Math.max(0, input.innerW ?? 0)
   const T = input.thickness
-  const { partitions, error: partitionError } = resolvePartitions(input.partitions ?? [], innerW, T)
+  const fullSpecs = (input.partitions ?? []).filter((p) => p.stopsAtShelf == null)
+  const { partitions, error: partitionError } = resolvePartitions(fullSpecs, innerW, T)
   const columns = cabinetColumns(partitions, innerW, T)
-  const { shelves, error: shelfError } = resolveFixedShelves(
+  const { shelves: columnShelves, error: shelfError } = resolveFixedShelves(
     input.fixedShelves,
     input.innerH,
     T,
     columns.length,
   )
-  const rawZones = composeCompartments(shelves, columns, input.innerH, T, input.overlayCovers)
-  const zoned = shelves.length > 0 || partitions.length > 0
+  const { shelves: spanShelves, error: spanError } = partitionError
+    ? { shelves: [] as ResolvedFixedShelf[], error: null }
+    : placeSpanFixedShelves(input.fixedShelves, columns, input.innerH, T)
+  const { partitions: cappedPartitions, partials: spanPartials } = capDividersUnderSpanShelves(
+    partitions,
+    spanShelves,
+  )
+  const { partials, error: partialError } = partitionError
+    ? { partials: [] as ResolvedPartialPartition[], error: null }
+    : resolvePartialPartitions(input.partitions ?? [], columns, columnShelves, T)
+  const allPartials = [...partials, ...spanPartials]
+  const openedZones = splitZonesByPartialPartitions(
+    composeCompartments([...columnShelves, ...spanShelves], columns, input.innerH, T, input.overlayCovers),
+    allPartials,
+  )
+  const { shelves: bayShelves, error: bayError } = placeBayFixedShelves(
+    input.fixedShelves,
+    openedZones,
+    columnShelves,
+    T,
+  )
+  const { shelves: openingSpans, error: openingSpanError } = placeOpeningSpanShelves(
+    input.fixedShelves,
+    openedZones,
+    T,
+    [...spanShelves, ...bayShelves],
+  )
+  const trimmedPartials = trimPartialsUnderOpeningShelves(allPartials, openingSpans)
+  const namedZones = plainSideLabels(
+    splitZonesBySpanShelves(splitZonesByBayShelves(openedZones, bayShelves), [...spanShelves, ...openingSpans]),
+  )
+  const placedBeforeLate = [...columnShelves, ...spanShelves, ...bayShelves, ...openingSpans]
+  const { shelves: lateBays, error: lateBayError } = placeBayFixedShelves(
+    input.fixedShelves,
+    namedZones,
+    placedBeforeLate,
+    T,
+  )
+  const rawZones = lateBays.length > 0 ? plainSideLabels(splitZonesByBayShelves(namedZones, lateBays)) : namedZones
+  const shelves = [...placedBeforeLate, ...lateBays].sort(
+    (a, b) => a.yBottom - b.yBottom || (a.columnIndex ?? -1) - (b.columnIndex ?? -1),
+  )
+  const missedBay = input.fixedShelves.findIndex(
+    (spec, index) => shelfFillsOpening(spec) && !shelves.some((shelf) => shelf.specIndex === index),
+  )
+  const missedBayError =
+    missedBay >= 0 ? `Няма страна ${input.fixedShelves[missedBay]?.bayPath ?? ''} за фиксирания рафт.` : null
+  const zoned = shelves.length > 0 || cappedPartitions.length > 0 || allPartials.length > 0
   const doorSpan: DoorSpan = zoned ? input.doorSpan : 'full'
   const cabinetRails = parseClothesRails(input.clothesRails, input.hasClothesRail)
 
@@ -1954,13 +2868,14 @@ export function layoutInterior(input: {
 
   return {
     shelves,
-    partitions,
+    partitions: cappedPartitions,
+    partialPartitions: trimmedPartials,
     columns,
     zones,
     doorSpan,
     fullDoorCount: zoned && doorSpan === 'full' ? input.doorCount : 0,
     fullDrawerFrontHeights: zoned ? input.drawerFrontHeights.filter((h) => h > 0) : [],
-    error: shelfError ?? partitionError,
+    error: shelfError ?? spanError ?? partitionError ?? partialError ?? bayError ?? openingSpanError ?? lateBayError ?? missedBayError,
   }
 }
 
@@ -1984,7 +2899,8 @@ export function layoutCounts(layout: InteriorLayout): {
   }
   return {
     fixedShelves: layout.shelves.length,
-    partitions: layout.partitions.length,
+    partitions:
+      layout.partitions.filter((part) => part.riseMm == null).length + layout.partialPartitions.length,
     shelfCount,
     doorCount,
     drawerCount,
@@ -2256,6 +3172,12 @@ export function zoneSplitRuleSection(): RuleSection {
         title: 'Колони',
         lines: [
           `Разделителна страница дели шкафа отляво надясно: ${columnLabel(0, 3)}, ${columnLabel(1, 3)}, ${columnLabel(2, 3)}.`,
+          '„На равни части“ слага страниците в избраната страна с еднакъв отвор. 3 равни части са 2 страници.',
+          'Първата разделителна страница прави Страна 1 и Страна 2. Страна 1 на 3 равни става Страна 1.1, Страна 1.2 и Страна 1.3. Страна 2 си остава.',
+          'Ако рафтът в страна 1 остава цял, горната част е Страна 1, а долните отвори са Страна 1.1, Страна 1.2 и Страна 1.3.',
+          'Фиксиран рафт в страна 1.1 е широк колкото този отвор. Съседни страни, например 1.1 и 1.2, могат да носят един рафт: едно парче през двете, а разделителят между тях остава само отдолу. Мястото над срязаната страница е Страна 1. Ако над него вече има рафт със Страна 1, горното става Страна 1 горе, а срязаното — Страна 1 долу.',
+          'Ако в страната има фиксиран рафт, равните страници стигат до него и не продължават до плота. Рафтът остава цял.',
+          'Страница в долната част под фиксиран рафт стига само до рафта. Не продължава до горе на шкафа. Рафтът над нея остава цял.',
           'Хоризонталните части остават Долна, Средна и Горна. Заедно се четат „Страна 1 · Долна част“.',
         ],
       },

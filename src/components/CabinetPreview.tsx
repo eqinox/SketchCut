@@ -196,6 +196,7 @@ function DrawerSlidesOnCabinet({
   innerTopY,
   innerBotY,
   insetFronts = false,
+  opening,
 }: {
   layout: InteriorLayout
   T: number
@@ -215,6 +216,8 @@ function DrawerSlidesOnCabinet({
   innerTopY?: number
   innerBotY?: number
   insetFronts?: boolean
+  /** Only the drawers in this opening. The page on its right is drawn afterwards. */
+  opening?: { x0: number; x1: number; includeFull?: boolean; zoneId?: string }
 }) {
   return (
     <>
@@ -229,6 +232,13 @@ function DrawerSlidesOnCabinet({
       }).flatMap((src) =>
         src.heights.map((frontH, i) => {
           const zone = src.id === 'full' ? undefined : layout.zones.find((z) => z.id === src.id)
+          if (opening) {
+            if (opening.zoneId) {
+              if (src.id !== opening.zoneId) return null
+            } else if (src.id === 'full') {
+              if (!opening.includeFull) return null
+            } else if (!zone || zone.x0 < opening.x0 - 0.5 || zone.x1 > opening.x1 + 0.5) return null
+          }
           const openingW = zone && zone.innerW > 0 ? zone.innerW : width - 2 * thickness
           const rails = drawerBoxRails(
             width,
@@ -457,6 +467,12 @@ type HeightDimPlace = {
   inside?: boolean
 }
 
+/** A middle shelf is stored with offset 0 so it stays centered. The line shows the real gap. */
+function fixedShelfDimMm(s: InteriorLayout['shelves'][number]): number {
+  if (s.from !== 'middle') return s.offsetMm
+  return Math.abs(shelfMeasureEndY(s) - s.startY)
+}
+
 function heightDimSpecs(
   layout: InteriorLayout,
   opts: { originZ: number; shelfZ: number; railZ: number; shiftRightColumns?: Set<number> },
@@ -468,7 +484,7 @@ function heightDimSpecs(
       col: s.columnIndex ?? 0,
       y0: s.startY,
       y1: shelfMeasureEndY(s),
-      offsetMm: s.offsetMm,
+      offsetMm: fixedShelfDimMm(s),
       originZ: opts.originZ,
       endZ: opts.shelfZ,
       inside: s.columnIndex != null && opts.shiftRightColumns?.has(s.columnIndex),
@@ -917,9 +933,11 @@ function shelfSeats(
   layout.columns.forEach((col, colIndex) => {
     if (!(col.innerW > 0)) return
     for (const s of shelvesForColumn(layout.shelves, colIndex)) {
+      const x0 = s.spanX0 ?? col.x0
+      const x1 = s.spanX1 ?? col.x1
       seats.push({
-        x0: innerLeft + col.x0,
-        x1: innerLeft + col.x1,
+        x0: innerLeft + x0,
+        x1: innerLeft + x1,
         yTop: innerFloorY - s.yTop,
         z,
       })
@@ -1337,22 +1355,29 @@ function ShelfPins({
   )
 }
 
-function ColumnFill({
+/**
+ * A shelf, including one across 1.1 and 1.2, is drawn in the opening that holds its right edge,
+ * so the page on that edge is painted afterwards and its front edge stays in front.
+ * A page the shelf cuts is an earlier step: it stays under the shelf and is painted before it.
+ */
+function BayShelvesAndPartials({
   layout,
   colIndex,
   T,
   innerFloorY,
   cam,
   shelfColor,
-  fixedZ = 0,
+  sideColor,
+  fixedZ,
   fixedD,
+  shelfHole,
   adjZ,
   adjD,
-  shelfHole,
   pinMark = 10,
   clothesTrackMm = 0,
-  railSideZ,
+  railSideZ = 0,
   railPartitionZ,
+  between,
 }: {
   layout: InteriorLayout
   colIndex: number
@@ -1360,33 +1385,66 @@ function ColumnFill({
   innerFloorY: number
   cam: ReturnType<typeof createDrawCam>
   shelfColor: string
-  fixedZ?: number
+  sideColor: string
+  fixedZ: number
   fixedD: number
-  adjZ: number
-  adjD: number
   shelfHole?: PanelHole
+  adjZ?: number
+  adjD?: number
   pinMark?: number
-  /** Upper sliding track height. A rod hung from the top is drawn this far lower, so it shows under the track. */
   clothesTrackMm?: number
-  /** Front face of the outer sides. */
-  railSideZ: number
-  /** Front face of a set-back divider. Same as the sides when the divider is full depth. */
+  railSideZ?: number
   railPartitionZ?: number
+  between?: (x0: number, x1: number, includeFull: boolean, zoneId?: string) => ReactNode
 }) {
   const col = layout.columns[colIndex]
   if (!col || !(col.innerW > 0)) return null
-  const cabinetTop = layout.zones.reduce((max, z) => Math.max(max, z.y1), 0)
-  const zLeft = col.isFirst ? railSideZ : (railPartitionZ ?? railSideZ)
-  const zRight = col.isLast ? railSideZ : (railPartitionZ ?? railSideZ)
-  return (
-    <>
-      {shelvesForColumn(layout.shelves, colIndex).map((s, i) => (
-        <g key={`fixed-${i}-c${colIndex}`}>
+  const shelfZ = adjZ ?? fixedZ
+  const shelfD = adjD ?? fixedD
+  const cabinetTop = layout.zones.reduce((max, zone) => Math.max(max, zone.y1), 0)
+  const partials = layout.partialPartitions
+    .filter((part) => part.columnIndex === colIndex)
+    .slice()
+    .sort((a, b) => a.xLeft - b.xLeft || a.height - b.height)
+  // A shelf across two columns is drawn in the column that holds its right edge:
+  // after the page it cuts, and before the page on its right.
+  const fixedShelves = layout.shelves.filter((shelf) => {
+    if (shelf.spanX1 == null) {
+      if (shelf.columnIndex == null) return true
+      return shelf.columnIndex === colIndex
+    }
+    return shelf.spanX1 > col.x0 + 0.5 && shelf.spanX1 <= col.x1 + 0.5
+  })
+  const columnZones = layout.zones.filter((zone) => zone.colIndex === colIndex)
+  const steps: Array<{ kind: 'slice'; x0: number; x1: number } | { kind: 'partial'; part: (typeof partials)[number] }> = []
+  let cursor = col.x0
+  for (const part of partials) {
+    if (part.xLeft > cursor + 0.5) steps.push({ kind: 'slice', x0: cursor, x1: part.xLeft })
+    steps.push({ kind: 'partial', part })
+    cursor = Math.max(cursor, part.xRight)
+  }
+  if (cursor < col.x1 - 0.5 || steps.length === 0) steps.push({ kind: 'slice', x0: cursor, x1: col.x1 })
+
+  /** The piece's right face is this opening, so the page after the opening stays in front of it. */
+  const endsHere = (sliceX0: number, sliceX1: number, x1: number) => {
+    if (x1 > col.x1 + 0.5) return sliceX1 >= col.x1 - 0.5
+    return x1 > sliceX0 + 0.5 && x1 <= sliceX1 + 0.5
+  }
+  const shelfBox = (shelf: (typeof fixedShelves)[number]) => ({
+    x0: shelf.spanX0 ?? col.x0,
+    x1: shelf.spanX1 ?? col.x1,
+  })
+
+  const drawFixed = (shelves: typeof fixedShelves, key: string) =>
+    shelves.map((shelf) => {
+      const box = shelfBox(shelf)
+      return (
+        <g key={`${key}-${shelf.specIndex}`}>
           <Board
-            x={T + col.x0}
-            y={innerFloorY - s.yTop}
+            x={T + box.x0}
+            y={innerFloorY - shelf.yTop}
             z={fixedZ}
-            w={col.innerW}
+            w={box.x1 - box.x0}
             h={T}
             d={fixedD}
             color={shelfColor}
@@ -1395,70 +1453,69 @@ function ColumnFill({
           />
           {shelfHole && (
             <PanelHoleMark
-              x={T + col.x0}
-              y={innerFloorY - s.yTop}
+              x={T + box.x0}
+              y={innerFloorY - shelf.yTop}
               z={fixedZ}
-              w={col.innerW}
+              w={box.x1 - box.x0}
               d={fixedD}
               hole={shelfHole}
               cam={cam}
             />
           )}
         </g>
-      ))}
-      {layout.zones
-        .filter((z) => z.colIndex === colIndex)
-        .flatMap((z) =>
-          z.movable.map((s, i) => (
-            <g key={`shelf-${z.id}-${i}`}>
-              <Board
-                x={T + z.x0}
-                y={innerFloorY - (z.y0 + s.yBottom) - T}
-                z={adjZ}
-                w={z.innerW}
-                h={T}
-                d={adjD}
-                color={shelfColor}
+      )
+    })
+
+  const drawZone = (zone: (typeof columnZones)[number], key: string) => {
+    const zLeft = col.isFirst && zone.x0 <= col.x0 + 0.5 ? railSideZ : (railPartitionZ ?? railSideZ)
+    const zRight = col.isLast && zone.x1 >= col.x1 - 0.5 ? railSideZ : (railPartitionZ ?? railSideZ)
+    return (
+      <g key={key}>
+        {zone.movable.map((shelf, index) => (
+          <g key={`shelf-${zone.id}-${index}`}>
+            <Board
+              x={T + zone.x0}
+              y={innerFloorY - (zone.y0 + shelf.yBottom) - T}
+              z={shelfZ}
+              w={zone.innerW}
+              h={T}
+              d={shelfD}
+              color={shelfColor}
+              cam={cam}
+              faces={BETWEEN_FACES}
+            />
+            <ShelfPins
+              x={T + zone.x0}
+              yTop={innerFloorY - (zone.y0 + shelf.yBottom) - T}
+              z={shelfZ}
+              w={zone.innerW}
+              shelfT={T}
+              d={shelfD}
+              cam={cam}
+              mark={pinMark}
+            />
+            {shelfHole && (
+              <PanelHoleMark
+                x={T + zone.x0}
+                y={innerFloorY - (zone.y0 + shelf.yBottom) - T}
+                z={shelfZ}
+                w={zone.innerW}
+                d={shelfD}
+                hole={shelfHole}
                 cam={cam}
-                faces={BETWEEN_FACES}
               />
-              <ShelfPins
-                x={T + z.x0}
-                yTop={innerFloorY - (z.y0 + s.yBottom) - T}
-                z={adjZ}
-                w={z.innerW}
-                shelfT={T}
-                d={adjD}
-                cam={cam}
-                mark={pinMark}
-              />
-              {shelfHole && (
-                <PanelHoleMark
-                  x={T + z.x0}
-                  y={innerFloorY - (z.y0 + s.yBottom) - T}
-                  z={adjZ}
-                  w={z.innerW}
-                  d={adjD}
-                  hole={shelfHole}
-                  cam={cam}
-                />
-              )}
-            </g>
-          )),
-        )}
-      {layout.zones
-        .filter((z) => z.colIndex === colIndex && z.rails.length > 0)
-        .flatMap((z) =>
-          z.rails.map((r, i) => {
-            const underTrack =
-              clothesTrackMm > 0 && r.from === 'top' && r.openingY1 >= cabinetTop - 0.5
-            const yTop = underTrack ? r.yTop - clothesTrackMm : r.yTop
-            return (
+            )}
+          </g>
+        ))}
+        {zone.rails.map((rail, index) => {
+          const underTrack = clothesTrackMm > 0 && rail.from === 'top' && rail.openingY1 >= cabinetTop - 0.5
+          const yTop = underTrack ? rail.yTop - clothesTrackMm : rail.yTop
+          return (
             <ClothesRailBar
-              key={`rail-${z.id}-${i}`}
-              x={T + z.x0}
+              key={`rail-${zone.id}-${index}`}
+              x={T + zone.x0}
               y={innerFloorY - yTop}
-              w={z.innerW}
+              w={zone.innerW}
               h={22}
               d={22}
               z0={zLeft}
@@ -1466,9 +1523,47 @@ function ColumnFill({
               color={CLOTHES_RAIL_COLOR}
               cam={cam}
             />
-            )
-          }),
-        )}
+          )
+        })}
+      </g>
+    )
+  }
+
+  return (
+    <>
+      {steps.map((step, index) => {
+        if (step.kind === 'partial') {
+          const part = step.part
+          return (
+            <Board
+              key={`partial-${part.specIndex}-c${colIndex}`}
+              x={T + part.xLeft}
+              y={innerFloorY - part.height}
+              z={fixedZ}
+              w={T}
+              h={part.height}
+              d={fixedD}
+              color={sideColor}
+              cam={cam}
+              faces={SIDE_LEFT_BODY}
+            />
+          )
+        }
+        const localShelves = fixedShelves.filter((shelf) => endsHere(step.x0, step.x1, shelfBox(shelf).x1))
+        const localZones = columnZones.filter((zone) => endsHere(step.x0, step.x1, zone.x1))
+        return (
+          <React.Fragment key={`slice-${colIndex}-${index}`}>
+            {drawFixed(localShelves, `fixed-${index}`)}
+            {localZones.map((zone) => drawZone(zone, `zone-${zone.id}`))}
+            {between?.(step.x0, step.x1, col.isFirst && step.x0 <= col.x0 + 0.5)}
+            {localZones
+              .filter((zone) => zone.x0 < step.x0 - 0.5)
+              .map((zone) => (
+                <React.Fragment key={`span-front-${zone.id}`}>{between?.(zone.x0, zone.x1, false, zone.id)}</React.Fragment>
+              ))}
+          </React.Fragment>
+        )
+      })}
     </>
   )
 }
@@ -1498,6 +1593,7 @@ function FrontsOnCabinet({
   fontScale = 1,
   innerTopY,
   innerBotY,
+  opening,
 }: {
   layout: InteriorLayout
   W: number
@@ -1517,6 +1613,8 @@ function FrontsOnCabinet({
   fontScale?: number
   innerTopY?: number
   innerBotY?: number
+  /** Only fronts in this opening, drawn before the page on its right. */
+  opening?: { x0: number; x1: number; includeFull?: boolean; zoneId?: string }
 }) {
   const gap = DOOR_GAP_X
   const items: ReactNode[] = []
@@ -1655,7 +1753,7 @@ function FrontsOnCabinet({
     }
   }
 
-  if (layout.fullDoorCount > 0 || layout.fullDrawerFrontHeights.length > 0) {
+  if ((!opening || (opening.includeFull && !opening.zoneId)) && (layout.fullDoorCount > 0 || layout.fullDrawerFrontHeights.length > 0)) {
     const overlayX = insetFronts ? T : 0
     const overlayW = insetFronts ? Math.max(0, W - 2 * T) : W
     const innerOpenW = Math.max(0, W - 2 * T)
@@ -1672,6 +1770,9 @@ function FrontsOnCabinet({
 
   for (const zone of layout.zones) {
     if (zone.doorCount === 0 && zone.drawerFrontHeights.length === 0) continue
+    if (opening?.zoneId) {
+      if (zone.id !== opening.zoneId) continue
+    } else if (opening && (zone.x0 < opening.x0 - 0.5 || zone.x1 > opening.x1 + 0.5)) continue
     const box = zoneFrontBox(zone, { innerFloorY, carcassTopY, carcassBotY, thickness: T })
     const insetBox = zoneInsetFrontBox(zone, {
       innerFloorY,
@@ -2072,19 +2173,62 @@ function Front3DView({
 
       {layout.columns.map((col, i) => (
         <g key={`bay-${i}`}>
-          <ColumnFill
+          <BayShelvesAndPartials
             layout={layout}
             colIndex={i}
             T={T}
             innerFloorY={innerFloorY}
             cam={view}
             shelfColor={wood.shelf}
+            sideColor={wood.side}
             fixedZ={zShelfFront}
             fixedD={shelfDepth}
             adjZ={zShelfFront}
             adjD={shelfDepth}
             railSideZ={0}
             pinMark={shelfPinMark(vbH)}
+            between={(x0, x1, includeFull, zoneId) => (
+              <>
+                <DrawerSlidesOnCabinet
+                  layout={layout}
+                  T={T}
+                  cam={view}
+                  z0={SLIDE_FRONT_INSET}
+                  width={p.width}
+                  thickness={p.thickness}
+                  slideLength={p.slideLength}
+                  slideKind={p.slideKind}
+                  innerFloorY={innerFloorY}
+                  carcassTopY={topY}
+                  carcassBotY={botY}
+                  innerTopY={cavityTopY}
+                  innerBotY={innerFloorY}
+                  insetFronts={p.innerDrawerFronts === true}
+                  fontScale={fontScale}
+                  opening={{ x0, x1, includeFull, zoneId }}
+                />
+                {showFronts && (
+                  <FrontsOnCabinet
+                    layout={layout}
+                    W={W}
+                    T={T}
+                    innerFloorY={innerFloorY}
+                    carcassTopY={topY}
+                    carcassBotY={botY}
+                    innerTopY={cavityTopY}
+                    innerBotY={innerFloorY}
+                    z={0}
+                    d={T}
+                    cam={view}
+                    fontScale={fontScale}
+                    innerDrawerFronts={p.innerDrawerFronts === true}
+                    innerDoors={p.innerDoors === true}
+                    layer="inset"
+                    opening={{ x0, x1, includeFull, zoneId }}
+                  />
+                )}
+              </>
+            )}
           />
           {p.topStyle === 'rails' && (
             <>
@@ -2111,7 +2255,7 @@ function Front3DView({
               />
             </>
           )}
-          {layout.partitions[i] && (
+          {layout.partitions[i] && layout.partitions[i].riseMm == null && (
             <Board
               x={T + layout.partitions[i].xLeft}
               y={innerFloorY - sideH}
@@ -2127,44 +2271,6 @@ function Front3DView({
       ))}
 
       <Board x={0} y={sideY} w={T} h={sideH} d={D} color={wood.side} cam={view} faces={SIDE_LEFT_TOP} />
-
-      <DrawerSlidesOnCabinet
-        layout={layout}
-        T={T}
-        cam={view}
-        z0={SLIDE_FRONT_INSET}
-        width={p.width}
-        thickness={p.thickness}
-        slideLength={p.slideLength}
-        slideKind={p.slideKind}
-        innerFloorY={innerFloorY}
-        carcassTopY={topY}
-        carcassBotY={botY}
-        innerTopY={cavityTopY}
-        innerBotY={innerFloorY}
-        insetFronts={p.innerDrawerFronts === true}
-        fontScale={fontScale}
-      />
-
-      {showFronts && (
-        <FrontsOnCabinet
-          layout={layout}
-          W={W}
-          T={T}
-          innerFloorY={innerFloorY}
-          carcassTopY={topY}
-          carcassBotY={botY}
-          innerTopY={cavityTopY}
-          innerBotY={innerFloorY}
-          z={0}
-          d={T}
-          cam={view}
-          fontScale={fontScale}
-          innerDrawerFronts={p.innerDrawerFronts === true}
-          innerDoors={p.innerDoors === true}
-          layer="inset"
-        />
-      )}
 
       <Board x={W - T} y={sideY} w={T} h={sideH} d={D} color={wood.side} cam={view} faces={SIDE_RIGHT} />
 
@@ -2485,22 +2591,45 @@ function WallFront3DView({
 
       {layout.columns.map((_, i) => (
         <g key={`bay-${i}`}>
-          <ColumnFill
+          <BayShelvesAndPartials
             layout={layout}
             colIndex={i}
             T={T}
             innerFloorY={innerFloorY}
             cam={view}
             shelfColor={wood.shelf}
+            sideColor={wood.side}
             fixedZ={zShelfFront}
             fixedD={shelfDepth}
+            shelfHole={shelfHole}
             adjZ={zShelfFront}
             adjD={shelfDepth}
             railSideZ={0}
-            shelfHole={shelfHole}
             pinMark={shelfPinMark(vbH)}
+            between={(x0, x1, includeFull, zoneId) =>
+              showFronts ? (
+                <FrontsOnCabinet
+                  layout={layout}
+                  W={W}
+                  T={T}
+                  innerFloorY={innerFloorY}
+                  carcassTopY={topY}
+                  carcassBotY={floor}
+                  innerTopY={innerTopY}
+                  innerBotY={innerFloorY}
+                  z={0}
+                  d={T}
+                  cam={view}
+                  fontScale={fontScale}
+                  innerDrawerFronts={p.innerDrawerFronts === true}
+                  innerDoors={p.innerDoors === true}
+                  layer="inset"
+                  opening={{ x0, x1, includeFull, zoneId }}
+                />
+              ) : null
+            }
           />
-          {layout.partitions[i] && (
+          {layout.partitions[i] && layout.partitions[i].riseMm == null && (
             <Board
               x={T + layout.partitions[i].xLeft}
               y={innerTopY}
@@ -2514,26 +2643,6 @@ function WallFront3DView({
           )}
         </g>
       ))}
-
-      {showFronts && (
-        <FrontsOnCabinet
-          layout={layout}
-          W={W}
-          T={T}
-          innerFloorY={innerFloorY}
-          carcassTopY={topY}
-          carcassBotY={floor}
-          innerTopY={innerTopY}
-          innerBotY={innerFloorY}
-          z={0}
-          d={T}
-          cam={view}
-          fontScale={fontScale}
-          innerDrawerFronts={p.innerDrawerFronts === true}
-          innerDoors={p.innerDoors === true}
-          layer="inset"
-        />
-      )}
 
       <Board x={W - T} y={topY} w={T} h={sideH} d={D} color={wood.side} cam={view} faces={SIDE_RIGHT} />
 
@@ -3192,23 +3301,70 @@ function PlinthBoxFront3DView({
 
       {layout.columns.map((_, i) => (
         <g key={`ns-bay-${i}`}>
-          <ColumnFill
+          <BayShelvesAndPartials
             layout={layout}
             colIndex={i}
             T={T}
             innerFloorY={innerFloorY}
             cam={view}
             shelfColor={wood.shelf}
+            sideColor={wood.side}
             fixedZ={zShelfFront}
-            fixedD={m.shelfD}
+            fixedD={shelfDepth}
             adjZ={zShelfFront}
             adjD={shelfDepth}
             pinMark={shelfPinMark(vbH)}
             clothesTrackMm={m.sliding ? SLIDING_UPPER_TRACK_HEIGHT_MM : 0}
             railSideZ={m.sliding ? zPartition : zSide}
             railPartitionZ={m.sliding ? zPartition : zSide}
+            between={(x0, x1, includeFull, zoneId) => (
+              <>
+                <DrawerSlidesOnCabinet
+                  layout={layout}
+                  T={T}
+                  cam={view}
+                  z0={m.sliding ? zPartition + SLIDE_FRONT_INSET : zSide + SLIDE_FRONT_INSET}
+                  partitionFrontZ={m.sliding ? zPartition + SLIDE_FRONT_INSET : undefined}
+                  width={p.width}
+                  thickness={p.thickness}
+                  slideLength={p.slideLength}
+                  slideKind={p.slideKind}
+                  innerFloorY={innerFloorY}
+                  carcassTopY={frontTopY}
+                  carcassBotY={frontBotY}
+                  innerTopY={leftInnerY}
+                  innerBotY={bottomY}
+                  insetFronts={p.innerDrawerFronts === true}
+                  fontScale={fontScale}
+                  clearanceBottom={m.sliding ? SLIDING_DRAWER_FROM_BOTTOM_MM : 0}
+                  opening={{ x0, x1, includeFull, zoneId }}
+                />
+                {showFronts && (
+                  <FrontsOnCabinet
+                    layout={layout}
+                    W={W}
+                    T={T}
+                    innerFloorY={innerFloorY}
+                    carcassTopY={m.sliding ? leftInnerY : frontTopY}
+                    carcassBotY={m.sliding ? bottomY : frontBotY}
+                    innerTopY={leftInnerY}
+                    innerBotY={bottomY}
+                    z={0}
+                    d={T}
+                    cam={view}
+                    clearanceBottom={m.sliding ? SLIDING_DRAWER_FROM_BOTTOM_MM : 0}
+                    insetFronts={m.sliding}
+                    innerDrawerFronts={p.innerDrawerFronts === true}
+                    innerDoors={p.innerDoors === true}
+                    layer="inset"
+                    fontScale={fontScale}
+                    opening={{ x0, x1, includeFull, zoneId }}
+                  />
+                )}
+              </>
+            )}
           />
-          {layout.partitions[i] && (
+          {layout.partitions[i] && layout.partitions[i].riseMm == null && (
             <Board
               x={T + layout.partitions[i].xLeft}
               y={leftInnerY}
@@ -3223,26 +3379,6 @@ function PlinthBoxFront3DView({
           )}
         </g>
       ))}
-
-      <DrawerSlidesOnCabinet
-        layout={layout}
-        T={T}
-        cam={view}
-        z0={m.sliding ? zPartition + SLIDE_FRONT_INSET : zSide + SLIDE_FRONT_INSET}
-        partitionFrontZ={m.sliding ? zPartition + SLIDE_FRONT_INSET : undefined}
-        width={p.width}
-        thickness={p.thickness}
-        slideLength={p.slideLength}
-        slideKind={p.slideKind}
-        innerFloorY={innerFloorY}
-        carcassTopY={frontTopY}
-        carcassBotY={frontBotY}
-        innerTopY={leftInnerY}
-        innerBotY={bottomY}
-        insetFronts={p.innerDrawerFronts === true}
-        fontScale={fontScale}
-        clearanceBottom={m.sliding ? SLIDING_DRAWER_FROM_BOTTOM_MM : 0}
-      />
 
       {m.sliding && (
         <>
@@ -3291,28 +3427,6 @@ function PlinthBoxFront3DView({
             faces={BETWEEN_FACES}
           />
         </>
-      )}
-
-      {showFronts && (
-        <FrontsOnCabinet
-          layout={layout}
-          W={W}
-          T={T}
-          innerFloorY={innerFloorY}
-          carcassTopY={m.sliding ? leftInnerY : frontTopY}
-          carcassBotY={m.sliding ? bottomY : frontBotY}
-          innerTopY={leftInnerY}
-          innerBotY={bottomY}
-          z={0}
-          d={T}
-          cam={view}
-          clearanceBottom={m.sliding ? SLIDING_DRAWER_FROM_BOTTOM_MM : 0}
-          insetFronts={m.sliding}
-          innerDrawerFronts={p.innerDrawerFronts === true}
-          innerDoors={p.innerDoors === true}
-          layer="inset"
-          fontScale={fontScale}
-        />
       )}
 
       <Board

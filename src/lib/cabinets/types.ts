@@ -235,6 +235,8 @@ export interface KitchenBaseParams {
   movableShelves: MovableShelfSpec[]
   /** 3 mm hardboard back. */
   hasBack: boolean
+  /** Nail the hardboard back every 12 cm. */
+  nailBack: boolean
   /** 0 = no doors, otherwise 1 or 2. */
   doorCount: 0 | 1 | 2
   /** Drawer front heights in mm, top to bottom. Empty = no drawers. Independent of doors. */

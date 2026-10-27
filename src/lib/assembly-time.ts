@@ -3,6 +3,15 @@
  * All time values are in minutes unless otherwise specified.
  */
 import { appendSpokenHours, formatMinutes } from '@/lib/cabinets/estimate'
+import { formatMm } from '@/lib/utils'
+import {
+  BACK_JOINT_NAIL_SECONDS,
+  BACK_NAIL_SECONDS,
+  BACK_NAIL_SPACING_MM,
+  BACK_PIECE_MAX_WIDTH_MM,
+  hardboardCutSize,
+  planHardboardBack,
+} from '@/lib/cabinets/materials'
 
 export interface EdgeBandingTimeSettings {
   /** Time per thin edge for parts up to 50cm long (seconds) */
@@ -266,6 +275,10 @@ export interface AssemblyTimeSettings {
 
   backSmallMinutes: number
   backLargeMinutes: number
+  /** Seconds to drive one nail into the hardboard back. */
+  backNailSeconds: number
+  /** Seconds per nail where two hardboard pieces meet. */
+  backJointNailSeconds: number
 
   plinthSmallMinutes: number
   plinthMediumMinutes: number
@@ -372,6 +385,8 @@ export const DEFAULT_ASSEMBLY_TIME_SETTINGS: AssemblyTimeSettings = {
   shelfPinDeepMinDepthMm: SHELF_PIN_DEEP_MIN_DEPTH_MM,
   backSmallMinutes: 6,
   backLargeMinutes: 10,
+  backNailSeconds: 10,
+  backJointNailSeconds: 15,
   plinthSmallMinutes: 6,
   plinthMediumMinutes: 9,
   plinthLargeMinutes: 11,
@@ -535,6 +550,8 @@ export function parseAssemblyTimeSettings(raw: unknown): AssemblyTimeSettings {
     shelfPinDeepMinDepthMm: numMm(src, 'shelfPinDeepMinDepthMm', d.shelfPinDeepMinDepthMm),
     backSmallMinutes: numPositive(src, 'backSmallMinutes', d.backSmallMinutes),
     backLargeMinutes: numPositive(src, 'backLargeMinutes', d.backLargeMinutes),
+    backNailSeconds: numPositive(src, 'backNailSeconds', d.backNailSeconds),
+    backJointNailSeconds: numPositive(src, 'backJointNailSeconds', d.backJointNailSeconds),
     plinthSmallMinutes: numPositive(src, 'plinthSmallMinutes', d.plinthSmallMinutes),
     plinthMediumMinutes: numPositive(src, 'plinthMediumMinutes', d.plinthMediumMinutes),
     plinthLargeMinutes: numPositive(src, 'plinthLargeMinutes', d.plinthLargeMinutes),
@@ -870,6 +887,14 @@ export function collectCabinetAssembly(input: {
   isWallCabinet?: boolean
   plinthCount: number
   hasBack: boolean
+  /** Drive nails through the hardboard. Adds time on top of placing the back. */
+  nailBack?: boolean
+  /** Full-height divider centers from the outer left, for joints and nail lines. */
+  backDividerCentersMm?: number[]
+  backPartialLengthsMm?: number[]
+  backShelfLengthsMm?: number[]
+  /** Plinth height left uncovered by the back. */
+  backPlinthMm?: number
   shelfCount: number
   doorCount: number
   drawerCount: number
@@ -1192,6 +1217,36 @@ export function collectCabinetAssembly(input: {
         ? `голям · над ${s.backLargeMinHeightMm ?? BACK_LARGE_MIN_HEIGHT_MM} мм висок и над ${s.backLargeMinWidthMm ?? BACK_LARGE_MIN_WIDTH_MM} мм широк`
         : 'малък шкаф',
     })
+    if (input.nailBack) {
+      const cut = hardboardCutSize(input.width, input.height, input.backPlinthMm ?? 0)
+      const nailSeconds = s.backNailSeconds ?? BACK_NAIL_SECONDS
+      const jointSeconds = s.backJointNailSeconds ?? BACK_JOINT_NAIL_SECONDS
+      const plan = planHardboardBack({
+        width: cut.width,
+        height: cut.height,
+        dividerCentersMm: input.backDividerCentersMm,
+        partialLengthsMm: input.backPartialLengthsMm,
+        shelfLengthsMm: input.backShelfLengthsMm,
+        nailSeconds,
+        jointNailSeconds: jointSeconds,
+      })
+      const pieceNote =
+        plan.pieces.length > 1
+          ? `${plan.pieces.length} фазера: ${plan.pieces.map((piece) => `${formatMm(piece.width)} мм`).join(', ')}`
+          : '1 фазер'
+      const straightPart = `${plan.straightNails} × ${nailSeconds} сек`
+      const jointPart = plan.jointNails > 0 ? ` + ${plan.jointNails} × ${jointSeconds} сек` : ''
+      pushStep(steps, {
+        id: 'back-nails',
+        label: 'Коване на гърба с пирони',
+        minutes: plan.minutes,
+        quantity: plan.straightNails + plan.jointNails,
+        unitOne: 'пирон',
+        unitMany: 'пирона',
+        hint: `${pieceNote} · през ${BACK_NAIL_SPACING_MM / 10} см · над ${BACK_PIECE_MAX_WIDTH_MM} мм се дели на разделителната страница`,
+        calc: `${straightPart}${jointPart} = ${minText(plan.minutes)}`,
+      })
+    }
   }
 
   if (railN > 0) {

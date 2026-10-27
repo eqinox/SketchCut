@@ -75,6 +75,8 @@ import {
   evenShelfGap,
   clothesRailLengthMm,
   hardboardCutSize,
+  planHardboardBack,
+  backNailGeometry,
   parseDoorStyle,
   parseSlidingEdges,
   parseDimFontScale,
@@ -115,6 +117,7 @@ import {
   MIN_ZONE_CLEAR_MM,
   defaultFixedOffsetMm,
   defaultPartitionOffsetMm,
+  evenBayDividerSpecs,
   partitionGapOpenings,
   defaultShelfFaces,
   defaultPartitionFaces,
@@ -142,6 +145,7 @@ import {
   canAddFixedShelfToColumn,
   canAddFixedShelfFull,
   canAddMoreFixedShelves,
+  MAX_FIXED_SHELVES,
   type InteriorLayout,
   type PanelFace,
   type CabinetTopStyle,
@@ -373,6 +377,104 @@ function fixedShelvesInPart(rows: FixedShelfUi[], columnIndex: number | null): n
   })
 }
 
+function fixedShelfBayCount(rows: { bayPath?: string; spanPaths?: string[] }[], path: string): number {
+  return rows.filter((row) => row.bayPath === path || row.spanPaths?.includes(path)).length
+}
+
+/** Sides the shelf already covers. One column is a single path until the user continues it. */
+function shelfSidePaths(
+  shelf: { spanPaths?: string[]; columnIndex?: number | null },
+  columns: { path: string }[],
+): string[] {
+  if (shelf.spanPaths && shelf.spanPaths.length >= 2) {
+    return shelf.spanPaths.filter((path) => columns.some((column) => column.path === path))
+  }
+  if (shelf.columnIndex != null && columns[shelf.columnIndex]?.path) return [columns[shelf.columnIndex]!.path]
+  return []
+}
+
+type ShelfSideZone = {
+  path: string
+  label: string
+  x0: number
+  x1: number
+  y0: number
+  y1: number
+  id: string
+  colIndex: number
+}
+
+/** One button per named side. Страна 1 горе and Страна 1 долу stay separate. */
+function shelfTargetZones<T extends ShelfSideZone>(zones: T[]): T[] {
+  const sorted = [...zones].sort((a, b) => a.x0 - b.x0 || b.y0 - a.y0)
+  const seen = new Set<string>()
+  const out: T[] = []
+  for (const zone of sorted) {
+    if (!zone.path || zone.path.includes('–')) continue
+    const key = zone.label || zone.path
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(zone)
+  }
+  return out
+}
+
+function shelfBand(label: string): 'top' | 'bottom' | undefined {
+  if (label.endsWith(' горе')) return 'top'
+  if (label.endsWith(' долу')) return 'bottom'
+  return undefined
+}
+
+function zonesTouch(a: { x0: number; x1: number; y0: number; y1: number }, b: { x0: number; x1: number; y0: number; y1: number }): boolean {
+  const beside = Math.abs(b.x0 - a.x1) <= 24 || Math.abs(b.x1 - a.x0) <= 24
+  const overlap = b.y0 < a.y1 - 0.5 && b.y1 > a.y0 + 0.5
+  return beside && overlap
+}
+
+/** Mark a neighboring side as well. A side that is not beside the current ones replaces them. */
+function markShelfSides(current: string[], clicked: string, zones: ShelfSideZone[]): string[] {
+  const targets = shelfTargetZones(zones)
+  const byPath = new Map(targets.map((zone) => [zone.path, zone]))
+  const hit = byPath.get(clicked)
+  if (!hit) return [clicked]
+  const owned = current.map((path) => byPath.get(path)).filter((zone): zone is ShelfSideZone => !!zone)
+  if (owned.length === 0 || !owned.some((zone) => zonesTouch(zone, hit))) {
+    if (owned.some((zone) => zone.path === clicked)) return current
+    return [clicked]
+  }
+  if (owned.some((zone) => zone.path === clicked)) {
+    if (owned.length === 1) return current
+    const sorted = [...owned].sort((a, b) => a.x0 - b.x0)
+    if (clicked === sorted[0]?.path) return sorted.slice(1).map((zone) => zone.path)
+    if (clicked === sorted[sorted.length - 1]?.path) return sorted.slice(0, -1).map((zone) => zone.path)
+    return sorted.map((zone) => zone.path)
+  }
+  return [...owned, hit].sort((a, b) => a.x0 - b.x0).map((zone) => zone.path)
+}
+
+/** The next side to the left and to the right. The shelf grows only when that button is pressed. */
+function continueSidePaths(current: string[], ordered: string[]): string[] {
+  const indexes = current
+    .map((path) => ordered.indexOf(path))
+    .filter((index) => index >= 0)
+    .sort((a, b) => a - b)
+  if (indexes.length === 0) return []
+  const lo = indexes[0]!
+  const hi = indexes[indexes.length - 1]!
+  const out: string[] = []
+  if (lo > 0) out.push(ordered[lo - 1]!)
+  if (hi < ordered.length - 1) out.push(ordered[hi + 1]!)
+  return out
+}
+
+function zoneIsShelfFragment(
+  zone: { innerW: number; colIndex: number },
+  columns: { innerW: number }[],
+): boolean {
+  const column = columns[zone.colIndex]
+  return !!column && zone.innerW < column.innerW - 0.5
+}
+
 function partialOpening(
   opening: { start: number; end: number } | undefined,
   innerH: number,
@@ -408,6 +510,12 @@ function fittingsFromMovable(
 function mmNum(raw: string): number {
   const n = parseMm(raw)
   return n != null && n > 0 ? n : 0
+}
+
+/** Enough decimals that equal openings stay equal, without a long binary tail. */
+function evenOffsetField(n: number): string {
+  const micro = Math.round(n * 1e6) / 1e6
+  return String(micro)
 }
 
 function rowsToSpecs(rows: MovableShelfUi[]) {
@@ -680,8 +788,9 @@ type PendingAdd =
   | { kind: 'door'; count: 1 | 2 }
   | { kind: 'rail'; middle?: boolean }
   | { kind: 'rail-even' }
-  | { kind: 'fixed-shelf' }
+  | { kind: 'fixed-shelf'; middle?: boolean }
   | { kind: 'partition-middle' }
+  | { kind: 'partition-even'; column?: number }
 
 type PartitionUi = {
   from: 'left' | 'right' | 'middle'
@@ -690,6 +799,10 @@ type PartitionUi = {
   toFace: SideFace
   offsetMm: string
   gapIndex?: number
+  /** Fixed shelf this page stops at. The page does not reach the cabinet top. */
+  stopsAtShelf?: number | null
+  /** Bay this full-height page splits. Empty splits the whole cabinet. */
+  splitsPath?: string
 }
 
 function partitionToUi(s: {
@@ -699,6 +812,8 @@ function partitionToUi(s: {
   toFace?: SideFace
   offsetMm: number
   gapIndex?: number
+  stopsAtShelf?: number | null
+  splitsPath?: string
 }): PartitionUi {
   if (s.from === 'middle') {
     return {
@@ -708,6 +823,8 @@ function partitionToUi(s: {
       toFace: s.toFace ?? 'left',
       offsetMm: '0',
       gapIndex: s.gapIndex,
+      stopsAtShelf: s.stopsAtShelf ?? null,
+      ...(s.splitsPath ? { splitsPath: s.splitsPath } : {}),
     }
   }
   const faces = defaultPartitionFaces(s.from)
@@ -717,27 +834,38 @@ function partitionToUi(s: {
     fromFace: s.fromFace ?? faces.fromFace,
     toFace: s.toFace ?? faces.toFace,
     offsetMm: String(s.offsetMm),
+    ...(s.gapIndex != null ? { gapIndex: s.gapIndex } : {}),
+    ...(s.stopsAtShelf != null ? { stopsAtShelf: s.stopsAtShelf } : {}),
+    ...(s.splitsPath ? { splitsPath: s.splitsPath } : {}),
   }
 }
 
-function newMiddlePartition(gapIndex?: number): PartitionUi {
+function newMiddlePartition(gapIndex?: number, stopsAtShelf?: number | null, splitsPath?: string): PartitionUi {
   return {
     from: 'middle',
     fromPartition: null,
     ...defaultPartitionFaces('middle'),
     offsetMm: '0',
     gapIndex,
+    ...(stopsAtShelf != null ? { stopsAtShelf } : {}),
+    ...(splitsPath ? { splitsPath } : {}),
   }
 }
 
 type FixedShelfUi = {
-  from: 'bottom' | 'top'
+  from: 'bottom' | 'top' | 'middle'
   fromFace: PanelFace
   toFace: PanelFace
   offsetMm: string
   columnIndex: number | null
   /** 0-based index of the fixed shelf this one is measured from. Null = carcass. */
   fromShelf: number | null
+  /** Set when the shelf fills only one numbered opening, such as 1.1. */
+  bayPath?: string
+  /** Adjacent openings this one shelf covers, such as 1.1 and 1.2. */
+  spanPaths?: string[]
+  /** Страна 1 горе or Страна 1 долу, when both exist. */
+  opening?: 'top' | 'bottom'
 }
 
 const FULL_CABINET_LABEL = 'На целия шкаф'
@@ -1116,6 +1244,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
     (initialFittings.movableShelves ?? []).map(movableToUi),
   )
   const [hasBack, setHasBack] = useState(initialFittings.hasBack)
+  const [nailBack, setNailBack] = useState(initialFittings.nailBack === true)
   const [clothesRails, setClothesRails] = useState<ClothesRailUi[]>(() => {
     const rows = (initialFittings.clothesRails ?? []).map(railToUi)
     if (rows.length > 0) return rows
@@ -1202,6 +1331,9 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
         offsetMm: String(s.offsetMm),
         columnIndex: typeof s.columnIndex === 'number' ? s.columnIndex : null,
         fromShelf: typeof s.fromShelf === 'number' ? s.fromShelf : null,
+        ...(s.bayPath ? { bayPath: s.bayPath } : {}),
+        ...(s.opening === 'top' || s.opening === 'bottom' ? { opening: s.opening } : {}),
+        ...(s.spanPaths && s.spanPaths.length >= 2 ? { spanPaths: s.spanPaths } : {}),
       }
     }),
   )
@@ -1211,6 +1343,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
   const [doorSpan, setDoorSpan] = useState<DoorSpan>(initialFittings.doorSpan === 'zones' ? 'zones' : 'full')
   const [zoneUi, setZoneUi] = useState<Record<string, ZoneUi>>(zoneUiFromFittings(initialFittings.zones))
   const [pendingAdd, setPendingAdd] = useState<PendingAdd | null>(null)
+  const [evenPartitionError, setEvenPartitionError] = useState<string | null>(null)
   const [colors, setColors] = useState<CabinetPartColors>({
     ...DEFAULT_PART_COLORS,
     ...(editing?.params.colors as CabinetPartColors | undefined),
@@ -1228,6 +1361,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
       shelfCount: movable.shelfCount,
       movableShelves: movable.movableShelves,
       hasBack,
+      nailBack: hasBack && nailBack,
       hasClothesRail: hasSplit ? false : clothesRails.length > 0,
       clothesRails: hasSplit ? [] : railsToSpecs(clothesRails),
       doorCount: noDoors ? 0 : doorCount,
@@ -1257,8 +1391,11 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
           offsetMm: mmNum(s.offsetMm),
           columnIndex: s.columnIndex,
           fromShelf: s.fromShelf,
+          ...(s.bayPath ? { bayPath: s.bayPath } : {}),
+          ...(s.opening === 'top' || s.opening === 'bottom' ? { opening: s.opening } : {}),
+          ...(s.spanPaths && s.spanPaths.length >= 2 ? { spanPaths: s.spanPaths } : {}),
         }))
-        .filter((s) => s.offsetMm > 0),
+        .filter((s) => s.from === 'middle' || s.offsetMm > 0),
       partitions: partitions
         .map((s) => ({
           from: s.from,
@@ -1266,7 +1403,9 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
           fromFace: s.fromFace,
           toFace: s.toFace,
           offsetMm: s.from === 'middle' ? 0 : mmNum(s.offsetMm),
-          ...(s.from === 'middle' && s.gapIndex != null ? { gapIndex: s.gapIndex } : {}),
+          ...(s.gapIndex != null ? { gapIndex: s.gapIndex } : {}),
+          ...(s.stopsAtShelf != null ? { stopsAtShelf: s.stopsAtShelf } : {}),
+          ...(s.splitsPath ? { splitsPath: s.splitsPath } : {}),
         }))
         .filter((s) => s.from === 'middle' || s.offsetMm > 0),
       doorSpan: hasSplit ? doorSpan : 'full' as DoorSpan,
@@ -1353,7 +1492,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
       colors,
       ...fittings,
     })
-  }, [typeId, width, height, depth, depthMode, thickness, legHeight, shelfCount, movableShelves, hasBack, clothesRails, doorCount, doorStyle, slidingDoorCount, slidingEdges, slidingUpperTrackColor, slidingLowerTrackColor, slidingHandleSkuId, slidingCapSkuId, slidingSoftCloseLeft, slidingSoftCloseRight, drawerFrontHeights, cutFromOneBoard, includeHandles, slideKind, slideLength, useLegs, plinthCount, plinthHeight, colors, topStyle, hasHood, hoodShape, hoodDiameter, hoodRectW, hoodRectD, fixedShelves, partitions, doorSpan, zoneUi, externalDoors, innerDrawerFronts, innerDoors, dimFontScale, shelfFrontInset])
+  }, [typeId, width, height, depth, depthMode, thickness, legHeight, shelfCount, movableShelves, hasBack, nailBack, clothesRails, doorCount, doorStyle, slidingDoorCount, slidingEdges, slidingUpperTrackColor, slidingLowerTrackColor, slidingHandleSkuId, slidingCapSkuId, slidingSoftCloseLeft, slidingSoftCloseRight, drawerFrontHeights, cutFromOneBoard, includeHandles, slideKind, slideLength, useLegs, plinthCount, plinthHeight, colors, topStyle, hasHood, hoodShape, hoodDiameter, hoodRectW, hoodRectD, fixedShelves, partitions, doorSpan, zoneUi, externalDoors, innerDrawerFronts, innerDoors, dimFontScale, shelfFrontInset])
 
   const qty = Math.max(1, parseInt(quantity, 10) || 1)
   const result = useMemo(() => {
@@ -1503,13 +1642,52 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
   const hasFixed = (params.fixedShelves?.length ?? 0) > 0
   const hasPartitions = (params.partitions?.length ?? 0) > 0
   const hasSplit = hasFixed || hasPartitions
+  const shelfAsksByZone = layout.zones.some((zone) => zoneIsShelfFragment(zone, layout.columns))
+  const columnShelves = fixedShelves.filter((row) => !row.bayPath)
+  const canAddShelf =
+    shelfAsksByZone
+      ? layout.zones.some((zone) => zone.path && fixedShelfBayCount(fixedShelves, zone.path) < MAX_FIXED_SHELVES) ||
+        canAddFixedShelfFull(columnShelves, Math.max(1, layout.columns.length))
+      : canAddMoreFixedShelves(fixedShelves, Math.max(1, layout.columns.length))
   const partitionMiddleGaps =
     partitions.length === 0 || layout.partitions.length > 0
-      ? partitionGapOpenings(layout.partitions, innerW).filter(
+      ? partitionGapOpenings(
+          layout.partitions,
+          innerW,
+          layout.columns.map((column) => column.path),
+        ).filter(
           (g) => g.end - g.start >= params.thickness + MIN_ZONE_CLEAR_MM * 2,
         )
       : []
+  const partitionPlaceChoices = partitionMiddleGaps.flatMap((g) => {
+    const choices = [{ id: `part-gap:${g.index}`, label: g.label }]
+    const lowest = [...shelvesForColumn(layout.shelves, g.index)].sort((a, b) => a.yBottom - b.yBottom)[0]
+    if (lowest && lowest.yBottom >= MIN_ZONE_CLEAR_MM && g.end - g.start >= params.thickness + MIN_ZONE_CLEAR_MM * 2) {
+      choices.push({
+        id: `part-below:${g.index}:${lowest.specIndex}`,
+        label: `${g.label} · отдолу до рафта`,
+      })
+    }
+    return choices
+  })
   const canAddPartitionMiddle = partitions.length < MAX_PARTITIONS && partitionMiddleGaps.length > 0
+  const shelfStopForColumn = (columnIndex: number) => {
+    const lowest = [...shelvesForColumn(layout.shelves, columnIndex)].sort((a, b) => a.yBottom - b.yBottom)[0]
+    return lowest && lowest.yBottom >= MIN_ZONE_CLEAR_MM ? lowest : null
+  }
+  const evenPartChoices = (columnIndex: number): number[] => {
+    const bay = layout.columns[columnIndex]
+    if (!bay) return []
+    const underShelf = shelfStopForColumn(columnIndex) != null
+    const inside = underShelf
+      ? partitions.filter((p) => p.stopsAtShelf != null && p.gapIndex === columnIndex).length
+      : layout.partitions.filter((p) => p.xLeft > bay.x0 + 0.5 && p.xRight < bay.x1 - 0.5).length
+    return [2, 3, 4].filter((parts) => {
+      const count = parts - 1
+      const opening = (bay.innerW - count * params.thickness) / parts
+      return opening >= MIN_ZONE_CLEAR_MM && partitions.length - inside + count <= MAX_PARTITIONS
+    })
+  }
   const middleBetweenExtras =
     pendingAdd?.kind === 'shelf' && pendingAdd.middle
       ? betweenRowExtras(layout.zones, layout.columns.length)
@@ -1576,6 +1754,11 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
       ? (params as ReturnType<typeof parseNightstandParams>).plinthHeight
       : 0
   const backCut = hardboardCutSize(params.width, params.height, backPlinth)
+  const backPlan = planHardboardBack({
+    width: backCut.width,
+    height: backCut.height,
+    ...backNailGeometry(layout, params.thickness),
+  })
 
   const patchZone = (id: CabinetZoneId, next: Partial<ZoneUi>) => {
     setZoneUi((z) => ({ ...z, [id]: { ...zoneOf(z, id), ...next } }))
@@ -1652,20 +1835,45 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
 
   const addFixedShelf = (
     columnIndex: number | null,
-    origin?: 'bottom' | 'top' | number,
+    origin?: 'bottom' | 'top' | 'middle' | number,
+    bayPath?: string,
+    opening?: 'top' | 'bottom',
   ) => {
     const colCount = Math.max(1, layout.columns.length)
-    if (columnIndex != null && !canAddFixedShelfToColumn(fixedShelves, columnIndex)) return
-    if (columnIndex == null && !canAddFixedShelfFull(fixedShelves, colCount)) return
-    const already =
-      columnIndex == null
-        ? Math.max(0, ...Array.from({ length: colCount }, (_, c) => shelvesForColumn(fixedShelves, c).length))
-        : shelvesForColumn(fixedShelves, columnIndex).length
-    const peers = fixedShelvesInPart(fixedShelves, columnIndex)
+    const columnShelves = fixedShelves.filter((row) => !row.bayPath)
+    if (bayPath) {
+      if (fixedShelfBayCount(fixedShelves, bayPath) >= MAX_FIXED_SHELVES) return
+    } else if (columnIndex != null && !canAddFixedShelfToColumn(columnShelves, columnIndex)) return
+    else if (columnIndex == null && !canAddFixedShelfFull(columnShelves, colCount)) return
+    const bayZone = bayPath ? layout.zones.find((zone) => zone.path === bayPath) : undefined
+    const roomH = bayZone?.innerH ?? innerH
+    const already = bayPath
+      ? fixedShelfBayCount(fixedShelves, bayPath)
+      : columnIndex == null
+        ? Math.max(0, ...Array.from({ length: colCount }, (_, c) => shelvesForColumn(columnShelves, c).length))
+        : shelvesForColumn(columnShelves, columnIndex).length
+    const peers = bayPath
+      ? fixedShelves.flatMap((row, index) => (row.bayPath === bayPath ? [index] : []))
+      : fixedShelvesInPart(columnShelves, columnIndex)
     const chosen = origin ?? (peers.length > 0 ? peers[peers.length - 1]! : 'bottom')
+    const bay = bayPath ? { bayPath, ...(opening ? { opening } : {}) } : {}
+    if (chosen === 'middle') {
+      commitFixedShelves([
+        ...fixedShelves,
+        {
+          from: 'middle',
+          fromShelf: null,
+          ...defaultShelfFaces('middle'),
+          offsetMm: '0',
+          columnIndex,
+          ...bay,
+        },
+      ])
+      return
+    }
     if (typeof chosen === 'number') {
       const ref = layout.shelves.find((s) => s.specIndex === chosen)
-      const room = ref ? Math.max(0, innerH - ref.yTop) : innerH
+      const room = ref ? Math.max(0, roomH - ref.yTop) : roomH
       const offset = Math.max(MIN_ZONE_CLEAR_MM, exactMm(Math.max(0, (room - params.thickness) / 2)))
       commitFixedShelves([
         ...fixedShelves,
@@ -1675,14 +1883,15 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
           ...defaultShelfFaces('bottom'),
           offsetMm: String(offset),
           columnIndex,
+          ...bay,
         },
       ])
       return
     }
-    const offset = defaultFixedOffsetMm(innerH, params.thickness, already)
+    const offset = defaultFixedOffsetMm(roomH, params.thickness, already)
     commitFixedShelves([
       ...fixedShelves,
-      { from: chosen, fromShelf: null, ...defaultShelfFaces(chosen), offsetMm: String(offset), columnIndex },
+      { from: chosen, fromShelf: null, ...defaultShelfFaces(chosen), offsetMm: String(offset), columnIndex, ...bay },
     ])
   }
 
@@ -1730,11 +1939,136 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
     }
   }
 
-  const addMiddlePartition = (gapIndex?: number) => {
+  const addMiddlePartition = (gapIndex?: number, stopsAtShelf?: number | null) => {
     if (partitions.length >= MAX_PARTITIONS) return
-    remapZonesForNewPartition(partitions.length)
+    if (stopsAtShelf == null) remapZonesForNewPartition(partitions.length)
+    const parentPath =
+      stopsAtShelf == null && layout.columns.length > 1 ? layout.columns[gapIndex ?? 0]?.path ?? '' : ''
     setPendingAdd(null)
-    setPartitions((rows) => (rows.length >= MAX_PARTITIONS ? rows : [...rows, newMiddlePartition(gapIndex)]))
+    setEvenPartitionError(null)
+    setPartitions((rows) =>
+      rows.length >= MAX_PARTITIONS
+        ? rows
+        : [...rows, newMiddlePartition(gapIndex, stopsAtShelf, parentPath)],
+    )
+  }
+
+  const shiftZonesAfterEvenSplit = (columnIndex: number, columnShift: number) => {
+    if (columnShift === 0) return
+    const hasColumnZones = Object.keys(zoneUi).some((id) => /^c\d+/.test(id))
+    if (!hasColumnZones) {
+      if (fixedShelves.length > 0) {
+        setZoneUi((z) => {
+          const next: Record<string, ZoneUi> = {
+            ...z,
+            'c0-bottom': zoneOf(z, 'bottom'),
+            'c0-middle': zoneOf(z, 'middle'),
+            'c0-top': zoneOf(z, 'top'),
+          }
+          for (let col = 1; col <= columnShift; col++) {
+            next[`c${col}-bottom`] = emptyZoneUi()
+            next[`c${col}-middle`] = emptyZoneUi()
+            next[`c${col}-top`] = emptyZoneUi()
+          }
+          return next
+        })
+      } else {
+        setZoneUi({
+          ...zoneUi,
+          c0: {
+            ...emptyZoneUi(),
+            shelfCount,
+            movableShelves,
+            clothesRails,
+            hasClothesRail: clothesRails.length > 0,
+          },
+          ...Object.fromEntries(
+            Array.from({ length: columnShift }, (_, i) => [`c${i + 1}`, emptyZoneUi()]),
+          ),
+        })
+        setDoorSpan(doorCount > 0 ? 'full' : 'zones')
+        setShelfCount(0)
+        setMovableShelves([])
+        setClothesRails([])
+      }
+      return
+    }
+    const shelfRows = fixedShelves.some((s) => s.columnIndex == null)
+    setZoneUi((z) => {
+      const next: Record<string, ZoneUi> = { ...z }
+      const entries = Object.entries(z).flatMap(([id, value]) => {
+        const match = /^c(\d+)(-.*)?$/.exec(id)
+        if (!match || !value) return []
+        return [{ id, col: Number(match[1]), rest: match[2] ?? '', value }]
+      })
+      entries.sort((a, b) => (columnShift > 0 ? b.col - a.col : a.col - b.col))
+      for (const item of entries) {
+        if (item.col <= columnIndex) continue
+        const newId = `c${item.col + columnShift}${item.rest}`
+        next[newId] = item.value
+        if (newId !== item.id) delete next[item.id]
+      }
+      if (columnShift > 0) {
+        for (let i = 1; i <= columnShift; i++) {
+          const col = columnIndex + i
+          if (shelfRows) {
+            next[`c${col}-bottom`] = emptyZoneUi()
+            next[`c${col}-middle`] = emptyZoneUi()
+            next[`c${col}-top`] = emptyZoneUi()
+          } else {
+            next[`c${col}`] = emptyZoneUi()
+          }
+        }
+      }
+      return next
+    })
+    setFixedShelves((rows) =>
+      rows.map((row) =>
+        row.columnIndex != null && row.columnIndex > columnIndex
+          ? { ...row, columnIndex: row.columnIndex + columnShift }
+          : row,
+      ),
+    )
+  }
+
+  const applyEvenPartitions = (columnIndex: number, parts: number) => {
+    const bay = layout.columns[columnIndex]
+    if (!bay) return
+    const specs = partitions.map((row) => ({
+      from: row.from,
+      fromPartition: row.from === 'middle' ? null : row.fromPartition,
+      fromFace: row.fromFace,
+      toFace: row.toFace,
+      offsetMm: row.from === 'middle' ? 0 : mmNum(row.offsetMm),
+      ...(row.from === 'middle' && row.gapIndex != null ? { gapIndex: row.gapIndex } : {}),
+      ...(row.stopsAtShelf != null ? { stopsAtShelf: row.stopsAtShelf } : {}),
+      ...(row.splitsPath ? { splitsPath: row.splitsPath } : {}),
+    }))
+    const result = evenBayDividerSpecs(
+      specs,
+      layout.partitions,
+      bay.x0,
+      bay.x1,
+      parts,
+      params.thickness,
+      columnIndex,
+      shelfStopForColumn(columnIndex)?.specIndex,
+      bay.path,
+    )
+    if (result.error) {
+      setEvenPartitionError(result.error)
+      return
+    }
+    shiftZonesAfterEvenSplit(columnIndex, result.columnShift)
+    setPartitions(
+      result.specs.map((spec) => {
+        const ui = partitionToUi(spec)
+        if (spec.from !== 'middle') ui.offsetMm = evenOffsetField(spec.offsetMm)
+        return ui
+      }),
+    )
+    setEvenPartitionError(null)
+    setPendingAdd(null)
   }
 
   const measuredPartitionOffset = (r: PartitionUi): string => {
@@ -1742,17 +2076,21 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
     return String(defaultPartitionOffsetMm(innerW, params.thickness, Math.max(0, partitions.length - 1)))
   }
 
-  const centerPartitionInCurrentBay = (specIndex: number): PartitionUi => {
+  const centerPartitionInCurrentBay = (specIndex: number, currentRow?: PartitionUi): PartitionUi => {
     const prior = layout.partitions.filter((p) => p.specIndex < specIndex)
     const openings = partitionGapOpenings(prior, innerW)
     const current = layout.partitions.find((p) => p.specIndex === specIndex)
-    let gi = 0
+    const partial = layout.partialPartitions.find((p) => p.specIndex === specIndex)
+    let gi = partial?.columnIndex ?? 0
     if (current && openings.length > 0) {
       const mid = (current.xLeft + current.xRight) / 2
       const found = openings.findIndex((o) => mid >= o.start && mid <= o.end)
       gi = found >= 0 ? found : 0
     }
-    return newMiddlePartition(gi)
+    return {
+      ...newMiddlePartition(gi, currentRow?.stopsAtShelf, currentRow?.splitsPath),
+      ...(currentRow?.stopsAtShelf != null ? { stopsAtShelf: currentRow.stopsAtShelf } : {}),
+    }
   }
 
   const addPinShelfRows = (
@@ -1791,17 +2129,48 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
   const applyPending = (target: FrontTarget) => {
     if (!pendingAdd) return
     if (pendingAdd.kind === 'partition-middle') {
+      const below = /^part-below:(\d+):(\d+)$/.exec(target)
+      if (below) {
+        addMiddlePartition(Number(below[1]), Number(below[2]))
+        return
+      }
       const m = /^part-gap:(\d+)$/.exec(target)
       addMiddlePartition(m ? Number(m[1]) : 0)
       return
     }
+    if (pendingAdd.kind === 'partition-even') {
+      const side = /^part-even-side:(\d+)$/.exec(target)
+      if (side) {
+        setEvenPartitionError(null)
+        setPendingAdd({ kind: 'partition-even', column: Number(side[1]) })
+        return
+      }
+      const count = /^part-even-count:(\d+)$/.exec(target)
+      if (count && pendingAdd.column != null) applyEvenPartitions(pendingAdd.column, Number(count[1]))
+      return
+    }
     if (pendingAdd.kind === 'fixed-shelf') {
+      const zoneTarget = /^shelf-zone:(.+)$/.exec(target)
+      if (zoneTarget) {
+        const zone = layout.zones.find((row) => row.id === zoneTarget[1])
+        if (!zone) return
+        const path = zone.path || undefined
+        const opening = shelfBand(zone.label)
+        if (pendingAdd.middle) addFixedShelf(zone.colIndex, 'middle', path, opening)
+        else addFixedShelf(zone.colIndex, undefined, path, opening)
+        return
+      }
+      const column = target === 'full' ? null : Number.parseInt(/^c(\d+)/.exec(target)?.[1] ?? '', 10) || 0
+      if (pendingAdd.middle) {
+        addFixedShelf(column, 'middle')
+        return
+      }
       const origin = parseFixedOriginTarget(target)
       if (origin) {
         addFixedShelf(origin.columnIndex, origin.origin)
         return
       }
-      addFixedShelf(target === 'full' ? null : Number.parseInt(/^c(\d+)/.exec(target)?.[1] ?? '', 10) || 0)
+      addFixedShelf(column)
       return
     }
     if (pendingAdd.kind === 'shelf') {
@@ -2682,19 +3051,30 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                 Хваща се с винтове 5×60 през страниците и разделя частта. Дълбочината е същата като на
                 подвижните рафтове — с {shelfInsetValue} мм по-плитък от{' '}
                 {shelfFromPartition ? 'вътрешната страница' : 'страницата'} ({formatMm(shelfCutDepth)} мм). До 2
-                рафта на част. Мери се от дъното, от плота или от вече добавен рафт. Следващият тръгва от последния.
-                {layout.columns.length > 1 ? ' След разделителна страница избираш в коя страна да го сложиш. Страна 1 е най-лявата.' : ''}
+                рафта на част. Мери се от дъното, от плота или от вече добавен рафт. „По средата“ слага равни празнини
+                над и под него. Следващият тръгва от последния.
+                {layout.columns.length > 1 || shelfAsksByZone
+                  ? ' След разделителна страница избираш страната. Маркираш 1.1 и после 1.2 — един рафт минава през двете, а страницата между тях остава само отдолу. Мястото над срязаното е Страна 1. Ако над него вече има рафт със Страна 1, горното става Страна 1 горе, а срязаното — Страна 1 долу.'
+                  : ''}
               </p>
               {fixedShelves.map((shelf, i) => (
                 <div key={i} className="mt-2 space-y-2 rounded-md border border-[var(--color-border)] p-2">
                   <div className="flex items-center gap-2">
                     <span className="min-w-28 shrink-0 text-xs">
                       Рафт {i + 1}
-                      {layout.columns.length > 1
+                      {layout.columns.length > 1 || shelf.bayPath || (shelf.spanPaths?.length ?? 0) >= 2
                         ? ` · ${
-                            shelf.columnIndex == null
-                              ? FULL_CABINET_LABEL
-                              : columnLabel(shelf.columnIndex, layout.columns.length)
+                            shelf.spanPaths && shelf.spanPaths.length >= 2
+                              ? `Страна ${shelf.spanPaths.join(' и ')}`
+                              : shelf.bayPath
+                                ? `Страна ${shelf.bayPath}${shelf.opening === 'top' ? ' горе' : shelf.opening === 'bottom' ? ' долу' : ''}`
+                              : shelf.columnIndex == null
+                                ? FULL_CABINET_LABEL
+                                : columnLabel(
+                                    shelf.columnIndex,
+                                    layout.columns.length,
+                                    layout.columns[shelf.columnIndex]?.path,
+                                  )
                           }`
                         : ''}
                     </span>
@@ -2709,27 +3089,99 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                       <Trash2 className="h-4 w-4" />
                     </Button>
                   </div>
-                  {layout.columns.length > 1 && (
+                  {(layout.columns.length > 1 || shelfAsksByZone) && (
                     <>
                       <p className="text-xs text-[var(--color-muted-foreground)]">В коя страна</p>
                       <div className="flex flex-wrap gap-2">
-                        {layout.columns.map((_, c) => {
+                        {shelfAsksByZone
+                          ? shelfTargetZones(layout.zones).map((zone) => {
+                              const others = fixedShelves.filter((_, j) => j !== i)
+                              const band = shelfBand(zone.label)
+                              const inSpan = !band && shelf.spanPaths?.includes(zone.path) === true
+                              const selected = band
+                                ? shelf.bayPath === zone.path && shelf.opening === band
+                                : inSpan ||
+                                  (shelf.bayPath === zone.path &&
+                                    !shelf.opening &&
+                                    !(shelf.spanPaths && shelf.spanPaths.length >= 2))
+                              const taken =
+                                fixedShelfBayCount(others, zone.path) >= MAX_FIXED_SHELVES && !selected
+                              return (
+                                <Button
+                                  key={`fs-zone-${i}-${zone.id}`}
+                                  type="button"
+                                  size="sm"
+                                  disabled={taken}
+                                  variant={selected ? 'default' : 'outline'}
+                                  onClick={() => {
+                                    if (band) {
+                                      commitFixedShelves(
+                                        fixedShelves.map((r, j) =>
+                                          j === i
+                                            ? {
+                                                ...r,
+                                                columnIndex: zone.colIndex,
+                                                bayPath: zone.path,
+                                                opening: band,
+                                                spanPaths: undefined,
+                                              }
+                                            : r,
+                                        ),
+                                      )
+                                      return
+                                    }
+                                    const now =
+                                      shelf.spanPaths && shelf.spanPaths.length >= 2
+                                        ? shelf.spanPaths
+                                        : shelf.bayPath && !shelf.opening
+                                          ? [shelf.bayPath]
+                                          : []
+                                    const next = markShelfSides(now, zone.path, layout.zones)
+                                    const first = layout.zones.find((row) => row.path === next[0])
+                                    commitFixedShelves(
+                                      fixedShelves.map((r, j) =>
+                                        j === i
+                                          ? {
+                                              ...r,
+                                              columnIndex: first?.colIndex ?? zone.colIndex,
+                                              bayPath: next.length >= 2 ? undefined : next[0],
+                                              opening: undefined,
+                                              spanPaths: next.length >= 2 ? next : undefined,
+                                            }
+                                          : r,
+                                      ),
+                                    )
+                                  }}
+                                >
+                                  {zone.label.startsWith('Страна') ? zone.label : `Страна ${zone.path}`}
+                                </Button>
+                              )
+                            })
+                          : layout.columns.map((_, c) => {
                           const others = fixedShelves.filter((_, j) => j !== i)
-                          const taken = !canAddFixedShelfToColumn(others, c) && shelf.columnIndex !== c
+                          const path = layout.columns[c]?.path ?? ''
+                          const inSpan = path.length > 0 && shelf.spanPaths?.includes(path) === true
+                          const selected =
+                            inSpan || (shelf.columnIndex === c && !(shelf.spanPaths && shelf.spanPaths.length >= 2))
+                          const taken = !canAddFixedShelfToColumn(others, c) && !selected
                           return (
                             <Button
                               key={`fs-col-${i}-${c}`}
                               type="button"
                               size="sm"
                               disabled={taken}
-                              variant={shelf.columnIndex === c ? 'default' : 'outline'}
+                              variant={selected ? 'default' : 'outline'}
                               onClick={() =>
                                 commitFixedShelves(
-                                  fixedShelves.map((r, j) => (j === i ? { ...r, columnIndex: c } : r)),
+                                  fixedShelves.map((r, j) =>
+                                    j === i
+                                      ? { ...r, columnIndex: c, bayPath: undefined, opening: undefined, spanPaths: undefined }
+                                      : r,
+                                  ),
                                 )
                               }
                             >
-                              {columnLabel(c, layout.columns.length)}
+                              {columnLabel(c, layout.columns.length, layout.columns[c]?.path)}
                             </Button>
                           )
                         })}
@@ -2745,13 +3197,65 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                           variant={shelf.columnIndex == null ? 'default' : 'outline'}
                           onClick={() =>
                             commitFixedShelves(
-                              fixedShelves.map((r, j) => (j === i ? { ...r, columnIndex: null } : r)),
+                              fixedShelves.map((r, j) =>
+                                j === i ? { ...r, columnIndex: null, bayPath: undefined, opening: undefined, spanPaths: undefined } : r,
+                              ),
                             )
                           }
                         >
                           {FULL_CABINET_LABEL}
                         </Button>
                       </div>
+                      {!shelfAsksByZone &&
+                        continueSidePaths(
+                          shelfSidePaths(shelf, layout.columns),
+                          layout.columns.map((column) => column.path).filter((item) => item.length > 0),
+                        ).map((path) => {
+                          const ordered = layout.columns
+                            .map((column) => column.path)
+                            .filter((item) => item.length > 0)
+                          const current = shelfSidePaths(shelf, layout.columns)
+                          const next = [...current, path].sort(
+                            (a, b) => ordered.indexOf(a) - ordered.indexOf(b),
+                          )
+                          const columnIndex = layout.columns.findIndex((column) => column.path === next[0])
+                          const taken =
+                            fixedShelfBayCount(
+                              fixedShelves.filter((_, j) => j !== i),
+                              path,
+                            ) >= MAX_FIXED_SHELVES
+                          const sideIndex = layout.columns.findIndex((column) => column.path === path)
+                          return (
+                            <Button
+                              key={`fs-continue-${i}-${path}`}
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              disabled={taken || columnIndex < 0}
+                              onClick={() =>
+                                commitFixedShelves(
+                                  fixedShelves.map((r, j) =>
+                                    j === i
+                                      ? {
+                                          ...r,
+                                          columnIndex,
+                                          bayPath: undefined,
+                                          spanPaths: next,
+                                        }
+                                      : r,
+                                  ),
+                                )
+                              }
+                            >
+                              Продължи към {columnLabel(sideIndex, layout.columns.length, path)}
+                            </Button>
+                          )
+                        })}
+                      {(shelf.spanPaths?.length ?? 0) >= 2 && (
+                        <p className="text-xs text-[var(--color-muted-foreground)]">
+                          Страницата между тези страни се реже отгоре и остава само под рафта.
+                        </p>
+                      )}
                     </>
                   )}
                   <ShelfMeasureFields
@@ -2767,6 +3271,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                       .filter(
                         (shelfChoice) =>
                           shelfChoice.index !== i &&
+                          fixedShelves[shelfChoice.index]?.from !== 'middle' &&
                           (shelf.columnIndex == null ||
                             shelfChoice.columnIndex == null ||
                             shelfChoice.columnIndex === shelf.columnIndex),
@@ -2785,9 +3290,19 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                       'дъното',
                     )}. Линията е на 3D изгледа.`}
                     offsetId={`fixed-off-${i}`}
+                    allowMiddle
                     onFrom={() => {}}
                     onMeasureFrom={(next) => {
-                      if (next.from === 'middle') return
+                      if (next.from === 'middle') {
+                        setFixedShelves((rows) =>
+                          rows.map((r, j) =>
+                            j === i
+                              ? { ...r, from: 'middle', fromShelf: null, offsetMm: '0', ...defaultShelfFaces('middle') }
+                              : r,
+                          ),
+                        )
+                        return
+                      }
                       const from = next.from
                       setFixedShelves((rows) =>
                         rows.map((r, j) =>
@@ -2809,14 +3324,14 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                   />
                 </div>
               ))}
-              <div className="mt-2">
+              <div className="mt-2 flex flex-wrap gap-2">
                 <Button
                   type="button"
                   size="sm"
-                  variant={pendingAdd?.kind === 'fixed-shelf' ? 'default' : 'outline'}
-                  disabled={!canAddMoreFixedShelves(fixedShelves, Math.max(1, layout.columns.length))}
+                  variant={pendingAdd?.kind === 'fixed-shelf' && !pendingAdd.middle ? 'default' : 'outline'}
+                  disabled={!canAddShelf}
                   onClick={() => {
-                    if (layout.columns.length > 1) {
+                    if (shelfAsksByZone || layout.columns.length > 1) {
                       setPendingAdd({ kind: 'fixed-shelf' })
                       return
                     }
@@ -2826,16 +3341,46 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                   <Plus className="h-4 w-4" />
                   Добави фиксиран рафт
                 </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={pendingAdd?.kind === 'fixed-shelf' && pendingAdd.middle ? 'default' : 'outline'}
+                  disabled={!canAddShelf}
+                  onClick={() => {
+                    if (shelfAsksByZone || layout.columns.length > 1) {
+                      setPendingAdd({ kind: 'fixed-shelf', middle: true })
+                      return
+                    }
+                    addFixedShelf(null, 'middle')
+                  }}
+                >
+                  <Plus className="h-4 w-4" />
+                  По средата
+                </Button>
               </div>
-              {pendingAdd?.kind === 'fixed-shelf' && layout.columns.length > 1 && (
+              {pendingAdd?.kind === 'fixed-shelf' && (shelfAsksByZone || layout.columns.length > 1) && (
                 <WherePicker
-                  zones={layout.columns
-                    .map((_, c) => ({
-                      id: `c${c}`,
-                      label: columnLabel(c, layout.columns.length),
-                    }))
-                    .filter((_, c) => canAddFixedShelfToColumn(fixedShelves, c))}
-                  allowFull={canAddFixedShelfFull(fixedShelves, layout.columns.length)}
+                  zones={
+                    shelfAsksByZone
+                      ? shelfTargetZones(layout.zones)
+                          .filter((zone) => fixedShelfBayCount(fixedShelves, zone.path) < MAX_FIXED_SHELVES)
+                          .map((zone) => ({
+                            id: `shelf-zone:${zone.id}`,
+                            label: zone.label.startsWith('Страна') ? zone.label : `Страна ${zone.path}`,
+                          }))
+                      : layout.columns
+                          .map((column, c) => ({
+                            id: `c${c}`,
+                            label: columnLabel(c, layout.columns.length, column.path),
+                          }))
+                          .filter((_, c) => canAddFixedShelfToColumn(fixedShelves, c))
+                  }
+                  allowFull={canAddFixedShelfFull(columnShelves, layout.columns.length)}
+                  hint={
+                    pendingAdd.middle
+                      ? 'Рафтът застава по средата на избраната страна — еднакви празнини над и под него.'
+                      : undefined
+                  }
                   onPick={applyPending}
                   onCancel={() => setPendingAdd(null)}
                 />
@@ -2851,7 +3396,8 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
             >
               <p className="mt-0.5 text-xs text-[var(--color-muted-foreground)]">
                 Вътрешна страница — сяда на дъното, не на пода. Мери се от лявата/дясната страница на корпуса,
-                от вече добавена страница, или по средата на отвора. До 3 страници — 4 части.
+                от вече добавена страница, или по средата на отвора. Страница по средата отдолу, под фиксиран
+                рафт, стига само до рафта и не продължава до горе. „На равни части“ дели избраната страна на равни отвори: 3 равни са 2 страници. Ако в страната има фиксиран рафт, те стигат до него и рафтът остава цял. До 3 страници — 4 части.
               </p>
               {partitions.map((part, i) => (
                 <div key={i} className="mt-2 space-y-2 rounded-md border border-[var(--color-border)] p-2">
@@ -2982,7 +3528,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                       variant={part.from === 'middle' ? 'default' : 'outline'}
                       onClick={() =>
                         setPartitions((rows) =>
-                          rows.map((r, j) => (j === i ? centerPartitionInCurrentBay(i) : r)),
+                          rows.map((r, j) => (j === i ? centerPartitionInCurrentBay(i, r) : r)),
                         )
                       }
                     >
@@ -3107,7 +3653,8 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                       toFace: part.toFace,
                       offsetMm: mmNum(part.offsetMm),
                       gapIndex: part.gapIndex,
-                    })}${part.from === 'middle' ? '.' : '. На 3D изгледа линията върви между тези две страни.'}`}
+                      stopsAtShelf: part.stopsAtShelf,
+                    })}${part.from === 'middle' ? '.' : part.stopsAtShelf != null ? '.' : '. На 3D изгледа линията върви между тези две страни.'}`}
                   </p>
                 </div>
               ))}
@@ -3133,6 +3680,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                             ? { fromFace: center.fromFace ?? 'right', toFace: center.toFace ?? 'right' }
                             : defaultPartitionFaces('left')),
                           offsetMm: String(offset),
+                          splitsPath: '',
                         },
                       ])
                     } else {
@@ -3144,6 +3692,9 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                           ? Math.max(MIN_ZONE_CLEAR_MM, exactMm(remain / 2))
                           : defaultPartitionOffsetMm(innerW, params.thickness, partitions.length)
                       remapZonesForNewPartition(partitions.length)
+                      const bayPath = last
+                        ? layout.columns.find((column) => Math.abs(column.x0 - last.xRight) < 0.5)?.path ?? ''
+                        : ''
                       setPartitions((rows) => {
                         if (rows.length >= MAX_PARTITIONS) return rows
                         return [
@@ -3153,6 +3704,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                             fromPartition: lastIdx,
                             ...defaultPartitionFaces('left'),
                             offsetMm: String(offset),
+                            ...(bayPath ? { splitsPath: bayPath } : {}),
                           },
                         ]
                       })
@@ -3168,7 +3720,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                   variant={pendingAdd?.kind === 'partition-middle' ? 'default' : 'outline'}
                   disabled={!canAddPartitionMiddle}
                   onClick={() => {
-                    if (partitionMiddleGaps.length > 1) {
+                    if (partitionPlaceChoices.length > 1) {
                       setPendingAdd({ kind: 'partition-middle' })
                       return
                     }
@@ -3178,20 +3730,71 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                   <Plus className="h-4 w-4" />
                   По средата
                 </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={pendingAdd?.kind === 'partition-even' ? 'default' : 'outline'}
+                  disabled={partitionMiddleGaps.length === 0}
+                  onClick={() => {
+                    setEvenPartitionError(null)
+                    if (partitionMiddleGaps.length > 1) {
+                      setPendingAdd({ kind: 'partition-even' })
+                      return
+                    }
+                    setPendingAdd({ kind: 'partition-even', column: partitionMiddleGaps[0]?.index ?? 0 })
+                  }}
+                >
+                  <Plus className="h-4 w-4" />
+                  На равни части
+                </Button>
               </div>
               {pendingAdd?.kind === 'partition-middle' && (
                 <WherePicker
-                  zones={partitionMiddleGaps.map((g) => ({
-                    id: `part-gap:${g.index}`,
+                  zones={partitionPlaceChoices.map((g) => ({
+                    id: g.id,
                     label: g.label,
                   }))}
                   allowFull={false}
-                  hint="Избери в коя страна да е разделителната страница по средата. Страна 1 е най-лявата."
+                  hint="Избери страната. „Отдолу до рафта“ слага страницата само под фиксирания рафт — тя не стига до горе на шкафа."
                   onPick={applyPending}
                   onCancel={() => setPendingAdd(null)}
                 />
               )}
-              {layout.error && layout.partitions.length > 0 && (
+              {pendingAdd?.kind === 'partition-even' && pendingAdd.column == null && (
+                <WherePicker
+                  zones={partitionMiddleGaps.map((g) => ({
+                    id: `part-even-side:${g.index}`,
+                    label: g.label,
+                  }))}
+                  allowFull={false}
+                  hint="Избери страната, която да се раздели на равни отвори."
+                  onPick={applyPending}
+                  onCancel={() => setPendingAdd(null)}
+                />
+              )}
+              {pendingAdd?.kind === 'partition-even' && pendingAdd.column != null && (
+                <WherePicker
+                  zones={evenPartChoices(pendingAdd.column).map((parts) => ({
+                    id: `part-even-count:${parts}`,
+                    label: `${parts} равни`,
+                  }))}
+                  allowFull={false}
+                  hint={
+                    evenPartChoices(pendingAdd.column).length === 0
+                      ? 'В тази страна няма място за равни части.'
+                      : shelfStopForColumn(pendingAdd.column)
+                        ? '3 равни слагат 2 страници под фиксирания рафт. Стигат до рафта и не продължават до плота. Рафтът остава цял.'
+                        : '3 равни слагат 2 страници с еднакъв отвор между тях. Страниците, които ограждат страната, си остават.'
+                  }
+                  onPick={applyPending}
+                  onCancel={() => setPendingAdd(null)}
+                />
+              )}
+              {evenPartitionError && (
+                <p className="mt-1 text-xs text-[var(--color-destructive)]">{evenPartitionError}</p>
+              )}
+              {layout.error &&
+                (layout.partitions.length > 0 || partitions.some((p) => p.stopsAtShelf != null)) && (
                 <p className="mt-1 text-xs text-[var(--color-destructive)]">{layout.error}</p>
               )}
             </FormSection>
@@ -3546,7 +4149,11 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
               </p>
             </FormSection>
 
-        <FormSection defaultOpen={false} title="Фазер на гърба" summary={hasBack ? 'С фазер' : 'Без'}>
+        <FormSection
+          defaultOpen={false}
+          title="Фазер на гърба"
+          summary={hasBack ? (nailBack ? 'С фазер · пирони' : 'С фазер') : 'Без'}
+        >
           <div className="mt-1 flex gap-2">
             <Button
               type="button"
@@ -3565,13 +4172,38 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
               Без
             </Button>
           </div>
+          {hasBack && (
+            <div className="mt-2">
+              <Button
+                type="button"
+                size="sm"
+                variant={nailBack ? 'default' : 'outline'}
+                onClick={() => setNailBack((on) => !on)}
+              >
+                Коване с пирони
+              </Button>
+            </div>
+          )}
           <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
             {hasBack
-              ? backPlinth > 0
-                ? `Рязане ${backCut.width} × ${backCut.height} мм — цокълът ${backPlinth} мм не се покрива.`
-                : `Рязане ${backCut.width} × ${backCut.height} мм — покрива целия гръб.`
+              ? `${
+                  backPlan.pieces.length > 1
+                    ? `Рязане ${backPlan.pieces.map((piece) => `${formatMm(piece.width)} × ${formatMm(piece.height)}`).join(', ')} мм`
+                    : `Рязане ${formatMm(backCut.width)} × ${formatMm(backCut.height)} мм`
+                }${backPlinth > 0 ? ` — цокълът ${backPlinth} мм не се покрива.` : ' — покрива целия гръб.'}${
+                  backPlan.pieces.length > 1 ? ' Над 1 м се дели на разделителната страница.' : ''
+                }`
               : 'Без гръб.'}
           </p>
+          {hasBack && nailBack && (
+            <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
+              Пирон през 12 см, {settings.assemblyTime.backNailSeconds} сек. По страниците, дъното, плота,
+              разделителните страници и фиксираните рафтове.
+              {backPlan.jointNails > 0
+                ? ` На снадката между фазерите — от двете страни, по ${settings.assemblyTime.backJointNailSeconds} сек (${backPlan.jointNails} пирона).`
+                : ''}
+            </p>
+          )}
         </FormSection>
 
         <FormSection defaultOpen={false}
@@ -5410,7 +6042,9 @@ function betweenRowExtras(
       const lower = sorted[i]
       const upper = sorted[i + 1]
       const between = `между ${rowBetweenWord(lower)} и ${rowBetweenWord(upper)}`
-      const prefix = multiCol ? `${columnLabel(c, Math.max(colCount, byCol.size))}: ` : ''
+      const prefix = multiCol
+        ? `${columnLabel(c, Math.max(colCount, byCol.size), sorted[0]?.path)}: `
+        : ''
       extra.push({
         id: `mid:${c}:${i}`,
         label: prefix ? `${prefix}${between}` : `Между ${rowBetweenWord(lower)} и ${rowBetweenWord(upper)}`,

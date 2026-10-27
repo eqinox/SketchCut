@@ -66,6 +66,7 @@ export const DEFAULT_KITCHEN_WALL_PARAMS: KitchenWallParams = {
   shelfCount: 0,
   movableShelves: [],
   hasBack: true,
+  nailBack: false,
   doorCount: 0,
   doorStyle: 'hinged',
   slidingEdges: [],
@@ -252,7 +253,11 @@ export function generateKitchenWall(
   )
 
   if (p.hasBack) {
-    appendHardboard({ width: p.width, height: p.height }, panels, notes)
+    appendHardboard(
+      { width: p.width, height: p.height, dividerCentersMm: interior.backNails.dividerCentersMm },
+      panels,
+      notes,
+    )
   }
 
   const assembly = collectCabinetAssembly({
@@ -267,6 +272,10 @@ export function generateKitchenWall(
     isWallCabinet: true,
     plinthCount: 0,
     hasBack: p.hasBack,
+    nailBack: p.nailBack === true,
+    backDividerCentersMm: interior.backNails.dividerCentersMm,
+    backPartialLengthsMm: interior.backNails.partialLengthsMm,
+    backShelfLengthsMm: interior.backNails.shelfLengthsMm,
     shelfCount: interior.shelfCount,
     doorCount: interior.doorCount,
     drawerCount: interior.drawerCount,

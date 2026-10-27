@@ -1,5 +1,5 @@
 import type { BoardKind, Sheet } from '@/types'
-import { formatMm } from '../utils'
+import { exactMm, formatMm } from '../utils'
 import type { RuleBlock, RuleSection } from './rule-text'
 import { KERF } from '@/lib/packing/types'
 import {
@@ -227,6 +227,103 @@ export function hardboardCutSize(
     width: cabinetWidth,
     height: Math.max(1, cabinetHeight - Math.max(0, plinthHeight)),
   }
+}
+
+/** Nails along the back, every 12 cm. */
+export const BACK_NAIL_SPACING_MM = 120
+/** One hardboard piece stays at most this wide when a divider can take the joint. */
+export const BACK_PIECE_MAX_WIDTH_MM = 1000
+/** Seconds to drive one nail into a single back. */
+export const BACK_NAIL_SECONDS = 10
+/** Seconds per nail where two backs meet and both sides are nailed at an angle. */
+export const BACK_JOINT_NAIL_SECONDS = 15
+
+/** One nail per 12 cm of a run, at least one when the run has length. */
+export function backNailCount(lengthMm: number): number {
+  if (!(lengthMm > 0)) return 0
+  return Math.max(1, Math.round(lengthMm / BACK_NAIL_SPACING_MM))
+}
+
+export type HardboardPiece = { width: number; height: number }
+
+/**
+ * Pieces of the back. Over 1 m, a full-height divider becomes the joint so no
+ * piece is wider than 1 m when a divider sits inside that span. A bay that is
+ * already wider than 1 m stays one piece.
+ */
+export function splitHardboardSpans(
+  width: number,
+  dividerCentersMm: number[],
+): { x0: number; x1: number }[] {
+  const W = Math.max(0, width)
+  const maxW = BACK_PIECE_MAX_WIDTH_MM
+  const xs = dividerCentersMm.filter((x) => x > 0.5 && x < W - 0.5).sort((a, b) => a - b)
+  if (!(W > maxW) || xs.length === 0) return [{ x0: 0, x1: W }]
+  const cuts = [0]
+  let start = 0
+  while (W - start > maxW + 0.5) {
+    const within = xs.filter((x) => x > start + 0.5 && x - start <= maxW + 0.5)
+    const next = within.length > 0 ? within[within.length - 1]! : xs.find((x) => x > start + 0.5)
+    if (next == null || next >= W - 0.5) break
+    cuts.push(next)
+    start = next
+  }
+  cuts.push(W)
+  return cuts.slice(0, -1).map((x0, i) => ({ x0, x1: cuts[i + 1]! }))
+}
+
+function isJointEdge(x: number, width: number, dividerCentersMm: number[]): boolean {
+  if (x <= 0.5 || x >= width - 0.5) return false
+  return dividerCentersMm.some((center) => Math.abs(center - x) < 0.5)
+}
+
+/** Cut sizes plus the nail count for the frame, dividers, shelves and joints. */
+export function planHardboardBack(input: {
+  width: number
+  height: number
+  dividerCentersMm?: number[]
+  partialLengthsMm?: number[]
+  shelfLengthsMm?: number[]
+  nailSeconds?: number
+  jointNailSeconds?: number
+}): { pieces: HardboardPiece[]; straightNails: number; jointNails: number; minutes: number } {
+  const width = Math.max(0, input.width)
+  const height = Math.max(1, input.height)
+  const dividers = input.dividerCentersMm ?? []
+  const spans = splitHardboardSpans(width, dividers)
+  const pieces: HardboardPiece[] = []
+  let used = 0
+  spans.forEach((span, index) => {
+    const pieceW =
+      index === spans.length - 1 ? Math.max(0, exactMm(width - used)) : exactMm(span.x1 - span.x0)
+    if (index < spans.length - 1) used += pieceW
+    pieces.push({ width: pieceW, height })
+  })
+  let straightNails = 0
+  let jointNails = 0
+  for (const span of spans) {
+    straightNails += backNailCount(span.x1 - span.x0) * 2
+    const left = backNailCount(height)
+    const right = backNailCount(height)
+    if (isJointEdge(span.x0, width, dividers)) jointNails += left
+    else straightNails += left
+    if (isJointEdge(span.x1, width, dividers)) jointNails += right
+    else straightNails += right
+  }
+  for (const center of dividers) {
+    const joint = spans.some(
+      (span) =>
+        (Math.abs(span.x0 - center) < 0.5 && span.x0 > 0.5) ||
+        (Math.abs(span.x1 - center) < 0.5 && span.x1 < width - 0.5),
+    )
+    if (!joint) straightNails += backNailCount(height)
+  }
+  for (const length of input.partialLengthsMm ?? []) straightNails += backNailCount(length)
+  for (const length of input.shelfLengthsMm ?? []) straightNails += backNailCount(length)
+  const nailSeconds = input.nailSeconds ?? BACK_NAIL_SECONDS
+  const jointSeconds = input.jointNailSeconds ?? BACK_JOINT_NAIL_SECONDS
+  const minutes = (straightNails * nailSeconds + jointNails * jointSeconds) / 60
+  return { pieces, straightNails, jointNails, minutes }
 }
 
 export type DoorCutOpts = {
@@ -599,6 +696,8 @@ export function boardRuleBlocks(): RuleBlock[] {
       title: 'Фазер',
       lines: [
         `Гърбът е пълната широчина × височината. С цокъл височината се маха с височината на цокъла. Шкаф 600 × 800 с цокъл 100: фазер ${formatMm(back.width)} × ${formatMm(back.height)} мм. С крачета цокълът е 0 и гърбът покрива целия корпус.`,
+        `Над ${BACK_PIECE_MAX_WIDTH_MM} мм и с разделителна страница гърбът се реже на части по страниците, така че една част да не минава ${BACK_PIECE_MAX_WIDTH_MM} мм, когато страницата е вътре в нея. С две страници могат да излязат три фазера — широчините са както дойдат от страниците.`,
+        `„Коване с пирони“: пирон през ${BACK_NAIL_SPACING_MM / 10} см, ${BACK_NAIL_SECONDS} сек на пирон, по контура, по разделителните страници и по фиксираните рафтове. Където два фазера се срещат, пирони има от двете страни и всеки е ${BACK_JOINT_NAIL_SECONDS} сек.`,
       ],
     },
     {

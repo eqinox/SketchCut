@@ -1,0 +1,154 @@
+type ColumnShelf = InteriorLayout['shelves'][number]
+type ColumnPartial = InteriorLayout['partialPartitions'][number]
+
+/**
+ * Shelves beside a short divider are drawn first, then the divider, then the shelf it stops under.
+ * The divider's front edge stays in front of the lower shelf. The upper shelf's edge stays in front of the divider.
+ */
+function columnShelfPartialOrder(
+  layout: InteriorLayout,
+  colIndex: number,
+): Array<{ kind: 'shelves'; shelves: ColumnShelf[] } | { kind: 'partials'; parts: ColumnPartial[] }> {
+  const parts = layout.partialPartitions
+    .filter((part) => part.columnIndex === colIndex)
+    .slice()
+    .sort((a, b) => a.height - b.height || a.xLeft - b.xLeft)
+  const shelves = shelvesForColumn(layout.shelves, colIndex)
+  const used = new Set<number>()
+  const steps: Array<{ kind: 'shelves'; shelves: ColumnShelf[] } | { kind: 'partials'; parts: ColumnPartial[] }> = []
+  let i = 0
+  while (i < parts.length) {
+    const height = parts[i]!.height
+    const group: ColumnPartial[] = []
+    while (i < parts.length && Math.abs(parts[i]!.height - height) < 0.5) {
+      group.push(parts[i]!)
+      i++
+    }
+    const below = shelves.filter((s) => !used.has(s.specIndex) && s.yTop <= height + 0.5)
+    for (const s of below) used.add(s.specIndex)
+    if (below.length > 0) steps.push({ kind: 'shelves', shelves: below })
+    steps.push({ kind: 'partials', parts: group })
+  }
+  const rest = shelves.filter((s) => !used.has(s.specIndex))
+  if (rest.length > 0) steps.push({ kind: 'shelves', shelves: rest })
+  return steps
+}
+
+function BayShelvesAndPartials({
+  layout,
+  colIndex,
+  T,
+  innerFloorY,
+  cam,
+  shelfColor,
+  sideColor,
+  fixedZ,
+  fixedD,
+  shelfHole,
+}: {
+  layout: InteriorLayout
+  colIndex: number
+  T: number
+  innerFloorY: number
+  cam: ReturnType<typeof createDrawCam>
+  shelfColor: string
+  sideColor: string
+  fixedZ: number
+  fixedD: number
+  shelfHole?: PanelHole
+}) {
+  const col = layout.columns[colIndex]
+  if (!col) return null
+  return (
+    <>
+      {columnShelfPartialOrder(layout, colIndex).map((step, stepIndex) =>
+        step.kind === 'partials' ? (
+          step.parts.map((part) => (
+            <Board
+              key={`partial-${part.specIndex}-c${colIndex}`}
+              x={T + part.xLeft}
+              y={innerFloorY - part.height}
+              z={fixedZ}
+              w={T}
+              h={part.height}
+              d={fixedD}
+              color={sideColor}
+              cam={cam}
+              faces={SIDE_LEFT_BODY}
+            />
+          ))
+        ) : (
+          step.shelves.map((s) => {
+            const shelfX = s.spanX0 ?? col.x0
+            const shelfW = s.spanX0 != null && s.spanX1 != null ? s.spanX1 - s.spanX0 : col.innerW
+            return (
+              <g key={`fixed-${s.specIndex}-c${colIndex}-s${stepIndex}`}>
+                <Board
+                  x={T + shelfX}
+                  y={innerFloorY - s.yTop}
+                  z={fixedZ}
+                  w={shelfW}
+                  h={T}
+                  d={fixedD}
+                  color={shelfColor}
+                  cam={cam}
+                  faces={BETWEEN_FACES}
+                />
+                {shelfHole && (
+                  <PanelHoleMark
+                    x={T + shelfX}
+                    y={innerFloorY - s.yTop}
+                    z={fixedZ}
+                    w={shelfW}
+                    d={fixedD}
+                    hole={shelfHole}
+                    cam={cam}
+                  />
+                )}
+              </g>
+            )
+          })
+        ),
+      )}
+    </>
+  )
+}
+
+function ColumnFill({
+  layout,
+  colIndex,
+  T,
+  innerFloorY,
+  cam,
+  shelfColor,
+  fixedZ = 0,
+  fixedD,
+  adjZ,
+  adjD,
+  shelfHole,
+  pinMark = 10,
+  clothesTrackMm = 0,
+  railSideZ,
+  railPartitionZ,
+  skipFixedShelves = false,
+}: {
+  layout: InteriorLayout
+  colIndex: number
+  T: number
+  innerFloorY: number
+  cam: ReturnType<typeof createDrawCam>
+  shelfColor: string
+  fixedZ?: number
+  fixedD: number
+  adjZ: number
+  adjD: number
+  shelfHole?: PanelHole
+  pinMark?: number
+  /** Upper sliding track height. A rod hung from the top is drawn this far lower, so it shows under the track. */
+  clothesTrackMm?: number
+  /** Front face of the outer sides. */
+  railSideZ: number
+  /** Front face of a set-back divider. Same as the sides when the divider is full depth. */
+  railPartitionZ?: number
+  skipFixedShelves?: boolean
+}) {

@@ -48,6 +48,7 @@ export const DEFAULT_KITCHEN_BASE_PARAMS: KitchenBaseParams = {
   shelfCount: 0,
   movableShelves: [],
   hasBack: true,
+  nailBack: false,
   doorCount: 0,
   drawerFrontHeights: [],
   cutFromOneBoard: false,
@@ -232,7 +233,11 @@ export function generateKitchenBase(
   )
 
   if (p.hasBack) {
-    appendHardboard({ width: p.width, height: p.height }, panels, notes)
+    appendHardboard(
+      { width: p.width, height: p.height, dividerCentersMm: interior.backNails.dividerCentersMm },
+      panels,
+      notes,
+    )
   }
 
   const assembly = collectCabinetAssembly({
@@ -249,6 +254,10 @@ export function generateKitchenBase(
     hasTop: false,
     plinthCount: 0,
     hasBack: p.hasBack,
+    nailBack: p.nailBack === true,
+    backDividerCentersMm: interior.backNails.dividerCentersMm,
+    backPartialLengthsMm: interior.backNails.partialLengthsMm,
+    backShelfLengthsMm: interior.backNails.shelfLengthsMm,
     shelfCount: interior.shelfCount,
     doorCount: interior.doorCount,
     drawerCount: interior.drawerCount,
