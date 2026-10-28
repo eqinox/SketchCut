@@ -1,3 +1,4 @@
+import { parseBoardFinishes, type BoardFinish } from './board-finishes'
 import {
   DEFAULT_SLIDING_CAP_SKUS,
   DEFAULT_SLIDING_HANDLE_SKUS,
@@ -19,6 +20,7 @@ export type SlideKind = 'roller' | 'soft-full' | 'soft-partial'
 export type PriceByLength = Record<string, number>
 
 export type { SlidingHardwareLinks, SlidingProfileSku, SlidingTrackColor }
+export type { BoardFinish }
 
 export interface HardwareSettings {
   hingeSoftCloseEur: number
@@ -61,8 +63,11 @@ export interface HardwareSettings {
    */
   billWholeSheets: boolean
 
-  /** Chipboard (ПДЧ) price per sheet, EUR. */
+  /** Chipboard (ПДЧ) price per sheet, EUR. Used when a cabinet has no decor of its own. */
   chipboardPriceEur: number
+
+  /** Named decors. Each one is its own sheet and its own price. */
+  boardFinishes: BoardFinish[]
 
   /** Hardboard (фазер) price per sheet, EUR. */
   hardboardPriceEur: number
@@ -146,6 +151,7 @@ export const DEFAULT_HARDWARE_SETTINGS: HardwareSettings = {
   edgeMm05Eur: 0.35,
   billWholeSheets: true,
   chipboardPriceEur: 86,
+  boardFinishes: [],
   hardboardPriceEur: 20,
   billWholeHardboardSheets: true,
   skipCuttingEdgingLabor: false,
@@ -212,6 +218,7 @@ export function parseHardwareSettings(raw: unknown): HardwareSettings {
     edgeMm05Eur: num(src, 'edgeMm05Eur', d.edgeMm05Eur),
     billWholeSheets: flag(src, 'billWholeSheets', d.billWholeSheets),
     chipboardPriceEur: num(src, 'chipboardPriceEur', d.chipboardPriceEur),
+    boardFinishes: parseBoardFinishes(src.boardFinishes),
     hardboardPriceEur: num(src, 'hardboardPriceEur', d.hardboardPriceEur),
     billWholeHardboardSheets: flag(src, 'billWholeHardboardSheets', d.billWholeHardboardSheets),
     skipCuttingEdgingLabor: flag(src, 'skipCuttingEdgingLabor', d.skipCuttingEdgingLabor),

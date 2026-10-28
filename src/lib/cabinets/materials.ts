@@ -198,12 +198,27 @@ export function referenceSheet(
   }
 }
 
-export type DoorCount = 0 | 1 | 2
+export type DoorCount = 0 | 1 | 2 | 3 | 4
+/** Hinged leaves in one opening. */
+export type DoorLeafCount = Exclude<DoorCount, 0>
 
 export function parseDoorCount(value: unknown): DoorCount {
   const n = typeof value === 'number' ? value : Number.parseInt(String(value ?? ''), 10)
-  if (n === 1 || n === 2) return n
+  if (n === 1 || n === 2 || n === 3 || n === 4) return n
   return 0
+}
+
+export function doorLeafCount(value: DoorCount): DoorLeafCount | null {
+  return value === 0 ? null : value
+}
+
+/** Lowercase count used in notes: „една врата“, „четири врати“. */
+export function doorLeafWord(count: number): string {
+  if (count === 1) return 'една врата'
+  if (count === 2) return 'две врати'
+  if (count === 3) return 'три врати'
+  if (count === 4) return 'четири врати'
+  return `${count} врати`
 }
 
 /** 0–MAX_SHELVES evenly spaced shelves. */
@@ -351,10 +366,10 @@ function doorEdgeDeduction(opts?: DoorCutOpts): number {
 }
 
 /** Finished/cut width of one door from the opening it sits in. */
-export function doorCutWidth(openingWidth: number, doorCount: 1 | 2, opts?: DoorCutOpts): number {
+export function doorCutWidth(openingWidth: number, doorCount: DoorLeafCount, opts?: DoorCutOpts): number {
   const edge = doorEdgeDeduction(opts)
   if (opts?.inset) {
-    const between = doorCount === 2 ? DRAWER_DOOR_GAP : 0
+    const between = Math.max(0, doorCount - 1) * DRAWER_DOOR_GAP
     return (openingWidth - INNER_DRAWER_GAP_X - between) / doorCount - edge
   }
   return openingWidth / doorCount - DOOR_GAP_X - edge
@@ -364,7 +379,7 @@ export function doorCutWidth(openingWidth: number, doorCount: 1 | 2, opts?: Door
 export function doorCutSize(
   openingWidth: number,
   cabinetHeight: number,
-  doorCount: 1 | 2,
+  doorCount: DoorLeafCount,
   opts?: DoorCutOpts,
 ): { width: number; height: number } {
   const edge = doorEdgeDeduction(opts)
@@ -486,7 +501,7 @@ export function drawerFrontsAreEven(
 
 /**
  * Fronts that share the same width can be first-cut as one board for continuous grain.
- * One full-width door matches the drawer fronts; two doors are half-width and stay separate.
+ * One full-width door matches the drawer fronts; two or more doors are narrower and stay separate.
  */
 export function canCombineFronts(drawerCount: number, doorCount: number): boolean {
   const stacked = drawerCount + (doorCount === 1 ? 1 : 0)
@@ -504,7 +519,7 @@ export function doorWithDrawersCutSize(
   openingWidth: number,
   cabinetHeight: number,
   drawerFrontHeights: number[],
-  doorCount: 1 | 2,
+  doorCount: DoorLeafCount,
   opts?: DoorCutOpts,
 ): { width: number; height: number } {
   const edge = doorEdgeDeduction(opts)
@@ -519,7 +534,7 @@ export function doorWithDrawerCutSize(
   cabinetWidth: number,
   cabinetHeight: number,
   drawerFrontHeight: number,
-  doorCount: 1 | 2,
+  doorCount: DoorLeafCount,
 ): { width: number; height: number } {
   return doorWithDrawersCutSize(cabinetWidth, cabinetHeight, [drawerFrontHeight], doorCount)
 }
@@ -582,6 +597,8 @@ const RULE_OPENING_H = 720
 export function overlayDoorRuleSection(): RuleSection {
   const one = doorCutSize(RULE_OPENING_W, RULE_OPENING_H, 1)
   const two = doorCutSize(RULE_OPENING_W, RULE_OPENING_H, 2)
+  const three = doorCutSize(RULE_OPENING_W, RULE_OPENING_H, 3)
+  const four = doorCutSize(RULE_OPENING_W, RULE_OPENING_H, 4)
   const even = equalDrawerFrontHeights(RULE_OPENING_H, 3)
   return {
     id: 'overlay',
@@ -608,8 +625,8 @@ export function overlayDoorRuleSection(): RuleSection {
         title: 'Широчина',
         lines: [
           `Една врата или едно чело: фуга ${DOOR_GAP_X} мм общо = ${formatMm(DOOR_SIDE_GAP_EACH)} мм отляво + ${formatMm(DOOR_SIDE_GAP_EACH)} мм отдясно.`,
-          `Рязане = отвор / брой − ${DOOR_GAP_X} − ${DOOR_EDGE_BOTH}.`,
-          `Отвор ${RULE_OPENING_W} мм: една врата ${formatMm(one.width)} мм, две врати по ${formatMm(two.width)} мм.`,
+          `Рязане = отвор / брой − ${DOOR_GAP_X} − ${DOOR_EDGE_BOTH}. Същата сметка е за 1, 2, 3 и 4 врати.`,
+          `Отвор ${RULE_OPENING_W} мм: една ${formatMm(one.width)} мм, две по ${formatMm(two.width)} мм, три по ${formatMm(three.width)} мм, четири по ${formatMm(four.width)} мм.`,
         ],
       },
       {
@@ -619,7 +636,7 @@ export function overlayDoorRuleSection(): RuleSection {
           `Най-долното чело сяда на ${DOOR_CLEARANCE_BOTTOM}. Най-горното свършва ${DOOR_CLEARANCE_TOP} мм под горния край.`,
           `Ново чело по подразбиране е ${DEFAULT_DRAWER_FRONT_HEIGHT} мм. Най-много ${MAX_DRAWERS} чекмеджета в един отвор.`,
           `„Изравни“ на отвор ${RULE_OPENING_H} мм на 3 чела дава ${even.map((h) => formatMm(h)).join(' + ')} мм. Остатъчните милиметри отиват към горните чела.`,
-          `Чела с еднаква широчина (една врата отгоре, не две) могат да се режат от една плоча. Между парчетата се оставят ${COMBINED_FRONT_SAW_BUFFER} мм: две чела по ${formatMm(one.height)} мм стават ${formatMm(combinedFrontCutHeight([one.height, one.height]))} мм.`,
+          `Чела с еднаква широчина (една врата отгоре, не две, три или четири) могат да се режат от една плоча. Между парчетата се оставят ${COMBINED_FRONT_SAW_BUFFER} мм: две чела по ${formatMm(one.height)} мм стават ${formatMm(combinedFrontCutHeight([one.height, one.height]))} мм.`,
         ],
       },
     ],
@@ -628,6 +645,8 @@ export function overlayDoorRuleSection(): RuleSection {
 
 export function insetDoorRuleSection(): RuleSection {
   const two = doorCutSize(RULE_OPENING_W, RULE_OPENING_H, 2, { inset: true })
+  const three = doorCutSize(RULE_OPENING_W, RULE_OPENING_H, 3, { inset: true })
+  const four = doorCutSize(RULE_OPENING_W, RULE_OPENING_H, 4, { inset: true })
   const one = doorCutSize(RULE_OPENING_W, RULE_OPENING_H, 1, { inset: true })
   return {
     id: 'inset',
@@ -644,8 +663,8 @@ export function insetDoorRuleSection(): RuleSection {
         title: 'Широчина',
         lines: [
           `Фуга ${INNER_DRAWER_GAP_X} мм общо = ${INNER_DRAWER_SIDE_GAP_EACH} мм отляво + ${INNER_DRAWER_SIDE_GAP_EACH} мм отдясно.`,
-          `При две вътрешни врати има още ${DRAWER_DOOR_GAP} мм между тях.`,
-          `Рязане = (отвор − фугите) / брой − ${DOOR_EDGE_BOTH}. Отвор ${RULE_OPENING_W} мм: една ${formatMm(one.width)} мм, две по ${formatMm(two.width)} мм.`,
+          `При две, три или четири вътрешни врати има още ${DRAWER_DOOR_GAP} мм между всеки две съседни.`,
+          `Рязане = (отвор − ${INNER_DRAWER_GAP_X} − ${DRAWER_DOOR_GAP} × (брой − 1)) / брой − ${DOOR_EDGE_BOTH}. Отвор ${RULE_OPENING_W} мм: една ${formatMm(one.width)} мм, две по ${formatMm(two.width)} мм, три по ${formatMm(three.width)} мм, четири по ${formatMm(four.width)} мм.`,
         ],
       },
     ],

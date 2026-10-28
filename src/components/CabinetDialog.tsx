@@ -59,6 +59,7 @@ import {
   canCombineFronts,
   canCombineAdjacentZoneFronts,
   doorCutSize,
+  doorLeafCount,
   doorCutRuleNote,
   drawerFrontCutSize,
   DOOR_CLEARANCE_TOP,
@@ -109,6 +110,7 @@ import {
   type DoorSpan,
   type ZoneFittings,
   type SideFace,
+  type DoorCount,
   type DoorStyle,
   type SlidingDoorEdges,
   type SlidingEdgeKind,
@@ -142,6 +144,7 @@ import {
   frontStackOpeningHeight,
   columnLabel,
   shelvesForColumn,
+  shelvesCoveringColumn,
   canAddFixedShelfToColumn,
   canAddFixedShelfFull,
   canAddMoreFixedShelves,
@@ -187,7 +190,7 @@ type ClothesRailUi = {
 type ZoneUi = {
   shelfCount: number
   movableShelves: MovableShelfUi[]
-  doorCount: 0 | 1 | 2
+  doorCount: DoorCount
   drawerFrontHeights: string[]
   cutFromOneBoard: boolean
   hasClothesRail: boolean
@@ -785,7 +788,7 @@ type FrontTarget = CabinetZoneId | 'full'
 type PendingAdd =
   | { kind: 'shelf'; middle?: boolean }
   | { kind: 'drawer' }
-  | { kind: 'door'; count: 1 | 2 }
+  | { kind: 'door'; count: 1 | 2 | 3 | 4 }
   | { kind: 'rail'; middle?: boolean }
   | { kind: 'rail-even' }
   | { kind: 'fixed-shelf'; middle?: boolean }
@@ -1199,7 +1202,10 @@ function initialDepthMode(params: Record<string, unknown> | undefined): 'without
   const hingedOverlay =
     params?.doorStyle !== 'sliding' &&
     params?.innerDoors !== true &&
-    (params?.doorCount === 1 || params?.doorCount === 2)
+    (params?.doorCount === 1 ||
+      params?.doorCount === 2 ||
+      params?.doorCount === 3 ||
+      params?.doorCount === 4)
   return hingedOverlay ? 'with-door' : 'without-door'
 }
 
@@ -1348,8 +1354,19 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
     ...DEFAULT_PART_COLORS,
     ...(editing?.params.colors as CabinetPartColors | undefined),
   })
+  const [carcassFinishId, setCarcassFinishId] = useState(
+    typeof editing?.params.carcassFinishId === 'string' ? editing.params.carcassFinishId : '',
+  )
+  const [frontFinishId, setFrontFinishId] = useState(
+    typeof editing?.params.frontFinishId === 'string' ? editing.params.frontFinishId : '',
+  )
+  const [backFinishId, setBackFinishId] = useState(
+    typeof editing?.params.backFinishId === 'string' ? editing.params.backFinishId : '',
+  )
+  const [drawStyle, setDrawStyle] = useState<'line' | 'color' | 'model'>('line')
+  const [doorView, setDoorView] = useState<'hidden' | 'closed' | 'open'>('hidden')
 
-  const params = useMemo(() => {
+  const builtParams = useMemo(() => {
     const inputDepth = parseInt(depth, 10)
     const inputThickness = parseInt(thickness, 10)
 
@@ -1493,6 +1510,16 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
       ...fittings,
     })
   }, [typeId, width, height, depth, depthMode, thickness, legHeight, shelfCount, movableShelves, hasBack, nailBack, clothesRails, doorCount, doorStyle, slidingDoorCount, slidingEdges, slidingUpperTrackColor, slidingLowerTrackColor, slidingHandleSkuId, slidingCapSkuId, slidingSoftCloseLeft, slidingSoftCloseRight, drawerFrontHeights, cutFromOneBoard, includeHandles, slideKind, slideLength, useLegs, plinthCount, plinthHeight, colors, topStyle, hasHood, hoodShape, hoodDiameter, hoodRectW, hoodRectD, fixedShelves, partitions, doorSpan, zoneUi, externalDoors, innerDrawerFronts, innerDoors, dimFontScale, shelfFrontInset])
+
+  const params = useMemo(
+    () => ({
+      ...builtParams,
+      ...(carcassFinishId ? { carcassFinishId } : {}),
+      ...(frontFinishId ? { frontFinishId } : {}),
+      ...(backFinishId ? { backFinishId } : {}),
+    }),
+    [builtParams, carcassFinishId, frontFinishId, backFinishId],
+  )
 
   const qty = Math.max(1, parseInt(quantity, 10) || 1)
   const result = useMemo(() => {
@@ -1659,9 +1686,15 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
           (g) => g.end - g.start >= params.thickness + MIN_ZONE_CLEAR_MM * 2,
         )
       : []
+  const lowestShelfInGap = (columnIndex: number) => {
+    const column = layout.columns[columnIndex]
+    return [...shelvesCoveringColumn(layout.shelves, column, columnIndex)].sort(
+      (a, b) => a.yBottom - b.yBottom,
+    )[0]
+  }
   const partitionPlaceChoices = partitionMiddleGaps.flatMap((g) => {
     const choices = [{ id: `part-gap:${g.index}`, label: g.label }]
-    const lowest = [...shelvesForColumn(layout.shelves, g.index)].sort((a, b) => a.yBottom - b.yBottom)[0]
+    const lowest = lowestShelfInGap(g.index)
     if (lowest && lowest.yBottom >= MIN_ZONE_CLEAR_MM && g.end - g.start >= params.thickness + MIN_ZONE_CLEAR_MM * 2) {
       choices.push({
         id: `part-below:${g.index}:${lowest.specIndex}`,
@@ -1672,7 +1705,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
   })
   const canAddPartitionMiddle = partitions.length < MAX_PARTITIONS && partitionMiddleGaps.length > 0
   const shelfStopForColumn = (columnIndex: number) => {
-    const lowest = [...shelvesForColumn(layout.shelves, columnIndex)].sort((a, b) => a.yBottom - b.yBottom)[0]
+    const lowest = lowestShelfInGap(columnIndex)
     return lowest && lowest.yBottom >= MIN_ZONE_CLEAR_MM ? lowest : null
   }
   const evenPartChoices = (columnIndex: number): number[] => {
@@ -5094,7 +5127,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
             overlayHint="Вратата покрива канта на страниците. Фуга 1.5 мм отляво и 1.5 мм отдясно (3 мм общо)."
             insetHint="Вратата влиза между страниците до долния край на плота, после 3 мм фуга горе. Отстрани 3 мм + 3 мм."
           />
-          <div className="mt-1 flex gap-2">
+          <div className="mt-1 flex flex-wrap gap-2">
             <Button
               type="button"
               size="sm"
@@ -5108,7 +5141,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
             >
               Без
             </Button>
-            {([1, 2] as const).map((n) => (
+            {([1, 2, 3, 4] as const).map((n) => (
               <Button
                 key={n}
                 type="button"
@@ -5122,10 +5155,17 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                 }
                 onClick={() => startAdd({ kind: 'door', count: n })}
               >
-                {n === 1 ? '1 врата' : '2 врати'}
+                {n === 1 ? '1 врата' : `${n} врати`}
               </Button>
             ))}
           </div>
+          {(doorCount >= 3 ||
+            (pendingAdd?.kind === 'door' && pendingAdd.count >= 3) ||
+            Object.values(zoneUi).some((z) => z.doorCount >= 3)) && (
+            <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
+              Крайната лява е на лявата страница, крайната дясна на дясната. Вътрешните се въртят от ръба към средата.
+            </p>
+          )}
           {pendingAdd?.kind === 'door' && (
             <WherePicker
               zones={layout.zones}
@@ -5137,7 +5177,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
           {hasSplit && doorSpan === 'full' && doorCount > 0 && (
             <div className="mt-2 flex items-center gap-2">
               <span className="text-xs">
-                {doorCount === 1 ? '1 врата' : '2 врати'} · {FULL_CABINET_LABEL}
+                {doorCount === 1 ? '1 врата' : `${doorCount} врати`} · {FULL_CABINET_LABEL}
               </span>
               <Button
                 type="button"
@@ -5156,7 +5196,10 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
               zoneOf(zoneUi, z.id).doorCount > 0 ? (
                 <div key={z.id} className="mt-2 flex items-center gap-2">
                   <span className="text-xs">
-                    {zoneOf(zoneUi, z.id).doorCount === 1 ? '1 врата' : '2 врати'} · {z.label} · фронт{' '}
+                    {zoneOf(zoneUi, z.id).doorCount === 1
+                      ? '1 врата'
+                      : `${zoneOf(zoneUi, z.id).doorCount} врати`}{' '}
+                    · {z.label} · фронт{' '}
                     {formatMm(innerDoors ? z.innerH : z.frontHeight)} мм
                   </span>
                   <Button
@@ -5628,7 +5671,64 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
 
         <FormSection defaultOpen={false} title="Цветове">
           <p className="mt-0.5 text-xs text-[var(--color-muted-foreground)]">
-            По подразбиране плоскостите са еднакви. Смени само ако трябва да се отличават.
+            Корпусът и вратите могат да са от различни плочи. Всеки цвят се реже отделно и има своята цена.
+            Кантът на корпуса е цветът на корпуса, кантът на вратите е цветът на вратите.
+            При цветен изглед гърбът е бял, докато не избереш друг цвят.
+          </p>
+          <div className="mt-2 grid gap-2 sm:grid-cols-2">
+            <label className="flex flex-col gap-1 text-xs">
+              Корпус
+              <select
+                className="h-9 rounded-md border border-[var(--color-border)] bg-transparent px-2 text-sm"
+                value={carcassFinishId}
+                onChange={(e) => setCarcassFinishId(e.target.value)}
+              >
+                <option value="">Обикновена плоча</option>
+                {settings.hardware.boardFinishes.map((finish) => (
+                  <option key={finish.id} value={finish.id}>
+                    {finish.name} · {finish.sheetPriceEur} €
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex flex-col gap-1 text-xs">
+              Врати и чела
+              <select
+                className="h-9 rounded-md border border-[var(--color-border)] bg-transparent px-2 text-sm"
+                value={frontFinishId}
+                onChange={(e) => setFrontFinishId(e.target.value)}
+              >
+                <option value="">Като корпуса</option>
+                {settings.hardware.boardFinishes.map((finish) => (
+                  <option key={finish.id} value={finish.id}>
+                    {finish.name} · {finish.sheetPriceEur} €
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex flex-col gap-1 text-xs">
+              Гръб
+              <select
+                className="h-9 rounded-md border border-[var(--color-border)] bg-transparent px-2 text-sm"
+                value={backFinishId}
+                onChange={(e) => setBackFinishId(e.target.value)}
+              >
+                <option value="">Бял</option>
+                {settings.hardware.boardFinishes.map((finish) => (
+                  <option key={finish.id} value={finish.id}>
+                    {finish.name} · {finish.sheetPriceEur} €
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          {settings.hardware.boardFinishes.length === 0 && (
+            <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
+              Цветовете се добавят от Настройки → Цени → Цветове на плочите.
+            </p>
+          )}
+          <p className="mt-2 text-xs text-[var(--color-muted-foreground)]">
+            По подразбиране плоскостите на чертежа са еднакви. Смени само ако трябва да се отличават в сегашния изглед.
           </p>
           <div className="mt-2 flex flex-wrap items-center gap-3">
             {PART_COLOR_FIELDS.filter(({ key }) => {
@@ -5681,12 +5781,36 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
             />
             Оставащи размери
           </label>
-          <label className="flex cursor-pointer items-center gap-2 text-sm">
-            <Checkbox
-              checked={showFronts}
-              onCheckedChange={(c) => setShowFronts(c === true)}
-            />
-            Покажи вратите и челата
+          <label className="flex items-center gap-2 text-sm">
+            Изглед
+            <select
+              className="h-8 rounded-md border border-[var(--color-border)] bg-transparent px-2"
+              value={drawStyle}
+              onChange={(e) => {
+                const next = e.target.value
+                setDrawStyle(next === 'color' || next === 'model' ? next : 'line')
+              }}
+            >
+              <option value="line">Сегашният</option>
+              <option value="color">Цветен</option>
+              <option value="model">3D</option>
+            </select>
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            Врати
+            <select
+              className="h-8 rounded-md border border-[var(--color-border)] bg-transparent px-2"
+              value={doorView}
+              onChange={(e) => {
+                const next = e.target.value === 'open' || e.target.value === 'closed' ? e.target.value : 'hidden'
+                setDoorView(next)
+                setShowFronts(next !== 'hidden')
+              }}
+            >
+              <option value="hidden">Скрити</option>
+              <option value="closed">Затворени</option>
+              <option value="open">Отворени</option>
+            </select>
           </label>
         </div>
         <label className="flex flex-col gap-1.5 text-sm">
@@ -5735,7 +5859,19 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
           params={{ ...params }}
           showDimLines={showDimLines}
           showOpeningDims={showOpeningDims}
-          showFronts={showFronts}
+          showFronts={doorView !== 'hidden'}
+          drawStyle={drawStyle}
+          doorView={doorView}
+          carcassColor={settings.hardware.boardFinishes.find((finish) => finish.id === carcassFinishId)?.color}
+          carcassImage={settings.hardware.boardFinishes.find((finish) => finish.id === carcassFinishId)?.image}
+          frontColor={
+            settings.hardware.boardFinishes.find((finish) => finish.id === (frontFinishId || carcassFinishId))?.color
+          }
+          frontImage={
+            settings.hardware.boardFinishes.find((finish) => finish.id === (frontFinishId || carcassFinishId))?.image
+          }
+          backColor={settings.hardware.boardFinishes.find((finish) => finish.id === backFinishId)?.color}
+          backImage={settings.hardware.boardFinishes.find((finish) => finish.id === backFinishId)?.image}
         />
 
         {error && <p className="text-sm text-[var(--color-destructive)]">{error}</p>}
@@ -6113,7 +6249,7 @@ function doorSizeHint(
   frontH: number,
   layout: InteriorLayout,
   drawerFrontHeights: string[],
-  doorCount: 0 | 1 | 2,
+  doorCount: DoorCount,
   doorSpan: DoorSpan,
   subtractEdge = true,
   inset = false,
@@ -6127,12 +6263,13 @@ function doorSizeHint(
   }
   const innerW = Math.max(0, width - 2 * thickness)
   const parts: string[] = []
-  if (doorSpan === 'full' && (doorCount === 1 || doorCount === 2)) {
+  const fullLeaves = doorLeafCount(doorCount)
+  if (doorSpan === 'full' && fullLeaves) {
     const leftover = remainingFrontHeight(frontH, fullDrawers, true)
     if (leftover <= edge) parts.push('Няма място за врата на целия шкаф.')
     else {
       const opening = inset ? innerW : width
-      const d = doorCutSize(opening, frontH, doorCount, cutOpts)
+      const d = doorCutSize(opening, frontH, fullLeaves, cutOpts)
       parts.push(
         `Цял шкаф: ${subtractEdge ? 'рязане' : 'поръчай'} ${formatMm(d.width)} × ${formatMm(leftover - edge)} мм · ${doorCutRuleNote({ withDrawerGaps: fullDrawers.length > 0, subtractEdge, insetFront: inset })}`,
       )
@@ -6140,7 +6277,8 @@ function doorSizeHint(
   }
   for (const z of layout.zones) {
     if (layout.shelves.length === 0 && layout.partitions.length === 0) continue
-    if (!(z.doorCount === 1 || z.doorCount === 2)) continue
+    const zoneLeaves = doorLeafCount(z.doorCount)
+    if (!zoneLeaves) continue
     const openingH = inset ? z.innerH : z.frontHeight
     const leftover = remainingFrontHeight(openingH, z.drawerFrontHeights, true)
     if (leftover <= edge) {
@@ -6149,7 +6287,7 @@ function doorSizeHint(
     }
     const overlayW = z.frontWidth > 0 ? z.frontWidth : width
     const opening = inset ? (z.innerW > 0 ? z.innerW : innerW) : overlayW
-    const d = doorCutSize(opening, leftover + DOOR_CLEARANCE_TOP, z.doorCount, cutOpts)
+    const d = doorCutSize(opening, leftover + DOOR_CLEARANCE_TOP, zoneLeaves, cutOpts)
     parts.push(
       `${z.label}: ${subtractEdge ? 'рязане' : 'поръчай'} ${formatMm(d.width)} × ${formatMm(leftover - edge)} мм (отвор ${formatMm(openingH)} мм, ${doorCutRuleNote({ subtractEdge, insetFront: inset })})`,
     )
@@ -6285,8 +6423,9 @@ function combineHint(doorCount: number, fromOneBoard: boolean, adjacentParts = f
     if (withDoor) return 'Челата и вратата се режат отделно.'
     return 'Челата се режат отделно.'
   }
-  if (doorCount === 2) {
-    return 'Челата се режат от една плоча за продължена фладера, кантират се, после се разрязват. Двете врати са по-тесни и се режат отделно.'
+  if (doorCount >= 2) {
+    const who = doorCount === 2 ? 'Двете врати' : doorCount === 3 ? 'Трите врати' : 'Четирите врати'
+    return `Челата се режат от една плоча за продължена фладера, кантират се, после се разрязват. ${who} са по-тесни и се режат отделно.`
   }
   if (withDoor) {
     return 'Челата и вратата се режат от една плоча за продължена фладера, кантират се, после се разрязват.'

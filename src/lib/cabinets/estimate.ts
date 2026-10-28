@@ -3,6 +3,8 @@ import { calculateEdgeBandingTotals } from '@/lib/edge-banding'
 import type { HardwareSettings } from '@/lib/settings'
 import { DEFAULT_HARDWARE_SETTINGS, omitsCuttingEdgingLabor } from '@/lib/settings'
 import { hardwareCostEur } from './hardware'
+import { chipboardCostEur, chipboardFraction } from '@/lib/board-finishes'
+import type { BoardFinish } from '@/lib/board-finishes'
 import {
   CUTTING_MINUTES_PER_SHEET,
   HARDBOARD_CUTTING_MINUTES_PER_SHEET,
@@ -123,14 +125,10 @@ export function laborFromPanels(
   panels: GeneratedPanel[],
   sheets: Sheet[],
   assemblyMinutes: number | null = null,
+  finishes: BoardFinish[] = [],
 ): LaborEstimate {
-  const chipboard = referenceSheet(sheets, 'chipboard')
   const hardboard = referenceSheet(sheets, 'hardboard')
-  const chipFrac = sheetFraction(
-    panelsAreaM2(panels, 'chipboard'),
-    chipboard.width,
-    chipboard.height,
-  )
+  const chipFrac = chipboardFraction(panels, sheets, finishes)
   const hardFrac = sheetFraction(
     panelsAreaM2(panels, 'hardboard'),
     hardboard.width,
@@ -252,7 +250,7 @@ export function billedLaborFromPanels(
   assemblyMinutes: number | null,
   settings: HardwareSettings,
 ): LaborEstimate {
-  const computed = laborFromPanels(panels, sheets, assemblyMinutes)
+  const computed = laborFromPanels(panels, sheets, assemblyMinutes, settings.boardFinishes)
   if (!omitsCuttingEdgingLabor(settings)) return computed
   return { ...computed, cuttingMinutes: 0, edgingMinutes: 0 }
 }
@@ -269,17 +267,10 @@ export function cabinetPrice(
   const hardwareEur = hardwareCostEur(hardware)
   const laborEur = laborCostEur(computed, dailyRateEur)
   const skipMats = settings.skipBoardAndEdgeCost
-  const chipboard = referenceSheet(sheets, 'chipboard')
   const hardboard = referenceSheet(sheets, 'hardboard')
   const chipboardEur = skipMats
     ? 0
-    : usedBoardCostEur(
-        panelsAreaM2(panels, 'chipboard'),
-        chipboard.width,
-        chipboard.height,
-        chipboard.priceEur,
-        settings.billWholeSheets,
-      )
+    : chipboardCostEur(panels, sheets, settings.boardFinishes, settings.billWholeSheets)
   const hardboardEur = skipMats
     ? 0
     : usedBoardCostEur(

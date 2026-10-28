@@ -12,6 +12,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { newBoardFinish, type BoardFinish } from '@/lib/board-finishes'
+import { prepareDecorPhoto } from '@/lib/finish-photo'
 import {
   ALL_SLIDE_LENGTHS,
   SLIDE_LENGTHS,
@@ -156,6 +158,11 @@ export function SettingsDialog({
   const [edgeMm05, setEdgeMm05] = useState('')
   const [billWholeSheets, setBillWholeSheets] = useState(true)
   const [chipboardPrice, setChipboardPrice] = useState('')
+  const [boardFinishes, setBoardFinishes] = useState<BoardFinish[]>([])
+  const [finishName, setFinishName] = useState('')
+  const [finishColor, setFinishColor] = useState('#d8d2c8')
+  const [finishPrice, setFinishPrice] = useState('')
+  const [finishImage, setFinishImage] = useState<string | undefined>()
   const [hardboardPrice, setHardboardPrice] = useState('')
   const [billWholeHardboardSheets, setBillWholeHardboardSheets] = useState(true)
   const [skipCuttingEdgingLabor, setSkipCuttingEdgingLabor] = useState(false)
@@ -263,6 +270,7 @@ export function SettingsDialog({
     setEdgeMm05(String(s.edgeMm05Eur))
     setBillWholeSheets(s.billWholeSheets)
     setChipboardPrice(String(s.chipboardPriceEur))
+    setBoardFinishes(s.boardFinishes.map((finish) => ({ ...finish })))
     setHardboardPrice(String(s.hardboardPriceEur))
     setBillWholeHardboardSheets(s.billWholeHardboardSheets)
     setSkipCuttingEdgingLabor(s.skipCuttingEdgingLabor)
@@ -395,6 +403,7 @@ export function SettingsDialog({
       edgeMm05Eur: parseFloat(edgeMm05) || DEFAULT_HARDWARE_SETTINGS.edgeMm05Eur,
       billWholeSheets,
       chipboardPriceEur: parseFloat(chipboardPrice) || DEFAULT_HARDWARE_SETTINGS.chipboardPriceEur,
+      boardFinishes,
       hardboardPriceEur: parseFloat(hardboardPrice) || DEFAULT_HARDWARE_SETTINGS.hardboardPriceEur,
       billWholeHardboardSheets,
       skipCuttingEdgingLabor,
@@ -949,8 +958,192 @@ export function SettingsDialog({
                     onChange={(e) => setChipboardPrice(e.target.value)}
                   />
                   <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
-                    Стандартен размер ПДЧ: 2780 × 2040 мм
+                    Стандартен размер ПДЧ: 2780 × 2040 мм. Това е цената, когато шкафът няма избран цвят.
                   </p>
+                </div>
+                <div className="space-y-3 rounded-md border border-[var(--color-border)] p-3">
+                  <div>
+                    <h4 className="font-medium">Цветове на плочите</h4>
+                    <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
+                      Всеки цвят е отделна плоча със своя цена. Качи снимка на декора — бялото отгоре и отдолу
+                      се изрязва само. На цветния чертеж фладерът ляга по дължината на плоскостта, като от една
+                      цяла плоча. Без снимка се ползва избраният цвят.
+                    </p>
+                  </div>
+                  {boardFinishes.length === 0 ? (
+                    <p className="text-xs text-[var(--color-muted-foreground)]">Още няма добавени цветове.</p>
+                  ) : (
+                    boardFinishes.map((finish) => (
+                      <div key={finish.id} className="flex flex-wrap items-center gap-2">
+                        {finish.image ? (
+                          <img
+                            src={finish.image}
+                            alt=""
+                            className="h-8 w-12 rounded border border-[var(--color-border)] object-cover"
+                          />
+                        ) : null}
+                        <input
+                          type="color"
+                          value={finish.color}
+                          aria-label={`Цвят ${finish.name}`}
+                          className="h-8 w-10 cursor-pointer rounded border border-[var(--color-border)] bg-transparent"
+                          onChange={(e) =>
+                            setBoardFinishes((rows) =>
+                              rows.map((row) => (row.id === finish.id ? { ...row, color: e.target.value } : row)),
+                            )
+                          }
+                        />
+                        <Input
+                          value={finish.name}
+                          aria-label={`Име ${finish.name}`}
+                          className="w-40"
+                          onChange={(e) =>
+                            setBoardFinishes((rows) =>
+                              rows.map((row) => (row.id === finish.id ? { ...row, name: e.target.value } : row)),
+                            )
+                          }
+                        />
+                        <Input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={finish.sheetPriceEur}
+                          aria-label={`Цена ${finish.name}`}
+                          className="w-28"
+                          onChange={(e) => {
+                            const price = parseFloat(e.target.value)
+                            setBoardFinishes((rows) =>
+                              rows.map((row) =>
+                                row.id === finish.id
+                                  ? { ...row, sheetPriceEur: Number.isFinite(price) && price >= 0 ? price : 0 }
+                                  : row,
+                              ),
+                            )
+                          }}
+                        />
+                        <span className="text-xs text-[var(--color-muted-foreground)]">€/плоча</span>
+                        <label className="cursor-pointer text-xs underline">
+                          Снимка
+                          <input
+                            type="file"
+                            accept="image/*"
+                            className="sr-only"
+                            aria-label={`Снимка ${finish.name}`}
+                            onChange={(e) => {
+                              const file = e.target.files?.[0]
+                              e.target.value = ''
+                              if (!file) return
+                              void prepareDecorPhoto(file).then((photo) => {
+                                setBoardFinishes((rows) =>
+                                  rows.map((row) =>
+                                    row.id === finish.id ? { ...row, image: photo.image, color: photo.color } : row,
+                                  ),
+                                )
+                              })
+                            }}
+                          />
+                        </label>
+                        {finish.image ? (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() =>
+                              setBoardFinishes((rows) =>
+                                rows.map((row) => (row.id === finish.id ? { ...row, image: undefined } : row)),
+                              )
+                            }
+                          >
+                            Без снимка
+                          </Button>
+                        ) : null}
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setBoardFinishes((rows) => rows.filter((row) => row.id !== finish.id))}
+                        >
+                          Махни
+                        </Button>
+                      </div>
+                    ))
+                  )}
+                  <div className="flex flex-wrap items-end gap-2">
+                    <div>
+                      <Label htmlFor="finish-name">Нов цвят</Label>
+                      <Input
+                        id="finish-name"
+                        value={finishName}
+                        placeholder="K001 или Бяло гладко"
+                        onChange={(e) => setFinishName(e.target.value)}
+                      />
+                    </div>
+                    <input
+                      type="color"
+                      value={finishColor}
+                      aria-label="Цвят на новата плоча"
+                      className="mb-0.5 h-9 w-10 cursor-pointer rounded border border-[var(--color-border)] bg-transparent"
+                      onChange={(e) => setFinishColor(e.target.value)}
+                    />
+                    <div>
+                      <Label htmlFor="finish-price">€/плоча</Label>
+                      <Input
+                        id="finish-price"
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={finishPrice}
+                        onChange={(e) => setFinishPrice(e.target.value)}
+                      />
+                    </div>
+                    <label className="cursor-pointer text-xs underline">
+                      {finishImage ? 'Снимката е качена' : 'Снимка'}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="sr-only"
+                        aria-label="Снимка на новия цвят"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0]
+                          e.target.value = ''
+                          if (!file) return
+                          void prepareDecorPhoto(file).then((photo) => {
+                            setFinishImage(photo.image)
+                            setFinishColor(photo.color)
+                          })
+                        }}
+                      />
+                    </label>
+                    {finishImage ? (
+                      <img
+                        src={finishImage}
+                        alt=""
+                        className="h-8 w-12 rounded border border-[var(--color-border)] object-cover"
+                      />
+                    ) : null}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => {
+                        const price = parseFloat(finishPrice.replace(',', '.'))
+                        if (!finishName.trim()) return
+                        setBoardFinishes((rows) => [
+                          ...rows,
+                          newBoardFinish(
+                            finishName,
+                            finishColor,
+                            Number.isFinite(price) && price >= 0 ? price : 0,
+                            finishImage,
+                          ),
+                        ])
+                        setFinishName('')
+                        setFinishPrice('')
+                        setFinishImage(undefined)
+                      }}
+                    >
+                      Добави цвят
+                    </Button>
+                  </div>
                 </div>
                 <div>
                   <Label htmlFor="hardboard-price">Цена на фазер (€/плоча)</Label>

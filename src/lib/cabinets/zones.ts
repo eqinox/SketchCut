@@ -1122,6 +1122,28 @@ export function shelvesForColumn<T extends { columnIndex?: number | null }>(
   return shelves.filter((s) => s.columnIndex == null || s.columnIndex === colIndex)
 }
 
+/** A shelf that fills this column, including one board that runs across several sides. */
+export function shelfCoversColumn(
+  shelf: { columnIndex?: number | null; spanX0?: number; spanX1?: number },
+  column: { x0: number; x1: number } | undefined,
+  colIndex: number,
+): boolean {
+  if (!column) return false
+  if (shelf.spanX0 != null && shelf.spanX1 != null) {
+    return shelf.spanX0 < column.x1 - 0.5 && shelf.spanX1 > column.x0 + 0.5
+  }
+  if (shelf.columnIndex == null) return true
+  return shelf.columnIndex === colIndex
+}
+
+export function shelvesCoveringColumn<T extends { columnIndex?: number | null; spanX0?: number; spanX1?: number }>(
+  shelves: T[],
+  column: { x0: number; x1: number } | undefined,
+  colIndex: number,
+): T[] {
+  return shelves.filter((shelf) => shelfCoversColumn(shelf, column, colIndex))
+}
+
 export function canAddFixedShelfToColumn(
   shelves: { columnIndex?: number | null }[],
   colIndex: number,
@@ -1585,18 +1607,26 @@ export function resolveFixedShelves(
   const resolved = [...byIndex.values()]
   let error: string | null = null
   const kept: ResolvedFixedShelf[] = []
+  const seenShelf = new Set<number>()
+  const pushShelves = (rows: ResolvedFixedShelf[]) => {
+    for (const shelf of rows) {
+      if (seenShelf.has(shelf.specIndex)) continue
+      seenShelf.add(shelf.specIndex)
+      kept.push(shelf)
+    }
+  }
   for (let c = 0; c < cols; c++) {
     const group = shelvesForColumn(resolved, c)
     const groupError = validateShelfGroup(group, innerH)
     if (!groupError) {
-      kept.push(...group)
+      pushShelves(group)
       continue
     }
     error = groupError
     const inside = group.filter(
       (s) => s.yBottom >= MIN_ZONE_CLEAR_MM && s.yTop <= innerH - MIN_ZONE_CLEAR_MM,
     )
-    kept.push(...(inside.length === group.length ? inside.slice(0, -1) : inside))
+    pushShelves(inside.length === group.length ? inside.slice(0, -1) : inside)
   }
 
   kept.sort((a, b) => a.yBottom - b.yBottom || (a.columnIndex ?? -1) - (b.columnIndex ?? -1))
@@ -1905,12 +1935,11 @@ export function resolvePartialPartitions(
       return { partials: [], error: 'Разделителната страница отдолу няма рафт, до който да стигне.' }
     }
     let colIndex = typeof spec.gapIndex === 'number' && Number.isFinite(spec.gapIndex) ? Math.round(spec.gapIndex) : 0
-    if (shelf.columnIndex != null) colIndex = shelf.columnIndex
     colIndex = Math.min(columns.length - 1, Math.max(0, colIndex))
-    if (shelf.columnIndex != null && shelf.columnIndex !== colIndex) {
+    const col = columns[colIndex]
+    if (!shelfCoversColumn(shelf, col, colIndex)) {
       return { partials: [], error: 'Рафтът не е в тази страна.' }
     }
-    const col = columns[colIndex]
     if (!col) return { partials: [], error: 'Няма страна за разделителната страница отдолу.' }
     if (shelf.yBottom < MIN_ZONE_CLEAR_MM) {
       return { partials: [], error: 'Под рафта няма място за разделителна страница.' }
@@ -2065,15 +2094,15 @@ export function joinAdjacentColumnFronts(zones: LaidOutZone[]): void {
 
 export type ZoneFrontStackKind = 'empty' | 'full' | 'half' | 'mixed'
 
-/** Same-width overlay pieces in a part: full-width (чела / 1 врата) or half (2 врати). */
+/** Same-width overlay pieces in a part: full-width (чела / 1 врата) or half (2–4 врати). */
 export function zoneFrontStackKind(z: {
   doorCount: DoorCount
   drawerFrontHeights: number[]
 }): ZoneFrontStackKind {
   const drawers = z.drawerFrontHeights.filter((h) => h > 0)
   if (z.doorCount === 0 && drawers.length === 0) return 'empty'
-  if (z.doorCount === 2 && drawers.length > 0) return 'mixed'
-  if (z.doorCount === 2) return 'half'
+  if (z.doorCount >= 2 && drawers.length > 0) return 'mixed'
+  if (z.doorCount >= 2) return 'half'
   return 'full'
 }
 
@@ -2124,7 +2153,10 @@ export function canCombineZoneFrontRun(zones: LaidOutZone[]): boolean {
   if (kinds.every((k) => k === 'full')) {
     return zones.reduce((n, z) => n + fullWidthPieceCount(z), 0) >= 2
   }
-  if (kinds.every((k) => k === 'half')) return true
+  if (kinds.every((k) => k === 'half')) {
+    const leaves = zones[0]?.doorCount ?? 0
+    return leaves >= 2 && zones.every((z) => z.doorCount === leaves)
+  }
   return false
 }
 
@@ -2401,6 +2433,7 @@ function placeBayFixedShelves(
 
 /** Split an opening vertically when a shelf fills only that opening. */
 function splitZonesByBayShelves(zones: ResolvedZone[], shelves: ResolvedFixedShelf[]): ResolvedZone[] {
+  const taken = new Set(zones.map((zone) => zone.id))
   const out: ResolvedZone[] = []
   for (const zone of zones) {
     const cuts = shelves
@@ -2434,9 +2467,19 @@ function splitZonesByBayShelves(zones: ResolvedZone[], shelves: ResolvedFixedShe
       const shelfAbove = index < cuts.length ? cuts[index] : undefined
       const frontY0 = index === 0 ? zone.frontY0 : (shelfBelow?.yBottom ?? piece.y0)
       const frontY1 = index === pieces.length - 1 ? zone.frontY1 : (shelfAbove?.yTop ?? piece.y1)
+      let id = zone.id
+      if (index > 0) {
+        let n = index + 1
+        id = `${zone.id}-b${n}`
+        while (taken.has(id)) {
+          n += 1
+          id = `${zone.id}-b${n}`
+        }
+      }
+      taken.add(id)
       out.push({
         ...zone,
-        id: index === 0 ? zone.id : `${zone.id}-b${index + 1}`,
+        id,
         innerH: Math.max(0, piece.y1 - piece.y0),
         y0: piece.y0,
         y1: piece.y1,
@@ -2715,6 +2758,49 @@ function trimPartialsUnderOpeningShelves(
   })
 }
 
+/**
+ * Openings stacked in one side, bottom → top.
+ * A second shelf splits an opening that already has a name, so the new piece
+ * must be numbered against the whole side: долна, средна, горна.
+ */
+function labelColumnStacks(zones: ResolvedZone[]): ResolvedZone[] {
+  const groups = new Map<string, number[]>()
+  zones.forEach((zone, index) => {
+    if (!zone.path || zone.path.includes('–')) return
+    if (zone.label.endsWith(' горе') || zone.label.endsWith(' долу')) return
+    const key = `${zone.path}|${Math.round(zone.x0)}|${Math.round(zone.x1)}`
+    const list = groups.get(key) ?? []
+    list.push(index)
+    groups.set(key, list)
+  })
+  const next = zones.slice()
+  for (const indexes of groups.values()) {
+    if (indexes.length < 2) continue
+    const ordered = [...indexes].sort(
+      (a, b) => zones[a]!.y0 - zones[b]!.y0 || zones[a]!.y1 - zones[b]!.y1,
+    )
+    const floor = zones[ordered[0]!]!
+    const belowBands = new Set<number>()
+    for (const child of zones) {
+      if (!child.path.startsWith(`${floor.path}.`)) continue
+      if (child.x0 < floor.x0 - 0.5 || child.x1 > floor.x1 + 0.5) continue
+      if (child.y1 > floor.y0 + 0.5) continue
+      belowBands.add(Math.round(child.y0))
+    }
+    const below = belowBands.size
+    const total = below + ordered.length
+    ordered.forEach((zoneIndex, row) => {
+      const zone = zones[zoneIndex]!
+      next[zoneIndex] = {
+        ...zone,
+        rowIndex: row + below,
+        label: `${columnLabel(zone.colIndex, 2, zone.path)} · ${openingPartLabel(row + below, total)}`,
+      }
+    })
+  }
+  return next
+}
+
 /** 1.1 and 1.2 stay sides. Side 1 above them is not split into an upper 1.1. */
 function plainSideLabels(zones: ResolvedZone[]): ResolvedZone[] {
   const paths = zones.map((zone) => zone.path)
@@ -2764,7 +2850,7 @@ export function layoutInterior(input: {
   )
   const { partials, error: partialError } = partitionError
     ? { partials: [] as ResolvedPartialPartition[], error: null }
-    : resolvePartialPartitions(input.partitions ?? [], columns, columnShelves, T)
+    : resolvePartialPartitions(input.partitions ?? [], columns, [...columnShelves, ...spanShelves], T)
   const allPartials = [...partials, ...spanPartials]
   const openedZones = splitZonesByPartialPartitions(
     composeCompartments([...columnShelves, ...spanShelves], columns, input.innerH, T, input.overlayCovers),
@@ -2783,9 +2869,11 @@ export function layoutInterior(input: {
     [...spanShelves, ...bayShelves],
   )
   const trimmedPartials = trimPartialsUnderOpeningShelves(allPartials, openingSpans)
-  const namedZones = plainSideLabels(
-    splitZonesBySpanShelves(splitZonesByBayShelves(openedZones, bayShelves), [...spanShelves, ...openingSpans]),
+  const spanned = splitZonesBySpanShelves(
+    splitZonesByBayShelves(openedZones, bayShelves),
+    [...spanShelves, ...openingSpans],
   )
+  const namedZones = plainSideLabels(splitZonesByPartialPartitions(spanned, trimmedPartials))
   const placedBeforeLate = [...columnShelves, ...spanShelves, ...bayShelves, ...openingSpans]
   const { shelves: lateBays, error: lateBayError } = placeBayFixedShelves(
     input.fixedShelves,
@@ -2793,7 +2881,9 @@ export function layoutInterior(input: {
     placedBeforeLate,
     T,
   )
-  const rawZones = lateBays.length > 0 ? plainSideLabels(splitZonesByBayShelves(namedZones, lateBays)) : namedZones
+  const lateSplit = lateBays.length > 0 ? splitZonesByBayShelves(namedZones, lateBays) : namedZones
+  const stacked = plainSideLabels(splitZonesByPartialPartitions(lateSplit, trimmedPartials))
+  const rawZones = labelColumnStacks(stacked)
   const shelves = [...placedBeforeLate, ...lateBays].sort(
     (a, b) => a.yBottom - b.yBottom || (a.columnIndex ?? -1) - (b.columnIndex ?? -1),
   )
@@ -3020,7 +3110,7 @@ export function zoneStackOpeningHeight(
     insetDrawers,
     insetDoors,
     hasDrawers: z.drawerFrontHeights.some((h) => h > 0),
-    hasDoors: z.doorCount === 1 || z.doorCount === 2,
+    hasDoors: z.doorCount > 0,
   })
 }
 
@@ -3041,7 +3131,7 @@ export function stackFronts(input: {
   clearanceBottom?: number
 }): StackedFront[] {
   const drawers = input.drawerFrontHeights.filter((h) => h > 0)
-  const hasDoor = input.doorCount === 1 || input.doorCount === 2
+  const hasDoor = input.doorCount > 0
   const bottom = input.clearanceBottom ?? 0
   const out: StackedFront[] = []
   let y = DOOR_CLEARANCE_TOP

@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import type { BoardKind, Sheet } from '@/types'
+import type { BoardFinish } from '@/lib/board-finishes'
 import { generateId } from '@/lib/utils'
 import { reorderItems } from '@/lib/reorder'
 import { useState } from 'react'
@@ -25,6 +26,7 @@ interface SheetsPanelProps {
   hardboardPriceEur?: number
   onClearChipboard?: () => void
   onClearHardboard?: () => void
+  finishes?: BoardFinish[]
 }
 
 export function SheetsPanel({
@@ -34,6 +36,7 @@ export function SheetsPanel({
   hardboardPriceEur,
   onClearChipboard,
   onClearHardboard,
+  finishes = [],
 }: SheetsPanelProps) {
   const chipPrice = chipboardPriceEur ?? DEFAULT_CHIPBOARD_PRICE_EUR
   const hardPrice = hardboardPriceEur ?? DEFAULT_HARDBOARD_PRICE_EUR
@@ -244,6 +247,9 @@ export function SheetsPanel({
                 <span className="text-sm font-medium">#{index + 1}</span>
                 <span className="shrink-0 text-xs text-[var(--color-muted-foreground)]">
                   {boardKindLabel(sheetKind(sheet))}
+                  {sheet.finishId
+                    ? ` · ${finishes.find((finish) => finish.id === sheet.finishId)?.name ?? 'цвят'}`
+                    : ''}
                 </span>
                 <span className="truncate text-sm text-[var(--color-muted-foreground)]">
                   {sheet.width} × {sheet.height} мм

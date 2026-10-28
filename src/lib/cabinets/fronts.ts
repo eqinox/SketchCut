@@ -34,6 +34,8 @@ import { evenShelfBottoms, evenShelfGap } from './joinery'
 import {
   doorCutSize,
   doorCutRuleNote,
+  doorLeafWord,
+  doorLeafCount,
   drawerFrontCutSize,
   doorWithDrawersCutSize,
   parseDoorCount,
@@ -627,7 +629,7 @@ export function appendDoorsAndDrawers(
 ): { doorCount: number; drawerCount: number } {
   const drawerHeights = input.drawerFrontHeights
   const hasDrawers = drawerHeights.length > 0
-  const doorCount = input.doorCount === 1 || input.doorCount === 2 ? input.doorCount : 0
+  const doorCount = input.doorCount > 0 ? input.doorCount : 0
   const hasDoors = doorCount !== 0
   const boughtFronts = input.externalDoors === true
   const boughtDoors = hasDoors && boughtFronts
@@ -664,12 +666,12 @@ export function appendDoorsAndDrawers(
   let combinedGroupId: string | undefined = input.externalCombined?.groupId
   let doorFromCombined = fromExternal && hasDoors && !boughtDoors
 
-  const door =
-    doorCount === 1 || doorCount === 2
-      ? hasDrawers
-        ? doorWithDrawersCutSize(doorOpeningW, openingH, drawerHeights, doorCount, doorOpts)
-        : doorCutSize(doorOpeningW, openingH, doorCount, doorOpts)
-      : null
+  const leaves = doorLeafCount(doorCount)
+  const door = leaves
+    ? hasDrawers
+      ? doorWithDrawersCutSize(doorOpeningW, openingH, drawerHeights, leaves, doorOpts)
+      : doorCutSize(doorOpeningW, openingH, leaves, doorOpts)
+    : null
   const where = input.zoneLabel ? `${input.zoneLabel}: ` : ''
   const zoneInName = input.zoneLabel ? ` (${input.zoneLabel})` : ''
 
@@ -930,7 +932,8 @@ export function appendDoorsAndDrawers(
   }
 
   if (hasDoors && door) {
-    const doorWord = doorCount === 1 ? 'една врата' : 'две врати'
+    const doorWord = doorLeafWord(doorCount)
+    const doorTitle = doorWord.charAt(0).toUpperCase() + doorWord.slice(1)
     const totalHinges = doorCount * HINGES_PER_SMALL_DOOR
     const hinge4x16 = totalHinges * SCREWS_4X16_PER_HINGE
     const hinge4x20 = totalHinges * SCREWS_4X20_PER_HINGE
@@ -939,8 +942,8 @@ export function appendDoorsAndDrawers(
 
     notes.push(
       boughtDoors
-        ? `${where}${doorCount === 1 ? 'Една врата' : 'Две врати'}: готов размер ${formatMm(door.width)} × ${formatMm(door.height)} мм (${doorCutRuleNote({ withDrawerGaps: hasDrawers, subtractEdge: false, insetFront: insetDoors })}). Поръчва се отделно — не влиза в разкроя.`
-        : `${where}${doorCount === 1 ? 'Една врата' : 'Две врати'}: рязане ${formatMm(door.width)} × ${formatMm(door.height)} мм (${doorCutRuleNote({ withDrawerGaps: hasDrawers, insetFront: insetDoors })}).`,
+        ? `${where}${doorTitle}: готов размер ${formatMm(door.width)} × ${formatMm(door.height)} мм (${doorCutRuleNote({ withDrawerGaps: hasDrawers, subtractEdge: false, insetFront: insetDoors })}). Поръчва се отделно — не влиза в разкроя.`
+        : `${where}${doorTitle}: рязане ${formatMm(door.width)} × ${formatMm(door.height)} мм (${doorCutRuleNote({ withDrawerGaps: hasDrawers, insetFront: insetDoors })}).`,
     )
     notes.push(
       `Панти: ${totalHinges} бр. (по ${HINGES_PER_SMALL_DOOR} на врата) · винтчета 4×16: ${hinge4x16} бр. и 4×20: ${hinge4x20} бр. (по ${SCREWS_4X16_PER_HINGE}+${SCREWS_4X20_PER_HINGE} на панта).`,
@@ -1343,18 +1346,20 @@ export function appendZonedInterior(
           notes,
         )
       } else if (kind === 'half') {
+        const leafCount = doorLeafCount(run[0]?.doorCount ?? 0)
+        if (leafCount == null || leafCount < 2) continue
         const pieces: CombinedFrontPiece[] = topFirst.map((z) => {
           const overlayW = z.frontWidth > 0 ? z.frontWidth : input.width
           const w = f.innerDoors && z.innerW > 0 ? z.innerW : overlayW
           const c = doorCutSize(
             w,
             zoneStackOpeningHeight(z, f.innerDrawerFronts, f.innerDoors),
-            2,
+            leafCount,
             f.innerDoors ? { inset: true } : undefined,
           )
           return { ...c, role: 'door', label: `врата (${z.label})` }
         })
-        pushCombinedFirstCut(pieces, { groupId, labels, quantity: 2 }, panels, notes)
+        pushCombinedFirstCut(pieces, { groupId, labels, quantity: leafCount }, panels, notes)
       }
       for (const z of run) crossGroup.set(z.id, groupId)
     }

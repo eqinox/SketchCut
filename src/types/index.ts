@@ -9,6 +9,8 @@ export interface Sheet {
   kind?: BoardKind
   /** Price of one full sheet. Defaults to 86 € for chipboard. */
   priceEur?: number
+  /** Decor from the workshop list. Sheets of different decors are cut separately. */
+  finishId?: string
 }
 
 export interface Part {
@@ -22,6 +24,8 @@ export interface Part {
   cabinetId?: string
   /** Defaults to chipboard. Hardboard parts nest on фазер sheets. */
   kind?: BoardKind
+  /** Decor. Parts of different decors nest on different sheets. */
+  finishId?: string
 }
 
 export interface CabinetInstance {

@@ -1,3 +1,4 @@
+import { stampPanelFinishes } from '@/lib/board-finishes'
 import { kitchenBaseType } from './kitchen-base'
 import { kitchenWallType } from './kitchen-wall'
 import { nightstandType } from './nightstand'
@@ -29,7 +30,11 @@ export function generateCabinet(
   if (!type) {
     throw new Error(`Непознат тип шкаф: ${typeId}`)
   }
-  return type.generate({ ...type.defaultParams, ...params }, settings)
+  const result = type.generate({ ...type.defaultParams, ...params }, settings)
+  return {
+    ...result,
+    panels: stampPanelFinishes(result.panels, params.carcassFinishId, params.frontFinishId),
+  }
 }
 
 export function scaleCabinetResult(

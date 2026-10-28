@@ -15,6 +15,13 @@ import {
   usedBoardCostEur,
 } from './materials'
 import {
+  chipboardFinishIds,
+  chipboardFraction,
+  finishById,
+  panelsOfFinish,
+  sheetForFinish,
+} from '@/lib/board-finishes'
+import {
   FASTENERS,
   HANDLE_NORMAL,
   HINGE_NORMAL,
@@ -139,20 +146,20 @@ function fastenerPackHint(id: string | undefined, settings: HardwareSettings): s
 }
 
 function boardSection(
-  id: 'chipboard' | 'hardboard',
+  id: string,
   title: string,
   panels: GeneratedPanel[],
   sheet: { width: number; height: number; priceEur: number },
   billWholeSheets: boolean,
   skipCost: boolean,
 ): PriceBreakdownSection {
-  const used = panelsAreaM2(panels, id)
+  const used = panelsAreaM2(panels, id === 'hardboard' ? 'hardboard' : 'chipboard')
   const full = sheetAreaM2(sheet.width, sheet.height)
   const frac = sheetFraction(used, sheet.width, sheet.height)
   const billed = billedSheetCount(used, sheet.width, sheet.height, billWholeSheets)
   const cost = skipCost ? 0 : usedBoardCostEur(used, sheet.width, sheet.height, sheet.priceEur, billWholeSheets)
   const lines: PriceBreakdownLine[] = billablePanels(panels)
-    .filter((p) => panelKind(p) === id)
+    .filter((p) => panelKind(p) === (id === 'hardboard' ? 'hardboard' : 'chipboard'))
     .map((p) => {
       const area = panelAreaM2(p)
       const partCost = skipCost ? 0 : usedBoardCostEur(area, sheet.width, sheet.height, sheet.priceEur)
@@ -411,18 +418,31 @@ function laborSection(
 ): PriceBreakdownSection {
   const computed = billedLaborFromPanels(panels, sheets, assemblyMinutes, settings)
   const skipCutEdge = omitsCuttingEdgingLabor(settings)
-  const chipboard = referenceSheet(sheets, 'chipboard')
   const hardboard = referenceSheet(sheets, 'hardboard')
-  const chipArea = panelsAreaM2(panels, 'chipboard')
   const hardArea = panelsAreaM2(panels, 'hardboard')
-  const chipFrac = sheetFraction(chipArea, chipboard.width, chipboard.height)
+  const finishIds = chipboardFinishIds(panels)
+  const chipFrac = chipboardFraction(panels, sheets, settings.boardFinishes)
+  const chipCutHint =
+    finishIds.length === 0
+      ? `${formatPct(chipFrac)} × ${CUTTING_MINUTES_PER_SHEET} мин (ПДЧ) = ${formatMinutes(chipFrac * CUTTING_MINUTES_PER_SHEET)}`
+      : finishIds
+          .map((id) => {
+            const name = finishById(settings.boardFinishes, id)?.name ?? 'ПДЧ'
+            const area = panelsOfFinish(panels, id).reduce(
+              (sum, panel) => sum + (panel.width * panel.height * panel.quantity) / 1_000_000,
+              0,
+            )
+            const sheet = sheetForFinish(sheets, id, settings.boardFinishes)
+            const frac = sheetFraction(area, sheet.width, sheet.height)
+            return `${name} ${formatPct(frac)} × ${CUTTING_MINUTES_PER_SHEET} мин`
+          })
+          .join(' + ')
   const hardFrac = sheetFraction(hardArea, hardboard.width, hardboard.height)
   const hourly = hourlyRateEur(dailyRateEur)
   const minutes = laborMinutes(computed)
   const cost = laborCostEur(computed, dailyRateEur)
   const cutMin = computed.cuttingMinutes ?? 0
   const edgeMin = computed.edgingMinutes ?? 0
-  const chipCut = skipCutEdge ? 0 : chipFrac * CUTTING_MINUTES_PER_SHEET
   const hardCut = skipCutEdge ? 0 : hardFrac * HARDBOARD_CUTTING_MINUTES_PER_SHEET
   const chipEdge = skipCutEdge ? 0 : chipFrac * EDGING_MINUTES_PER_SHEET
   const lines: PriceBreakdownLine[] = [
@@ -430,7 +450,7 @@ function laborSection(
       label: 'Рязане',
       hint: skipCutEdge
         ? 'трудът за рязане е изключен от сметката'
-        : `${formatPct(chipFrac)} × ${CUTTING_MINUTES_PER_SHEET} мин (ПДЧ) = ${formatMinutes(chipCut)}` +
+        : `${chipCutHint}` +
           ` + ${formatPct(hardFrac)} × ${HARDBOARD_CUTTING_MINUTES_PER_SHEET} мин (фазер) = ${formatMinutes(hardCut)}` +
           ` → ${formatMinutes(cutMin)}`,
       amountEur: minutesCostEur(cutMin, hourly),
@@ -538,7 +558,24 @@ export function explainCabinetPrice(input: {
   const billWholeSheets = settings.billWholeSheets
   const billWholeHardboardSheets = settings.billWholeHardboardSheets
   if (billed.some((p) => panelKind(p) === 'chipboard')) {
-    sections.push(boardSection('chipboard', 'ПДЧ', input.panels, chipboard, billWholeSheets, skipMats))
+    const finishIds = chipboardFinishIds(input.panels)
+    if (finishIds.length === 0) {
+      sections.push(boardSection('chipboard', 'ПДЧ', input.panels, chipboard, billWholeSheets, skipMats))
+    } else {
+      for (const id of finishIds) {
+        const finish = finishById(settings.boardFinishes, id)
+        sections.push(
+          boardSection(
+            `chipboard-${id}`,
+            finish ? `ПДЧ · ${finish.name}` : 'ПДЧ',
+            panelsOfFinish(input.panels, id),
+            sheetForFinish(input.sheets, id, settings.boardFinishes),
+            billWholeSheets,
+            skipMats,
+          ),
+        )
+      }
+    }
   }
   if (billed.some((p) => panelKind(p) === 'hardboard')) {
     sections.push(boardSection('hardboard', 'Фазер', input.panels, hardboard, billWholeHardboardSheets, skipMats))

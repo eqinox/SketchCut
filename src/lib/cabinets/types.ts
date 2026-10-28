@@ -147,6 +147,8 @@ export interface GeneratedPanel {
   note?: string
   /** Defaults to chipboard (ПДЧ). */
   material?: BoardKind
+  /** Workshop decor. Doors can differ from the carcass. */
+  finishId?: string
   /** Group ID for visually related panels (e.g., combined cutting) */
   groupId?: string
   /** If true, this panel is for reference only and should not be included in cutting layout */
@@ -237,8 +239,8 @@ export interface KitchenBaseParams {
   hasBack: boolean
   /** Nail the hardboard back every 12 cm. */
   nailBack: boolean
-  /** 0 = no doors, otherwise 1 or 2. */
-  doorCount: 0 | 1 | 2
+  /** 0 = no doors, otherwise 1–4 hinged leaves in the opening. */
+  doorCount: 0 | 1 | 2 | 3 | 4
   /** Drawer front heights in mm, top to bottom. Empty = no drawers. Independent of doors. */
   drawerFrontHeights: number[]
   /** Cut stacked drawer fronts (and a matching-width door) from one board for continuous grain. */

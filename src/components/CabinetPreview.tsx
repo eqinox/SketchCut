@@ -23,6 +23,8 @@ import {
   INNER_DRAWER_SIDE_GAP_EACH,
   layoutInterior,
   layoutCounts,
+  type DoorCount,
+  parsePartColors,
   uniqueDrawerBoxes,
   zoneFrontBox,
   zoneInsetFrontBox,
@@ -38,6 +40,7 @@ import {
   SLIDING_UPPER_TRACK_HEIGHT_MM,
   SLIDING_LOWER_TRACK_DEPTH_MM,
   SLIDING_LOWER_TRACK_INSET_MM,
+  CLOTHES_RAIL_SECTION_MM,
   type KitchenBaseParams,
   type KitchenWallParams,
   type NightstandParams,
@@ -57,10 +60,15 @@ import {
   SIDE_LEFT_BODY,
   SIDE_LEFT_TOP,
   SIDE_RIGHT,
+  DecorTextureProvider,
+  HingedDoor,
   SketchSvg,
   createDrawCam,
+  hingeSwingPad,
 } from '@/lib/cabinets/draw-3d'
 import { cn } from '@/lib/utils'
+import { useCaptureSolid, type SceneSolid } from '@/lib/cabinets/scene-solids'
+import { CapturedModel } from '@/components/CabinetModel'
 
 interface CabinetPreviewProps {
   typeId?: string
@@ -72,19 +80,77 @@ interface CabinetPreviewProps {
   showOpeningDims?: boolean
   /** Draw doors, drawer fronts and drawer faces on the 3D view. */
   showFronts?: boolean
+  /** Line drawing, coloured drawing, or a model you can turn. */
+  drawStyle?: 'line' | 'color' | 'model'
+  /** Hidden, shut, or stood beside the cabinet so the inside shows. */
+  doorView?: 'hidden' | 'closed' | 'open'
+  carcassColor?: string
+  frontColor?: string
+  carcassImage?: string
+  frontImage?: string
+  /** Chosen back colour. Coloured view uses white when this is empty. */
+  backColor?: string
+  backImage?: string
 }
 
 const SLIDE_STROKE_COLOR = DRAW_STROKE
 const CLOTHES_RAIL_COLOR = '#94a3b8'
 const SHELF_PIN_COLOR = '#6b7280'
 
+function hingeLeaf(layout: InteriorLayout, width: number): { leaf: number; pair: boolean } {
+  const spans: { w: number; n: number }[] = []
+  if (layout.fullDoorCount > 0) spans.push({ w: width, n: layout.fullDoorCount })
+  for (const zone of layout.zones) {
+    if (zone.doorCount > 0) spans.push({ w: zone.frontWidth > 0 ? zone.frontWidth : width, n: zone.doorCount })
+  }
+  if (spans.length === 0) return { leaf: width, pair: false }
+  let leaf = 0
+  let pair = false
+  for (const s of spans) {
+    const one = s.w / Math.max(1, s.n)
+    if (one > leaf) leaf = one
+    if (s.n >= 2) pair = true
+  }
+  return { leaf, pair }
+}
+
+function viewPad(
+  open: boolean,
+  layout: InteriorLayout,
+  width: number,
+  slide: boolean,
+): { left: number; right: number; bottom: number } {
+  if (!open) return { left: 0, right: 0, bottom: 0 }
+  if (slide) return { left: width + 80, right: width / 2 + 80, bottom: 0 }
+  const swing = hingeLeaf(layout, width)
+  return hingeSwingPad(swing.leaf, swing.pair)
+}
+
 function shelfPinMark(vbH: number) {
   return Math.max(8, Math.min(32, vbH * (5 / 460)))
+}
+
+/** Line drawings keep sizes and shelf pins. The coloured picture and the 3D model do not. */
+const ShowCabinetMarks = React.createContext(true)
+const PreviewIsModel = React.createContext(false)
+
+function useCabinetMarks() {
+  return React.useContext(ShowCabinetMarks)
 }
 const SLIDE_PROFILE_H = 18
 const SLIDE_FRONT_INSET = 28
 const SLIDE_STROKE = 10
 const FRONT_FILL = '#c4a06a'
+
+/** The cabinet itself has a door or a drawer front. Sliding leaves count too. */
+function layoutHasFronts(layout: InteriorLayout, slidingDoors = false): boolean {
+  if (slidingDoors) return true
+  if (layout.fullDoorCount > 0 || layout.fullDrawerFrontHeights.length > 0) return true
+  return layout.zones.some((z) => z.doorCount > 0 || z.drawerFrontHeights.some((h) => h > 0))
+}
+
+const LOOK_DOOR_NOTE =
+  'Тази врата е само на чертежа, за да се види цветът. За да влезе в сметката, сложи я от „Врати“.'
 
 function mm(n: number) {
   return formatMm(n)
@@ -110,7 +176,7 @@ function drawerSlideStacks(
   id: string
   heights: number[]
   box: { y: number; h: number }
-  doorCount: 0 | 1 | 2
+  doorCount: DoorCount
 }[] {
   const innerTopY = opts.innerTopY ?? opts.carcassTopY
   const innerBotY = opts.innerBotY ?? opts.carcassBotY
@@ -118,7 +184,7 @@ function drawerSlideStacks(
     id: string
     heights: number[]
     box: { y: number; h: number }
-    doorCount: 0 | 1 | 2
+    doorCount: DoorCount
   }[] = []
   if (layout.fullDrawerFrontHeights.length > 0) {
     sources.push({
@@ -146,7 +212,7 @@ function drawerSlideStacks(
 
 function drawerFrontTopY(
   box: { y: number; h: number },
-  doorCount: 0 | 1 | 2,
+  doorCount: DoorCount,
   heights: number[],
   index: number,
   clearanceBottom = 0,
@@ -165,6 +231,27 @@ function drawerSlideWorldX(layout: InteriorLayout, sourceId: string, thickness: 
   const zone = layout.zones.find((z) => z.id === sourceId)
   if (!zone) return thickness
   return thickness + zone.x0
+}
+
+function SlideBar({
+  x,
+  y,
+  z,
+  length,
+  h,
+}: {
+  x: number
+  y: number
+  z: number
+  length: number
+  h: number
+}) {
+  useCaptureSolid(
+    length > 1
+      ? { kind: 'box', x, y, z, w: 14, h, d: length, color: '#8b919a' }
+      : null,
+  )
+  return null
 }
 
 function columnsWithDrawers(layout: InteriorLayout): Set<number> {
@@ -219,6 +306,7 @@ function DrawerSlidesOnCabinet({
   /** Only the drawers in this opening. The page on its right is drawn afterwards. */
   opening?: { x0: number; x1: number; includeFull?: boolean; zoneId?: string }
 }) {
+  const marks = useCabinetMarks()
   return (
     <>
       {drawerSlideStacks(layout, {
@@ -266,11 +354,19 @@ function DrawerSlidesOnCabinet({
           const slideFont = scaledDimFont(Math.max(32, Math.min(slideLength * 0.1, 56)), fontScale)
           return (
             <g key={`slide-${src.id}-${i}`}>
+              <SlideBar x={x} y={yTopS} z={startZ} length={slideLength} h={SLIDE_PROFILE_H} />
+              <SlideBar
+                x={x + Math.max(0, openingW - 14)}
+                y={yTopS}
+                z={startZ}
+                length={slideLength}
+                h={SLIDE_PROFILE_H}
+              />
               <g stroke={SLIDE_STROKE_COLOR} fill="none" strokeWidth={SLIDE_STROKE} strokeLinecap="butt">
                 <line x1={a0.x} y1={a0.y} x2={a1.x} y2={a1.y} />
                 <line x1={b0.x} y1={b0.y} x2={b1.x} y2={b1.y} />
               </g>
-              {i === 0 && (
+              {marks && i === 0 && (
                 <DimText
                   x={mid.x + 18}
                   y={mid.y - 8}
@@ -287,6 +383,17 @@ function DrawerSlidesOnCabinet({
   )
 }
 
+function WithDecor({
+  entries,
+  children,
+}: {
+  entries: { color: string; image: string }[]
+  children: ReactNode
+}) {
+  if (entries.length === 0) return children
+  return <DecorTextureProvider entries={entries}>{children}</DecorTextureProvider>
+}
+
 /** Single 3D front view with depth extending to the right. */
 export function CabinetPreview({
   typeId = 'kitchen-base',
@@ -295,32 +402,85 @@ export function CabinetPreview({
   showDimLines = false,
   showOpeningDims = false,
   showFronts = false,
+  drawStyle = 'line',
+  doorView = 'closed',
+  carcassColor,
+  frontColor,
+  carcassImage,
+  frontImage,
+  backColor,
+  backImage,
 }: CabinetPreviewProps) {
+  const openDoors = doorView === 'open'
+  const pictured = drawStyle === 'color' || drawStyle === 'model'
+  const backFill = pictured ? backColor || '#f4f4f2' : DEFAULT_HARDBOARD_COLOR
+  const drawnParams =
+    pictured && carcassColor
+      ? {
+          ...params,
+          colors: {
+            ...parsePartColors(params.colors),
+            bottom: carcassColor,
+            side: carcassColor,
+            rail: carcassColor,
+            shelf: carcassColor,
+          },
+        }
+      : params
+  const doorColor = pictured ? frontColor : undefined
+  const textureEntries =
+    pictured
+      ? [
+          ...(carcassColor && carcassImage ? [{ color: carcassColor, image: carcassImage }] : []),
+          ...(doorColor && frontImage ? [{ color: doorColor, image: frontImage }] : []),
+          ...(backImage ? [{ color: backFill, image: backImage }] : []),
+        ]
+      : []
+  const showMarks = drawStyle === 'line'
+  const model = drawStyle === 'model'
   if (typeId === 'kitchen-wall') {
     return (
+      <ShowCabinetMarks.Provider value={showMarks}>
+      <PreviewIsModel.Provider value={model}>
+      <WithDecor entries={textureEntries}>
       <KitchenWallPreview
-        params={params}
+        params={drawnParams}
         className={className}
         showDimLines={showDimLines}
         showOpeningDims={showOpeningDims}
         showFronts={showFronts}
+        openDoors={openDoors}
+        frontColor={doorColor}
+        backFill={backFill}
       />
+      </WithDecor>
+      </PreviewIsModel.Provider>
+      </ShowCabinetMarks.Provider>
     )
   }
   if (typeId === 'nightstand' || typeId === 'section' || typeId === 'wardrobe') {
     return (
+      <ShowCabinetMarks.Provider value={showMarks}>
+      <PreviewIsModel.Provider value={model}>
+      <WithDecor entries={textureEntries}>
       <PlinthBoxPreview
         typeId={typeId}
-        params={params}
+        params={drawnParams}
         className={className}
         showDimLines={showDimLines}
         showOpeningDims={showOpeningDims}
         showFronts={showFronts}
+        openDoors={openDoors}
+        frontColor={doorColor}
+        backFill={backFill}
       />
+      </WithDecor>
+      </PreviewIsModel.Provider>
+      </ShowCabinetMarks.Provider>
     )
   }
 
-  const p = parseKitchenBaseParams(params)
+  const p = parseKitchenBaseParams(drawnParams)
   const m = measureCarcass(
     { width: p.width, height: p.height, depth: p.depth, thickness: p.thickness },
     KITCHEN_BASE_JOINERY,
@@ -346,9 +506,11 @@ export function CabinetPreview({
   const drawerViews = uniqueDrawerViews(p, layout)
 
   return (
+    <ShowCabinetMarks.Provider value={showMarks}>
+    <PreviewIsModel.Provider value={model}>
+    <WithDecor entries={textureEntries}>
     <div className={cn('flex flex-col gap-3', className)}>
-      <ViewCard title="3D Изглед отпред">
-        <ZoomableView>
+      <FrontDrawing title="3D Изглед отпред">
           <Front3DView
             p={p}
             m={m}
@@ -356,9 +518,12 @@ export function CabinetPreview({
             showDimLines={showDimLines}
             showOpeningDims={showOpeningDims}
             showFronts={showFronts}
+            openDoors={openDoors}
+            frontColor={doorColor}
+            backFill={backFill}
           />
-        </ZoomableView>
-      </ViewCard>
+      </FrontDrawing>
+      <ExtraDrawings>
       {drawerViews.map((view) => (
         <ViewCard
           key={`${view.frontHeight}-${Math.round(view.box.drawerOuterW)}-${view.label}`}
@@ -369,6 +534,7 @@ export function CabinetPreview({
           </ZoomableView>
         </ViewCard>
       ))}
+      </ExtraDrawings>
       <p className="text-center text-[11px] text-[var(--color-muted-foreground)]">
         <span className="mr-3" style={{ color: colors.bottom }}>■ Дъно</span>
         <span className="mr-3" style={{ color: colors.side }}>■ Страници</span>
@@ -381,7 +547,7 @@ export function CabinetPreview({
           <span className="mr-3" style={{ color: colors.shelf }}>■ Рафтове</span>
         )}
         {p.hasBack && (
-          <span className="mr-3" style={{ color: DEFAULT_HARDBOARD_COLOR }}>■ Фазер</span>
+          <span className="mr-3" style={{ color: backFill }}>■ Фазер</span>
         )}
         {layoutCounts(layout).clothesRailCount > 0 && (
           <span className="mr-3" style={{ color: CLOTHES_RAIL_COLOR }}>■ Лост</span>
@@ -390,15 +556,16 @@ export function CabinetPreview({
           <span className="mr-3" style={{ color: SLIDE_STROKE_COLOR }}>■ Водачи</span>
         )}
         <span style={{ color: colors.leg }}>■ Крачета</span>
-        {showFronts && (layoutCounts(layout).doorCount > 0 || layoutCounts(layout).drawerCount > 0) && (
-          <span className="mr-3" style={{ color: FRONT_FILL }}>
+        {showFronts && (
+          <span className="mr-3" style={{ color: doorColor || FRONT_FILL }}>
             {' '}■ Врати и чела
           </span>
         )}
+        {showFronts && !layoutHasFronts(layout) && <> {' · '}{LOOK_DOOR_NOTE}</>}
         {!showFronts && layoutCounts(layout).doorCount > 0 && (
           <>
             {' · '}
-            {layoutCounts(layout).doorCount === 1 ? '1 врата' : `${layoutCounts(layout).doorCount} врати`} (включи ги с отметката)
+            {layoutCounts(layout).doorCount === 1 ? '1 врата' : `${layoutCounts(layout).doorCount} врати`} (Врати → Затворени)
           </>
         )}
         {!showFronts && layoutCounts(layout).drawerCount > 0 && (
@@ -407,12 +574,15 @@ export function CabinetPreview({
             {layoutCounts(layout).drawerCount === 1
               ? '1 чекмедже'
               : `${layoutCounts(layout).drawerCount} чекмеджета`}{' '}
-            (челата с отметката)
+            (Врати → Затворени)
           </>
         )}
         {' · '}страниците сядат върху дъното, винтове отдолу
       </p>
     </div>
+    </WithDecor>
+    </PreviewIsModel.Provider>
+    </ShowCabinetMarks.Provider>
   )
 }
 
@@ -505,16 +675,31 @@ function heightDimSpecs(
       })
     })
     z.rails.forEach((r, i) => {
-      if (r.from === 'middle') return
-      dims.push({
-        id: `rail-${z.id}-${i}`,
-        col,
-        y0: r.from === 'top' ? r.openingY1 : r.openingY0,
-        y1: r.yTop,
-        offsetMm: r.offsetMm,
-        originZ: opts.originZ,
-        endZ: opts.railZ,
-      })
+      if (r.from !== 'middle') {
+        dims.push({
+          id: `rail-${z.id}-${i}`,
+          col,
+          y0: r.from === 'top' ? r.openingY1 : r.openingY0,
+          y1: r.yTop,
+          offsetMm: r.offsetMm,
+          originZ: opts.originZ,
+          endZ: opts.railZ,
+        })
+      }
+      // Clear space under the rod, down to the nearer of the shelf below or the bottom.
+      const rodBottom = r.yTop - CLOTHES_RAIL_SECTION_MM
+      const clear = rodBottom - r.openingY0
+      if (clear > 0.5) {
+        dims.push({
+          id: `hang-${z.id}-${i}`,
+          col,
+          y0: r.openingY0,
+          y1: rodBottom,
+          offsetMm: clear,
+          originZ: opts.shelfZ,
+          endZ: opts.railZ,
+        })
+      }
     })
   }
   return dims
@@ -754,9 +939,14 @@ function remainingHeightSpans(
       labeled.push({ col, a: Math.min(start, end), b: Math.max(start, end) })
     }
     for (const r of z.rails) {
-      if (r.from === 'middle') continue
-      const origin = r.from === 'top' ? r.openingY1 : r.openingY0
-      labeled.push({ col, a: Math.min(origin, r.yTop), b: Math.max(origin, r.yTop) })
+      if (r.from !== 'middle') {
+        const origin = r.from === 'top' ? r.openingY1 : r.openingY0
+        labeled.push({ col, a: Math.min(origin, r.yTop), b: Math.max(origin, r.yTop) })
+      }
+      const rodBottom = r.yTop - CLOTHES_RAIL_SECTION_MM
+      if (rodBottom > r.openingY0 + 0.5) {
+        labeled.push({ col, a: r.openingY0, b: rodBottom })
+      }
     }
   }
   const covers = (colIndex: number, y0: number, y1: number) =>
@@ -1397,6 +1587,7 @@ function BayShelvesAndPartials({
   railPartitionZ?: number
   between?: (x0: number, x1: number, includeFull: boolean, zoneId?: string) => ReactNode
 }) {
+  const marks = useCabinetMarks()
   const col = layout.columns[colIndex]
   if (!col || !(col.innerW > 0)) return null
   const shelfZ = adjZ ?? fixedZ
@@ -1484,6 +1675,7 @@ function BayShelvesAndPartials({
               cam={cam}
               faces={BETWEEN_FACES}
             />
+            {marks && (
             <ShelfPins
               x={T + zone.x0}
               yTop={innerFloorY - (zone.y0 + shelf.yBottom) - T}
@@ -1494,6 +1686,7 @@ function BayShelvesAndPartials({
               cam={cam}
               mark={pinMark}
             />
+            )}
             {shelfHole && (
               <PanelHoleMark
                 x={T + zone.x0}
@@ -1575,6 +1768,27 @@ function insetFrontGeom(T: number, x0: number, innerW: number): { x: number; w: 
   }
 }
 
+/**
+ * Equal leaves in one opening.
+ * The outer left hinges on the left side, the outer right on the right side.
+ * Inner leaves hinge on the edge toward the middle, so they meet in pairs.
+ */
+function doorLeafLayout(
+  x: number,
+  w: number,
+  count: number,
+  betweenGap: number,
+): { x: number; w: number; side: 'left' | 'right' }[] {
+  const n = count === 2 || count === 3 || count === 4 ? count : 1
+  const gaps = n - 1
+  const dw = gaps > 0 ? (w - betweenGap * gaps) / n : w
+  return Array.from({ length: n }, (_, i) => {
+    const side: 'left' | 'right' =
+      n === 1 || i === 0 ? 'left' : i === n - 1 ? 'right' : i < n / 2 ? 'right' : 'left'
+    return { x: x + i * (dw + betweenGap), w: dw, side }
+  })
+}
+
 function FrontsOnCabinet({
   layout,
   W,
@@ -1594,6 +1808,9 @@ function FrontsOnCabinet({
   innerTopY,
   innerBotY,
   opening,
+  openDoors = false,
+  frontColor,
+  visualDoor = false,
 }: {
   layout: InteriorLayout
   W: number
@@ -1615,8 +1832,15 @@ function FrontsOnCabinet({
   innerBotY?: number
   /** Only fronts in this opening, drawn before the page on its right. */
   opening?: { x0: number; x1: number; includeFull?: boolean; zoneId?: string }
+  /** Stand the doors beside the cabinet so the inside stays visible. */
+  openDoors?: boolean
+  frontColor?: string
+  /** One door on the drawing when the cabinet has none, so the colour and the open view show. */
+  visualDoor?: boolean
 }) {
+  const marks = useCabinetMarks()
   const gap = DOOR_GAP_X
+  const fill = frontColor || FRONT_FILL
   const items: ReactNode[] = []
   const overlayFaces = { front: true, top: true, right: true } as const
   const insetFaces = { front: true, top: true, right: true } as const
@@ -1629,7 +1853,7 @@ function FrontsOnCabinet({
   }
 
   const pushHeightLabel = (id: string, x: number, y: number, w: number, h: number) => {
-    if (!(h > 24 && w > 40)) return
+    if (!marks || !(h > 24 && w > 40)) return
     const pt = cam.proj(x + w / 2, y + h / 2, z)
     const fontSize = scaledDimFont(Math.max(22, Math.min(h * 0.28, w * 0.14, 52)), fontScale)
     items.push(<DimText key={id} x={pt.x} y={pt.y} label={mm(h)} fontSize={fontSize} rotate={-90} />)
@@ -1640,78 +1864,65 @@ function FrontsOnCabinet({
     y: number,
     w: number,
     h: number,
-    count: 1 | 2,
+    count: number,
     key: string,
     label: boolean,
     faces: typeof overlayFaces,
     betweenGap: number,
   ) => {
     if (!(h > 4)) return
-    if (count === 1) {
+    const leaves = doorLeafLayout(x, w, count, betweenGap)
+    if (openDoors) {
+      leaves.forEach((leaf, i) => {
+        items.push(
+          <HingedDoor
+            key={leaves.length === 1 ? key : `${key}-${i}`}
+            hingeX={leaf.side === 'left' ? leaf.x : leaf.x + leaf.w}
+            y={y}
+            z={z}
+            width={leaf.w}
+            height={h}
+            thickness={d}
+            side={leaf.side}
+            color={fill}
+            cam={cam}
+          />,
+        )
+      })
+      return
+    }
+    leaves.forEach((leaf, i) => {
+      const id = leaves.length === 1 ? key : `${key}-${i}`
       items.push(
         <Board
-          key={key}
-          x={x}
+          key={id}
+          x={leaf.x}
           y={y}
           z={z}
-          w={w}
+          w={leaf.w}
           h={h}
           d={d}
-          color={FRONT_FILL}
+          color={fill}
           cam={cam}
           faces={faces}
           opacity={0.92}
         />,
       )
-      if (label) pushHeightLabel(`${key}-h`, x, y, w, h)
-      return
-    }
-    const dw = (w - betweenGap) / 2
-    items.push(
-      <Board
-        key={`${key}-l`}
-        x={x}
-        y={y}
-        z={z}
-        w={dw}
-        h={h}
-        d={d}
-        color={FRONT_FILL}
-        cam={cam}
-        faces={faces}
-        opacity={0.92}
-      />,
-      <Board
-        key={`${key}-r`}
-        x={x + dw + betweenGap}
-        y={y}
-        z={z}
-        w={dw}
-        h={h}
-        d={d}
-        color={FRONT_FILL}
-        cam={cam}
-        faces={faces}
-        opacity={0.92}
-      />,
-    )
-    if (label) {
-      pushHeightLabel(`${key}-lh`, x, y, dw, h)
-      pushHeightLabel(`${key}-rh`, x + dw + betweenGap, y, dw, h)
-    }
+      if (label) pushHeightLabel(`${id}-h`, leaf.x, y, leaf.w, h)
+    })
   }
 
   const pushStacked = (
     overlay: { x: number; y: number; w: number; h: number },
     innerY: { y: number; h: number },
-    doorCount: 0 | 1 | 2,
+    doorCount: DoorCount,
     drawerFrontHeights: number[],
     key: string,
     bottomGap: number,
     inset: { x: number; w: number },
   ) => {
     const hasDrawers = drawerFrontHeights.some((h) => h > 0)
-    const hasDoors = doorCount === 1 || doorCount === 2
+    const hasDoors = doorCount > 0
     const allInner = (hasDrawers ? innerDrawerFronts : true) && (hasDoors ? innerDoors : true)
     const stackBox = allInner ? { ...overlay, y: innerY.y, h: innerY.h } : overlay
     const stacked = stackFronts({
@@ -1736,14 +1947,14 @@ function FrontsOnCabinet({
             w={box.w}
             h={s.height}
             d={d}
-            color={FRONT_FILL}
+            color={fill}
             cam={cam}
             faces={faces}
             opacity={0.92}
           />,
         )
         if (label) pushHeightLabel(`df-${key}-${s.index}-h`, box.x, y, box.w, s.height)
-      } else if (s.doorCount === 1 || s.doorCount === 2) {
+      } else if (s.doorCount != null && s.doorCount > 0) {
         if (!include(innerDoors)) continue
         const box = innerDoors ? inset : overlay
         const faces = innerDoors ? insetFaces : overlayFaces
@@ -1801,7 +2012,35 @@ function FrontsOnCabinet({
     )
   }
 
+  if (visualDoor && !opening && items.length === 0) {
+    const overlayX = insetFronts ? T : 0
+    const overlayW = insetFronts ? Math.max(0, W - 2 * T) : W
+    pushDoors(overlayX, carcassTopY, overlayW, carcassBotY - carcassTopY, 1, 'look', false, overlayFaces, gap)
+  }
+
   return <>{items}</>
+}
+
+function FrontDrawing({ title, children }: { title: string; children: ReactNode }) {
+  const model = React.useContext(PreviewIsModel)
+  if (model) {
+    return (
+      <ViewCard title="3D">
+        <CapturedModel>{children}</CapturedModel>
+      </ViewCard>
+    )
+  }
+  return (
+    <ViewCard title={title}>
+      <ZoomableView>{children}</ZoomableView>
+    </ViewCard>
+  )
+}
+
+function ExtraDrawings({ children }: { children: ReactNode }) {
+  const model = React.useContext(PreviewIsModel)
+  if (model) return null
+  return children
 }
 
 function ViewCard({ title, children }: { title: string; children: ReactNode }) {
@@ -2017,6 +2256,9 @@ function Front3DView({
   showDimLines,
   showOpeningDims,
   showFronts,
+  openDoors = false,
+  frontColor,
+  backFill = DEFAULT_HARDBOARD_COLOR,
 }: {
   p: KitchenBaseParams
   m: ReturnType<typeof measureCarcass>
@@ -2024,7 +2266,11 @@ function Front3DView({
   showDimLines: boolean
   showOpeningDims: boolean
   showFronts: boolean
+  openDoors?: boolean
+  frontColor?: string
+  backFill?: string
 }) {
+  const marks = useCabinetMarks()
   const T = m.thickness
   const W = m.outerW
   const H = m.outerH
@@ -2039,9 +2285,10 @@ function Front3DView({
   const font = scaledDimFont(Math.max(72, Math.min(W, H) * 0.13), fontScale)
   const railFont = scaledDimFont(Math.max(48, Math.min(R * 0.5, m.railLength * 0.1)), fontScale)
   const legFont = scaledDimFont(Math.max(40, Math.max(72, Math.min(W, H) * 0.13) * 0.55), fontScale)
-  const padL = font + 48
-  const padT = font + Math.abs(dy) + 28
-  const padR = 48
+  const doorPad = viewPad(openDoors, layout, W, false)
+  const padL = (marks ? font + 48 : 28) + doorPad.left
+  const padT = (marks ? font : 20) + Math.abs(dy) + (marks ? 28 : 12)
+  const padR = (marks ? 48 : 24) + doorPad.right
   const leftovers = leftoverPartitionSpans(layout.partitions, layout.columns)
   const openingWidths =
     p.topStyle === 'rails' ? [] : openingWidthSpans(layout.partitions, layout.columns)
@@ -2106,7 +2353,7 @@ function Front3DView({
     obstacles: widthAvoid,
     shelves: shelfSeats(layout, T, innerFloorY, zShelfFront),
   })
-  const padB = 36 + (widthLabels.outsideRows > 0 ? widthDimPad(railFont, widthLabels.outsideRows) : 0)
+  const padB = (marks ? 36 : 16) + doorPad.bottom + (marks && widthLabels.outsideRows > 0 ? widthDimPad(railFont, widthLabels.outsideRows) : 0)
   const vbH = padT + totalH + padB
   const cavityTopY = innerFloorY - innerClearH
   const adjShelfOffs = layout.zones.flatMap((z) => z.movable.map((s) => z.y0 + s.yBottom))
@@ -2126,6 +2373,15 @@ function Front3DView({
   const wood = p.colors
   const sideH = H - T
   const sideY = topY
+  const legD = legW
+  const legZFront = Math.min(48, Math.max(18, D * 0.08))
+  const legZBack = Math.max(legZFront, D - legZFront - legD)
+  const legBox = (x: number, z: number): SceneSolid | null =>
+    L > 0 ? { kind: 'box', x, y: floor - L, z, w: legW, h: L, d: legD, color: wood.leg } : null
+  useCaptureSolid(legBox(legInset, legZFront))
+  useCaptureSolid(legBox(W - legInset - legW, legZFront))
+  useCaptureSolid(legBox(legInset, legZBack))
+  useCaptureSolid(legBox(W - legInset - legW, legZBack))
 
   return (
     <SketchSvg vbW={vbW} vbH={vbH} height={460} label="3D изглед отпред">
@@ -2156,16 +2412,16 @@ function Front3DView({
 
       {p.hasBack && (
         <Board
-          x={0}
-          y={topY}
+          x={T}
+          y={cavityTopY}
           z={zBack}
-          w={W}
-          h={H}
+          w={Math.max(1, W - 2 * T)}
+          h={Math.max(1, innerFloorY - cavityTopY)}
           d={1}
-          color={DEFAULT_HARDBOARD_COLOR}
+          color={backFill}
           cam={view}
           faces={{ front: true }}
-          strokeWidth={0.8}
+          strokeWidth={2.4}
         />
       )}
 
@@ -2225,6 +2481,8 @@ function Front3DView({
                     innerDoors={p.innerDoors === true}
                     layer="inset"
                     opening={{ x0, x1, includeFull, zoneId }}
+                    openDoors={openDoors}
+                    frontColor={frontColor}
                   />
                 )}
               </>
@@ -2307,9 +2565,14 @@ function Front3DView({
           innerDrawerFronts={p.innerDrawerFronts === true}
           innerDoors={p.innerDoors === true}
           layer="overlay"
+          openDoors={openDoors}
+          frontColor={frontColor}
+          visualDoor={!layoutHasFronts(layout)}
         />
       )}
 
+      {marks && (
+      <>
       <InteriorHeightDimLines
         layout={layout}
         innerFloorY={innerFloorY}
@@ -2377,6 +2640,8 @@ function Front3DView({
           <DimLine x1={ox + dx} y1={topY + dy - font * 0.2} x2={ox + W + dx} y2={topY + dy - font * 0.2} />
         </g>
       )}
+      </>
+      )}
     </SketchSvg>
   )
 }
@@ -2387,12 +2652,18 @@ function KitchenWallPreview({
   showDimLines,
   showOpeningDims,
   showFronts,
+  openDoors = false,
+  frontColor,
+  backFill = DEFAULT_HARDBOARD_COLOR,
 }: {
   params: Record<string, unknown>
   className?: string
   showDimLines: boolean
   showOpeningDims: boolean
   showFronts: boolean
+  openDoors?: boolean
+  frontColor?: string
+  backFill?: string
 }) {
   const p = parseKitchenWallParams(params)
   const m = measureCarcass(
@@ -2424,8 +2695,7 @@ function KitchenWallPreview({
 
   return (
     <div className={cn('flex flex-col gap-3', className)}>
-      <ViewCard title="3D Изглед отпред">
-        <ZoomableView>
+      <FrontDrawing title="3D Изглед отпред">
           <WallFront3DView
             p={p}
             m={m}
@@ -2433,11 +2703,14 @@ function KitchenWallPreview({
             showDimLines={showDimLines}
             showOpeningDims={showOpeningDims}
             showFronts={showFronts}
+            openDoors={openDoors}
+            frontColor={frontColor}
+            backFill={backFill}
             bottomHole={bottomHole}
             shelfHole={shelfHole}
           />
-        </ZoomableView>
-      </ViewCard>
+      </FrontDrawing>
+      <ExtraDrawings>
       {drawerViews.map((view) => (
         <ViewCard
           key={`${view.frontHeight}-${Math.round(view.box.drawerOuterW)}-${view.label}`}
@@ -2448,6 +2721,7 @@ function KitchenWallPreview({
           </ZoomableView>
         </ViewCard>
       ))}
+      </ExtraDrawings>
       <p className="text-center text-[11px] text-[var(--color-muted-foreground)]">
         <span className="mr-3" style={{ color: colors.bottom }}>■ Дъно</span>
         <span className="mr-3" style={{ color: colors.side }}>■ Страници</span>
@@ -2456,9 +2730,15 @@ function KitchenWallPreview({
           <span className="mr-3" style={{ color: colors.shelf }}>■ Рафтове</span>
         )}
         {p.hasBack && (
-          <span className="mr-3" style={{ color: DEFAULT_HARDBOARD_COLOR }}>■ Фазер</span>
+          <span className="mr-3" style={{ color: backFill }}>■ Фазер</span>
         )}
         {p.hasHood && <span className="mr-3">○ Абсорбатор</span>}
+        {showFronts && (
+          <span className="mr-3" style={{ color: frontColor || FRONT_FILL }}>
+            {' '}■ Врати и чела
+          </span>
+        )}
+        {showFronts && !layoutHasFronts(layout) && <> {' · '}{LOOK_DOOR_NOTE}</>}
         {' · '}
         страниците захлупват плота и дъното
       </p>
@@ -2473,6 +2753,9 @@ function WallFront3DView({
   showDimLines,
   showOpeningDims,
   showFronts,
+  openDoors = false,
+  frontColor,
+  backFill = DEFAULT_HARDBOARD_COLOR,
   bottomHole,
   shelfHole,
 }: {
@@ -2482,9 +2765,13 @@ function WallFront3DView({
   showDimLines: boolean
   showOpeningDims: boolean
   showFronts: boolean
+  openDoors?: boolean
+  frontColor?: string
+  backFill?: string
   bottomHole?: PanelHole
   shelfHole?: PanelHole
 }) {
+  const marks = useCabinetMarks()
   const T = m.thickness
   const W = m.outerW
   const H = m.outerH
@@ -2495,9 +2782,10 @@ function WallFront3DView({
   const fontScale = p.dimFontScale
   const font = scaledDimFont(Math.max(72, Math.min(W, H) * 0.13), fontScale)
   const small = scaledDimFont(Math.max(48, Math.max(72, Math.min(W, H) * 0.13) * 0.55), fontScale)
-  const padL = font + 48
-  const padT = font + Math.abs(dy) + 28
-  const padR = 48
+  const doorPad = viewPad(openDoors, layout, W, false)
+  const padL = (marks ? font + 48 : 28) + doorPad.left
+  const padT = (marks ? font : 20) + Math.abs(dy) + (marks ? 28 : 12)
+  const padR = (marks ? 48 : 24) + doorPad.right
   const leftovers = leftoverPartitionSpans(layout.partitions, layout.columns)
   const openingWidths = openingWidthSpans(layout.partitions, layout.columns)
   const openingHeights = remainingHeightSpans(layout, m.innerH)
@@ -2545,7 +2833,7 @@ function WallFront3DView({
     obstacles: widthAvoid,
     shelves: shelfSeats(layout, T, innerFloorY, zShelfFront),
   })
-  const padB = 36 + (widthLabels.outsideRows > 0 ? widthDimPad(small, widthLabels.outsideRows) : 0)
+  const padB = (marks ? 36 : 16) + doorPad.bottom + (marks && widthLabels.outsideRows > 0 ? widthDimPad(small, widthLabels.outsideRows) : 0)
   const vbH = padT + H + padB
   const innerTopY = topY + T
   const wood = p.colors
@@ -2558,16 +2846,16 @@ function WallFront3DView({
     <SketchSvg vbW={vbW} vbH={vbH} height={460} label="3D изглед отпред">
       {p.hasBack && (
         <Board
-          x={0}
-          y={topY}
+          x={T}
+          y={innerTopY}
           z={D}
-          w={W}
-          h={H}
+          w={Math.max(1, W - 2 * T)}
+          h={Math.max(1, innerFloorY - innerTopY)}
           d={1}
-          color={DEFAULT_HARDBOARD_COLOR}
+          color={backFill}
           cam={view}
           faces={{ front: true }}
-          strokeWidth={0.8}
+          strokeWidth={2.4}
         />
       )}
 
@@ -2625,6 +2913,8 @@ function WallFront3DView({
                   innerDoors={p.innerDoors === true}
                   layer="inset"
                   opening={{ x0, x1, includeFull, zoneId }}
+                  openDoors={openDoors}
+                  frontColor={frontColor}
                 />
               ) : null
             }
@@ -2674,9 +2964,14 @@ function WallFront3DView({
           innerDrawerFronts={p.innerDrawerFronts === true}
           innerDoors={p.innerDoors === true}
           layer="overlay"
+          openDoors={openDoors}
+          frontColor={frontColor}
+          visualDoor={!layoutHasFronts(layout)}
         />
       )}
 
+      {marks && (
+      <>
       <InteriorHeightDimLines
         layout={layout}
         innerFloorY={innerFloorY}
@@ -2731,6 +3026,8 @@ function WallFront3DView({
           <DimLine x1={ox + dx} y1={topY + dy - font * 0.2} x2={ox + W + dx} y2={topY + dy - font * 0.2} />
         </g>
       )}
+      </>
+      )}
     </SketchSvg>
   )
 }
@@ -2742,6 +3039,7 @@ function Drawer3DView({
   p: { thickness: number; colors: { side: string }; dimFontScale?: number }
   box: DrawerBoxRails
 }) {
+  const marks = useCabinetMarks()
   const T = p.thickness
   const Wd = box.drawerOuterW
   const Hd = box.outer.height
@@ -2756,10 +3054,10 @@ function Drawer3DView({
   const fontScale = p.dimFontScale ?? 1
   const font = scaledDimFont(Math.max(40, Math.min(Wd, Hd) * 0.18), fontScale)
   const small = scaledDimFont(Math.max(32, Math.max(40, Math.min(Wd, Hd) * 0.18) * 0.7), fontScale)
-  const padL = font + 36
-  const padT = font + Math.abs(dy) + 24
-  const padR = font + 40
-  const padB = font + 28
+  const padL = marks ? font + 36 : 20
+  const padT = (marks ? font : 16) + Math.abs(dy) + (marks ? 24 : 12)
+  const padR = marks ? font + 40 : 20
+  const padB = marks ? font + 28 : 16
 
   const vbW = padL + Wd + dx + padR
   const vbH = padT + Hd + padB
@@ -2790,15 +3088,19 @@ function Drawer3DView({
       <Board x={Wd - T} y={0} w={T} h={Hd} d={Dd} color={wood} cam={cam} faces={SIDE_RIGHT} />
       <Board x={T} y={innerY} z={0} w={Wi} h={Hi} d={T} color={wood} cam={cam} faces={BETWEEN_FACES} />
 
-      <DimText x={outerL.x} y={outerL.y} label={mm(Dd)} fontSize={small} />
-      <DimText x={outerH.x} y={outerH.y} label={mm(Hd)} fontSize={small} rotate={-90} />
-      <DimText
-        x={innerFrontMid.x}
-        y={innerFrontMid.y}
-        label={Hi !== Hd ? `${mm(Wi)}×${mm(Hi)}` : mm(Wi)}
-        fontSize={small}
-      />
-      <DimText x={boxW.x} y={boxW.y} label={mm(Wd)} fontSize={small} />
+      {marks && (
+        <>
+          <DimText x={outerL.x} y={outerL.y} label={mm(Dd)} fontSize={small} />
+          <DimText x={outerH.x} y={outerH.y} label={mm(Hd)} fontSize={small} rotate={-90} />
+          <DimText
+            x={innerFrontMid.x}
+            y={innerFrontMid.y}
+            label={Hi !== Hd ? `${mm(Wi)}×${mm(Hi)}` : mm(Wi)}
+            fontSize={small}
+          />
+          <DimText x={boxW.x} y={boxW.y} label={mm(Wd)} fontSize={small} />
+        </>
+      )}
     </SketchSvg>
   )
 }
@@ -2810,6 +3112,9 @@ function PlinthBoxPreview({
   showDimLines,
   showOpeningDims,
   showFronts,
+  openDoors = false,
+  frontColor,
+  backFill = DEFAULT_HARDBOARD_COLOR,
 }: {
   typeId: 'nightstand' | 'section' | 'wardrobe'
   params: Record<string, unknown>
@@ -2817,6 +3122,9 @@ function PlinthBoxPreview({
   showDimLines: boolean
   showOpeningDims: boolean
   showFronts: boolean
+  openDoors?: boolean
+  frontColor?: string
+  backFill?: string
 }) {
   const topInner = typeId === 'section' || typeId === 'wardrobe'
   const p =
@@ -2855,8 +3163,7 @@ function PlinthBoxPreview({
   const drawerViews = uniqueDrawerViews(p, layout)
   return (
     <div className={cn('flex flex-col gap-3', className)}>
-      <ViewCard title="3D Изглед отпред">
-        <ZoomableView>
+      <FrontDrawing title="3D Изглед отпред">
           <PlinthBoxFront3DView
             p={p}
             topInner={topInner}
@@ -2864,9 +3171,12 @@ function PlinthBoxPreview({
             showDimLines={showDimLines}
             showOpeningDims={showOpeningDims}
             showFronts={showFronts}
+            openDoors={openDoors}
+            frontColor={frontColor}
+            backFill={backFill}
           />
-        </ZoomableView>
-      </ViewCard>
+      </FrontDrawing>
+      <ExtraDrawings>
       {drawerViews.map((view) => (
         <ViewCard
           key={`${view.frontHeight}-${Math.round(view.box.drawerOuterW)}-${view.label}`}
@@ -2877,6 +3187,7 @@ function PlinthBoxPreview({
           </ZoomableView>
         </ViewCard>
       ))}
+      </ExtraDrawings>
       <p className="text-center text-[11px] text-[var(--color-muted-foreground)]">
         <span className="mr-3" style={{ color: colors.bottom }}>■ Дъно</span>
         <span className="mr-3" style={{ color: colors.side }}>■ Страници</span>
@@ -2890,7 +3201,7 @@ function PlinthBoxPreview({
           <span className="mr-3" style={{ color: colors.shelf }}>■ Рафтове</span>
         ) : null}
         {p.hasBack && (
-          <span className="mr-3" style={{ color: DEFAULT_HARDBOARD_COLOR }}>■ Фазер</span>
+          <span className="mr-3" style={{ color: backFill }}>■ Фазер</span>
         )}
         {counts.clothesRailCount > 0 && (
           <span className="mr-3" style={{ color: CLOTHES_RAIL_COLOR }}>■ Лост</span>
@@ -2903,8 +3214,11 @@ function PlinthBoxPreview({
         ) : (
           <span style={{ color: colors.bottom }}>■ Цокъл</span>
         )}
-        {showFronts && (counts.doorCount > 0 || counts.drawerCount > 0 || (sliding && p.doorCount === 2)) && (
-          <span className="mr-3" style={{ color: FRONT_FILL }}> ■ Врати и чела</span>
+        {showFronts && (
+          <span className="mr-3" style={{ color: frontColor || FRONT_FILL }}> ■ Врати и чела</span>
+        )}
+        {showFronts && !layoutHasFronts(layout, sliding && p.doorCount === 2) && (
+          <> {' · '}{LOOK_DOOR_NOTE}</>
         )}
         {!showFronts && (counts.doorCount > 0 || (sliding && p.doorCount === 2)) && (
           <>
@@ -2913,13 +3227,13 @@ function PlinthBoxPreview({
               ? '2 плъзгащи врати'
               : counts.doorCount === 1
                 ? '1 врата'
-                : `${counts.doorCount} врати`} (включи ги с отметката)
+                : `${counts.doorCount} врати`} (Врати → Затворени)
           </>
         )}
         {!showFronts && counts.drawerCount > 0 && (
           <>
             {' · '}
-            {counts.drawerCount === 1 ? '1 чекмедже' : `${counts.drawerCount} чекмеджета`} (челата с отметката)
+            {counts.drawerCount === 1 ? '1 чекмедже' : `${counts.drawerCount} чекмеджета`} (Врати → Затворени)
           </>
         )}
         {' · '}
@@ -2946,6 +3260,9 @@ function PlinthBoxFront3DView({
   showDimLines,
   showOpeningDims,
   showFronts,
+  openDoors = false,
+  frontColor,
+  backFill = DEFAULT_HARDBOARD_COLOR,
 }: {
   p: NightstandParams
   topInner: boolean
@@ -2953,7 +3270,11 @@ function PlinthBoxFront3DView({
   showDimLines: boolean
   showOpeningDims: boolean
   showFronts: boolean
+  openDoors?: boolean
+  frontColor?: string
+  backFill?: string
 }) {
+  const marks = useCabinetMarks()
   const m = measureNightstand(p, topInner)
   const T = m.thickness
   const W = p.width
@@ -2971,9 +3292,10 @@ function PlinthBoxFront3DView({
   const tallCabinet = H >= 1800
   const supportFont = scaledDimFont(Math.max(30, Math.min(tallCabinet ? 46 : 48, Math.max(40, fontBase * 0.55) * 0.58)), fontScale)
   const supportGap = Math.max(34, supportFont * 0.75)
-  const padL = font + 48
-  const padT = font + Math.abs(dy) + 28
-  const padR = 48
+  const doorPad = viewPad(openDoors, layout, W, m.sliding && p.doorCount === 2)
+  const padL = (marks ? font + 48 : 28) + doorPad.left
+  const padT = (marks ? font : 20) + Math.abs(dy) + (marks ? 28 : 12)
+  const padR = (marks ? 48 : 24) + doorPad.right
   const leftovers = leftoverPartitionSpans(layout.partitions, layout.columns)
   const openingWidths = openingWidthSpans(layout.partitions, layout.columns)
   const openingHeights = remainingHeightSpans(layout, m.innerH)
@@ -3115,8 +3437,9 @@ function PlinthBoxFront3DView({
     shelves: shelfSeats(layout, T, innerFloorY, zShelfFront),
   })
   const padB =
-    Math.max(52, supportFont * 0.85) +
-    (widthLabels.outsideRows > 0 ? widthDimPad(small, widthLabels.outsideRows) : 0)
+    (marks ? Math.max(52, supportFont * 0.85) : 16) +
+    doorPad.bottom +
+    (marks && widthLabels.outsideRows > 0 ? widthDimPad(small, widthLabels.outsideRows) : 0)
   const vbH = padT + H + padB
   const carcassBotY = floor - supportH
   const frontTopY = coveringTop ? topY + T : topY
@@ -3187,16 +3510,16 @@ function PlinthBoxFront3DView({
 
       {p.hasBack && (
         <Board
-          x={0}
-          y={topY}
+          x={T}
+          y={topY + (m.innerTopPanel || m.coveringTop ? T : 0)}
           z={zSide + m.sideD}
-          w={W}
-          h={p.useLegs ? H : H - p.plinthHeight}
+          w={Math.max(1, W - 2 * T)}
+          h={Math.max(1, (p.useLegs ? H : H - p.plinthHeight) - (m.innerTopPanel || m.coveringTop ? T : 0) - T)}
           d={1}
-          color={DEFAULT_HARDBOARD_COLOR}
+          color={backFill}
           cam={view}
           faces={{ front: true }}
-          strokeWidth={0.8}
+          strokeWidth={2.4}
         />
       )}
 
@@ -3359,6 +3682,8 @@ function PlinthBoxFront3DView({
                     layer="inset"
                     fontScale={fontScale}
                     opening={{ x0, x1, includeFull, zoneId }}
+                    openDoors={openDoors}
+                    frontColor={frontColor}
                   />
                 )}
               </>
@@ -3483,7 +3808,7 @@ function PlinthBoxFront3DView({
         />
       ) : null}
 
-      {m.sliding && showDimLines && (
+      {marks && m.sliding && showDimLines && (
         <>
           <DimLine
             x1={view.proj(T + m.innerW * 0.72, leftInnerY + 12, zSide).x}
@@ -3545,16 +3870,23 @@ function PlinthBoxFront3DView({
             leaf.side === 'middle' || (p.slidingEdges.length < 3 && leaf.side === 'right')
               ? zSide + SLIDING_LOWER_TRACK_INSET_MM
               : zSide + SLIDING_LOWER_TRACK_INSET_MM + 32
+          const doorX = openDoors
+            ? leaf.side === 'right'
+              ? W + 36
+              : leaf.side === 'left'
+                ? -leaf.gabaritW - 36
+                : T + leaf.x
+            : T + leaf.x
           return (
             <g key={`slide-door-${leaf.index}`}>
               <Board
-                x={T + leaf.x}
+                x={doorX}
                 y={bottomY - SLIDING_DOOR_BOTTOM_CLEAR_MM - leaf.gabaritH}
                 z={zDoor}
                 w={leaf.gabaritW}
                 h={leaf.gabaritH}
                 d={T}
-                color={FRONT_FILL}
+                color={frontColor || FRONT_FILL}
                 cam={view}
                 faces={{ front: true, top: true, right: true }}
                 opacity={0.88}
@@ -3581,10 +3913,15 @@ function PlinthBoxFront3DView({
           innerDrawerFronts={p.innerDrawerFronts === true}
           innerDoors={p.innerDoors === true}
           layer="overlay"
+          openDoors={openDoors}
+          frontColor={frontColor}
           fontScale={fontScale}
+          visualDoor={slidingLeaves.length === 0 && !layoutHasFronts(layout)}
         />
       )}
 
+      {marks && (
+      <>
       <InteriorHeightDimLines
         layout={layout}
         innerFloorY={innerFloorY}
@@ -3695,6 +4032,8 @@ function PlinthBoxFront3DView({
           <DimLine x1={ox} y1={topY - 8} x2={ox + dx} y2={topY + dy - 8} />
           <DimLine x1={ox + dx} y1={topY + dy - font * 0.2} x2={ox + W + dx} y2={topY + dy - font * 0.2} />
         </g>
+      )}
+      </>
       )}
     </SketchSvg>
   )

@@ -29,6 +29,7 @@ function panelToPart(
     label: `${index + 1} ${panel.name}`,
     cabinetId,
     kind: panel.material === 'hardboard' ? 'hardboard' : 'chipboard',
+    ...(panel.finishId ? { finishId: panel.finishId } : {}),
   }
   return { part, banding: bandingFromPlan(id, panel.edges) }
 }

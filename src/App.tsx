@@ -27,6 +27,7 @@ import {
 import { subscribeAuth, saveProject, loadProjects, deleteProject, loadUserSettings, saveUserSettings, getFirebaseInitError } from '@/lib/firebase'
 import { saveDraft, readInitialDraft, setOpenProject, getOpenProject, type OpenProjectRef } from '@/lib/draft-storage'
 import { loadSettings, saveSettings, resetSettings, type HardwareSettings } from '@/lib/settings'
+import { ensureFinishSheets } from '@/lib/board-finishes'
 import {
   loadAssemblyTimeSettings,
   saveAssemblyTimeSettings,
@@ -247,7 +248,7 @@ function App() {
 
     let chipResult: PackingResult | null = null
     if (chipboardParts.length > 0) {
-      chipResult = optimizeAllVariants(chipboardSheets, chipboardParts)[0]?.result ?? null
+      chipResult = packChipboard(chipboardSheets, chipboardParts)
     }
 
     let boardResult: PackingResult | null = null
@@ -399,6 +400,7 @@ function App() {
     setParts(next.parts)
     setEdgeBanding(next.edgeBanding)
     ensureHardboardSheet(input.params)
+    setSheets((prev) => ensureFinishSheets(prev, next.parts, settings.boardFinishes))
     resetPacking()
   }
 
@@ -411,6 +413,7 @@ function App() {
     setParts(next.parts)
     setEdgeBanding(next.edgeBanding)
     ensureHardboardSheet(input.params)
+    setSheets((prev) => ensureFinishSheets(prev, next.parts, settings.boardFinishes))
     resetPacking()
   }
 
@@ -453,6 +456,10 @@ function App() {
     if (newSettings.chipboardPriceEur !== oldSettings.chipboardPriceEur || 
         newSettings.hardboardPriceEur !== oldSettings.hardboardPriceEur) {
       setSheets((prev) => prev.map((sheet) => {
+        if (sheet.finishId) {
+          const finish = newSettings.boardFinishes.find((item) => item.id === sheet.finishId)
+          return finish ? { ...sheet, priceEur: finish.sheetPriceEur } : sheet
+        }
         const kind = sheetKind(sheet)
         if (kind === 'chipboard' && sheet.priceEur === oldSettings.chipboardPriceEur) {
           return { ...sheet, priceEur: newSettings.chipboardPriceEur }
@@ -553,6 +560,7 @@ function App() {
             onChange={setSheets}
             chipboardPriceEur={settings.chipboardPriceEur}
             hardboardPriceEur={settings.hardboardPriceEur}
+            finishes={settings.boardFinishes}
             onClearChipboard={clearChipboardSheets}
             onClearHardboard={clearHardboardSheets}
           />
@@ -715,6 +723,33 @@ function App() {
       />
     </div>
   )
+}
+
+function packChipboard(sheets: Sheet[], parts: Part[]): PackingResult | null {
+  if (!parts.some((part) => part.finishId)) {
+    return optimizeAllVariants(sheets, parts)[0]?.result ?? null
+  }
+  const keys = [...new Set(parts.map((part) => part.finishId ?? ''))]
+  const results: PackingResult[] = []
+  for (const key of keys) {
+    const group = parts.filter((part) => (part.finishId ?? '') === key)
+    const pool = sheets.filter((sheet) => (sheet.finishId ?? '') === key)
+    const hit = optimizeAllVariants(pool, group)[0]?.result
+    if (hit) results.push(hit)
+  }
+  if (results.length === 0) return null
+  if (results.length === 1) return results[0]!
+  const packed = results.flatMap((result) => result.sheets)
+  const unplaced = results.reduce((sum, result) => sum + result.unplacedCount, 0)
+  const used = packed.reduce((sum, sheet) => sum + sheet.usedArea, 0)
+  const waste = packed.reduce((sum, sheet) => sum + sheet.wasteArea, 0)
+  return {
+    success: unplaced === 0,
+    sheets: packed,
+    totalWastePercent: used + waste > 0 ? (waste / (used + waste)) * 100 : 0,
+    unplacedCount: unplaced,
+    variantKey: 'finishes',
+  }
 }
 
 export default App
