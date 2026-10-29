@@ -423,8 +423,8 @@ function shelfTargetZones<T extends ShelfSideZone>(zones: T[]): T[] {
 }
 
 function shelfBand(label: string): 'top' | 'bottom' | undefined {
-  if (label.endsWith(' горе')) return 'top'
-  if (label.endsWith(' долу')) return 'bottom'
+  if (label.endsWith(' горе') || label.endsWith('Горна част')) return 'top'
+  if (label.endsWith(' долу') || label.endsWith('Долна част')) return 'bottom'
   return undefined
 }
 
@@ -841,6 +841,14 @@ function partitionToUi(s: {
     ...(s.stopsAtShelf != null ? { stopsAtShelf: s.stopsAtShelf } : {}),
     ...(s.splitsPath ? { splitsPath: s.splitsPath } : {}),
   }
+}
+
+function partitionNeedsSide(rows: PartitionUi[], index: number): boolean {
+  const row = rows[index]
+  if (!row || row.from === 'middle' || row.stopsAtShelf != null) return false
+  const ref = row.fromPartition
+  if (ref == null) return false
+  return ref === index || rows[ref] == null || rows[ref].stopsAtShelf != null
 }
 
 function newMiddlePartition(gapIndex?: number, stopsAtShelf?: number | null, splitsPath?: string): PartitionUi {
@@ -1703,7 +1711,9 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
     }
     return choices
   })
-  const canAddPartitionMiddle = partitions.length < MAX_PARTITIONS && partitionMiddleGaps.length > 0
+  const danglingPartition = partitions.some((_, index) => partitionNeedsSide(partitions, index))
+  const canAddPartitionMiddle =
+    partitionMiddleGaps.length > 0 && (partitions.length < MAX_PARTITIONS || danglingPartition)
   const shelfStopForColumn = (columnIndex: number) => {
     const lowest = lowestShelfInGap(columnIndex)
     return lowest && lowest.yBottom >= MIN_ZONE_CLEAR_MM ? lowest : null
@@ -3126,6 +3136,41 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                     <>
                       <p className="text-xs text-[var(--color-muted-foreground)]">В коя страна</p>
                       <div className="flex flex-wrap gap-2">
+                        {shelfAsksByZone &&
+                          layout.columns.map((_, c) => {
+                            const others = fixedShelves.filter((row, j) => j !== i && !row.bayPath)
+                            const selected =
+                              shelf.columnIndex === c &&
+                              !shelf.bayPath &&
+                              !(shelf.spanPaths && shelf.spanPaths.length >= 2)
+                            const taken = !canAddFixedShelfToColumn(others, c) && !selected
+                            return (
+                              <Button
+                                key={`fs-side-${i}-${c}`}
+                                type="button"
+                                size="sm"
+                                disabled={taken}
+                                variant={selected ? 'default' : 'outline'}
+                                onClick={() =>
+                                  commitFixedShelves(
+                                    fixedShelves.map((r, j) =>
+                                      j === i
+                                        ? {
+                                            ...r,
+                                            columnIndex: c,
+                                            bayPath: undefined,
+                                            opening: undefined,
+                                            spanPaths: undefined,
+                                          }
+                                        : r,
+                                    ),
+                                  )
+                                }
+                              >
+                                {columnLabel(c, layout.columns.length, layout.columns[c]?.path)}
+                              </Button>
+                            )
+                          })}
                         {shelfAsksByZone
                           ? shelfTargetZones(layout.zones).map((zone) => {
                               const others = fixedShelves.filter((_, j) => j !== i)
@@ -3195,7 +3240,10 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                           const path = layout.columns[c]?.path ?? ''
                           const inSpan = path.length > 0 && shelf.spanPaths?.includes(path) === true
                           const selected =
-                            inSpan || (shelf.columnIndex === c && !(shelf.spanPaths && shelf.spanPaths.length >= 2))
+                            inSpan ||
+                            (shelf.columnIndex === c &&
+                              !shelf.bayPath &&
+                              !(shelf.spanPaths && shelf.spanPaths.length >= 2))
                           const taken = !canAddFixedShelfToColumn(others, c) && !selected
                           return (
                             <Button
@@ -3393,21 +3441,23 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
               </div>
               {pendingAdd?.kind === 'fixed-shelf' && (shelfAsksByZone || layout.columns.length > 1) && (
                 <WherePicker
-                  zones={
-                    shelfAsksByZone
+                  zones={[
+                    ...layout.columns
+                      .map((column, c) => ({
+                        id: `c${c}`,
+                        label: columnLabel(c, layout.columns.length, column.path),
+                      }))
+                      .filter((_, c) => canAddFixedShelfToColumn(columnShelves, c)),
+                    ...(shelfAsksByZone
                       ? shelfTargetZones(layout.zones)
+                          .filter((zone) => zone.label.includes('·') || zone.path.includes('.'))
                           .filter((zone) => fixedShelfBayCount(fixedShelves, zone.path) < MAX_FIXED_SHELVES)
                           .map((zone) => ({
                             id: `shelf-zone:${zone.id}`,
                             label: zone.label.startsWith('Страна') ? zone.label : `Страна ${zone.path}`,
                           }))
-                      : layout.columns
-                          .map((column, c) => ({
-                            id: `c${c}`,
-                            label: columnLabel(c, layout.columns.length, column.path),
-                          }))
-                          .filter((_, c) => canAddFixedShelfToColumn(fixedShelves, c))
-                  }
+                      : []),
+                  ]}
                   allowFull={canAddFixedShelfFull(columnShelves, layout.columns.length)}
                   hint={
                     pendingAdd.middle
@@ -3696,7 +3746,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                   type="button"
                   size="sm"
                   variant="outline"
-                  disabled={partitions.length >= MAX_PARTITIONS}
+                  disabled={partitions.length >= MAX_PARTITIONS && !danglingPartition}
                   onClick={() => {
                     if (partitions.length === 0) {
                       const center = centerSlidingPartition(params.width, params.thickness)
@@ -3716,32 +3766,12 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                           splitsPath: '',
                         },
                       ])
-                    } else {
-                      const lastIdx = partitions.length - 1
-                      const last = layout.partitions.find((p) => p.specIndex === lastIdx)
-                      const remain = last ? Math.max(0, innerW - last.xRight) : innerW
-                      const offset =
-                        remain > MIN_ZONE_CLEAR_MM * 2
-                          ? Math.max(MIN_ZONE_CLEAR_MM, exactMm(remain / 2))
-                          : defaultPartitionOffsetMm(innerW, params.thickness, partitions.length)
-                      remapZonesForNewPartition(partitions.length)
-                      const bayPath = last
-                        ? layout.columns.find((column) => Math.abs(column.x0 - last.xRight) < 0.5)?.path ?? ''
-                        : ''
-                      setPartitions((rows) => {
-                        if (rows.length >= MAX_PARTITIONS) return rows
-                        return [
-                          ...rows,
-                          {
-                            from: 'left' as const,
-                            fromPartition: lastIdx,
-                            ...defaultPartitionFaces('left'),
-                            offsetMm: String(offset),
-                            ...(bayPath ? { splitsPath: bayPath } : {}),
-                          },
-                        ]
-                      })
+                      return
                     }
+                    const kept = partitions.filter((_, index) => !partitionNeedsSide(partitions, index))
+                    if (kept.length !== partitions.length) setPartitions(kept)
+                    if (kept.length >= MAX_PARTITIONS || partitionPlaceChoices.length === 0) return
+                    setPendingAdd({ kind: 'partition-middle' })
                   }}
                 >
                   <Plus className="h-4 w-4" />
@@ -3753,7 +3783,9 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
                   variant={pendingAdd?.kind === 'partition-middle' ? 'default' : 'outline'}
                   disabled={!canAddPartitionMiddle}
                   onClick={() => {
-                    if (partitionPlaceChoices.length > 1) {
+                    const kept = partitions.filter((_, index) => !partitionNeedsSide(partitions, index))
+                    if (kept.length !== partitions.length) setPartitions(kept)
+                    if (partitionPlaceChoices.length > 0 && kept.length > 0) {
                       setPendingAdd({ kind: 'partition-middle' })
                       return
                     }

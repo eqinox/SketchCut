@@ -1772,18 +1772,23 @@ export function resolvePartitions(
     return { partitions: [], error: specs.length === 0 ? null : 'Няма място за разделителна страница.' }
   }
 
-  const pending = specs.map((s, specIndex) => ({ spec: s, specIndex }))
+  const pending = specs.flatMap((spec, specIndex) =>
+    spec.stopsAtShelf == null ? [{ spec, specIndex }] : [],
+  )
   const byIndex = new Map<number, ResolvedPartition>()
+  const skipped = new Set<number>()
+  let anchorError: string | null = null
   let guard = 0
-  while (byIndex.size < pending.length && guard < pending.length + 2) {
+  while (byIndex.size + skipped.size < pending.length && guard < pending.length + 2) {
     guard += 1
     let progress = false
     for (const { spec, specIndex } of pending) {
-      if (byIndex.has(specIndex)) continue
+      if (byIndex.has(specIndex) || skipped.has(specIndex)) continue
       if (spec.from === 'middle') {
         let ready = true
-        for (let i = 0; i < specIndex; i++) {
-          if (!byIndex.has(i)) {
+        for (const earlier of pending) {
+          if (earlier.specIndex >= specIndex) break
+          if (!byIndex.has(earlier.specIndex) && !skipped.has(earlier.specIndex)) {
             ready = false
             break
           }
@@ -1829,11 +1834,12 @@ export function resolvePartitions(
       }
       const ref = spec.fromPartition
       if (typeof ref === 'number') {
-        if (ref === specIndex) {
-          return { partitions: [], error: 'Разделителна страница не може да се мери от себе си.' }
-        }
-        if (ref < 0 || ref >= specs.length) {
-          return { partitions: [], error: `Няма страница ${ref + 1}, от която да се мери.` }
+        const target = specs[ref]
+        if (ref === specIndex || ref < 0 || ref >= specs.length || target == null || target.stopsAtShelf != null) {
+          skipped.add(specIndex)
+          anchorError = 'Избери в коя страна да стои разделителната страница.'
+          progress = true
+          continue
         }
         const origin = byIndex.get(ref)
         if (!origin) continue
@@ -1867,7 +1873,13 @@ export function resolvePartitions(
       progress = true
     }
     if (!progress) {
-      return { partitions: [], error: 'Разделителните страници се мерят една от друга в кръг.' }
+      for (const item of pending) {
+        if (!byIndex.has(item.specIndex) && !skipped.has(item.specIndex)) {
+          skipped.add(item.specIndex)
+          anchorError = 'Избери в коя страна да стои разделителната страница.'
+        }
+      }
+      break
     }
   }
 
@@ -1901,7 +1913,7 @@ export function resolvePartitions(
     }
   }
 
-  return { partitions: resolved, error: null }
+  return { partitions: resolved, error: anchorError }
 }
 
 /** A page that fills only the opening under a fixed shelf. */
@@ -1921,6 +1933,7 @@ export function resolvePartialPartitions(
   columns: ResolvedColumn[],
   shelves: ResolvedFixedShelf[],
   thickness: number,
+  opts?: { skip?: Set<number>; missing?: 'skip' | 'error' },
 ): { partials: ResolvedPartialPartition[]; error: string | null } {
   const T = thickness
   const partials: ResolvedPartialPartition[] = []
@@ -1929,10 +1942,11 @@ export function resolvePartialPartitions(
   if (columns.length === 0) return { partials, error: null }
   for (let specIndex = 0; specIndex < specs.length; specIndex++) {
     const spec = specs[specIndex]!
-    if (spec.stopsAtShelf == null) continue
+    if (spec.stopsAtShelf == null || opts?.skip?.has(specIndex)) continue
     const shelf = shelves.find((s) => s.specIndex === spec.stopsAtShelf)
     if (!shelf) {
-      return { partials: [], error: 'Разделителната страница отдолу няма рафт, до който да стигне.' }
+      if (opts?.missing === 'skip') continue
+      return { partials, error: 'Разделителната страница отдолу няма рафт, до който да стигне.' }
     }
     let colIndex = typeof spec.gapIndex === 'number' && Number.isFinite(spec.gapIndex) ? Math.round(spec.gapIndex) : 0
     colIndex = Math.min(columns.length - 1, Math.max(0, colIndex))
@@ -2378,12 +2392,14 @@ function placeBayFixedShelves(
     const spec = specs[specIndex]!
     if (!shelfFillsOpening(spec)) continue
     if (placed.some((row) => row.specIndex === specIndex)) continue
-    const band = spec.opening === 'top' ? ' горе' : spec.opening === 'bottom' ? ' долу' : ''
-    const matches = zones.filter(
-      (row) => row.path === spec.bayPath && (band === '' || row.label.endsWith(band)),
-    )
+    const matchesOpening = (label: string) => {
+      if (spec.opening === 'top') return label.endsWith(' горе') || label.endsWith('Горна част')
+      if (spec.opening === 'bottom') return label.endsWith(' долу') || label.endsWith('Долна част')
+      return true
+    }
+    const matches = zones.filter((row) => row.path === spec.bayPath && matchesOpening(row.label))
     if (matches.length === 0) {
-      if (band) continue
+      if (spec.opening) continue
       return { shelves: [], error: `Няма страна ${spec.bayPath} за фиксирания рафт.` }
     }
     const zone = matches.sort((a, b) => b.innerH - a.innerH)[0]!
@@ -2832,8 +2848,7 @@ export function layoutInterior(input: {
 }): InteriorLayout {
   const innerW = Math.max(0, input.innerW ?? 0)
   const T = input.thickness
-  const fullSpecs = (input.partitions ?? []).filter((p) => p.stopsAtShelf == null)
-  const { partitions, error: partitionError } = resolvePartitions(fullSpecs, innerW, T)
+  const { partitions, error: partitionError } = resolvePartitions(input.partitions ?? [], innerW, T)
   const columns = cabinetColumns(partitions, innerW, T)
   const { shelves: columnShelves, error: shelfError } = resolveFixedShelves(
     input.fixedShelves,
@@ -2848,10 +2863,11 @@ export function layoutInterior(input: {
     partitions,
     spanShelves,
   )
-  const { partials, error: partialError } = partitionError
+  const earlyShelves = [...columnShelves, ...spanShelves]
+  const { partials: earlyPartials, error: partialError } = partitionError
     ? { partials: [] as ResolvedPartialPartition[], error: null }
-    : resolvePartialPartitions(input.partitions ?? [], columns, [...columnShelves, ...spanShelves], T)
-  const allPartials = [...partials, ...spanPartials]
+    : resolvePartialPartitions(input.partitions ?? [], columns, earlyShelves, T, { missing: 'skip' })
+  const allPartials = [...earlyPartials, ...spanPartials]
   const openedZones = splitZonesByPartialPartitions(
     composeCompartments([...columnShelves, ...spanShelves], columns, input.innerH, T, input.overlayCovers),
     allPartials,
@@ -2868,7 +2884,16 @@ export function layoutInterior(input: {
     T,
     [...spanShelves, ...bayShelves],
   )
-  const trimmedPartials = trimPartialsUnderOpeningShelves(allPartials, openingSpans)
+  const { partials: latePartials, error: latePartialError } = partitionError
+    ? { partials: [] as ResolvedPartialPartition[], error: null }
+    : resolvePartialPartitions(input.partitions ?? [], columns, [...earlyShelves, ...bayShelves, ...openingSpans], T, {
+        skip: new Set(earlyPartials.map((part) => part.specIndex)),
+        missing: 'error',
+      })
+  const trimmedPartials = trimPartialsUnderOpeningShelves(
+    [...earlyPartials, ...latePartials, ...spanPartials],
+    openingSpans,
+  )
   const spanned = splitZonesBySpanShelves(
     splitZonesByBayShelves(openedZones, bayShelves),
     [...spanShelves, ...openingSpans],
@@ -2965,7 +2990,16 @@ export function layoutInterior(input: {
     doorSpan,
     fullDoorCount: zoned && doorSpan === 'full' ? input.doorCount : 0,
     fullDrawerFrontHeights: zoned ? input.drawerFrontHeights.filter((h) => h > 0) : [],
-    error: shelfError ?? spanError ?? partitionError ?? partialError ?? bayError ?? openingSpanError ?? lateBayError ?? missedBayError,
+    error:
+      shelfError ??
+      spanError ??
+      partitionError ??
+      partialError ??
+      bayError ??
+      openingSpanError ??
+      latePartialError ??
+      lateBayError ??
+      missedBayError,
   }
 }
 
