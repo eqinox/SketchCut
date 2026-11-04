@@ -146,6 +146,8 @@ export const DEFAULT_NIGHTSTAND_PARAMS: NightstandParams = {
   drawerFrontHeights: [],
   cutFromOneBoard: false,
   includeHandles: true,
+  handleSku: 'normal',
+  handleOverrides: {},
   hasClothesRail: false,
   clothesRails: [],
   slideKind: 'roller',

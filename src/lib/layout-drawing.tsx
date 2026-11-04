@@ -147,6 +147,7 @@ export function EdgeDimensionLabels({
   height,
   fill,
   opacity = 1,
+  halo = false,
 }: {
   x: number
   y: number
@@ -154,6 +155,8 @@ export function EdgeDimensionLabels({
   height: number
   fill: string
   opacity?: number
+  /** Dark outline so the numbers stay readable on a photo. */
+  halo?: boolean
 }) {
   return (
     <g pointerEvents="none" opacity={opacity}>
@@ -168,6 +171,9 @@ export function EdgeDimensionLabels({
           fontSize={label.fontSize}
           fontWeight="600"
           fontFamily="system-ui, sans-serif"
+          stroke={halo ? '#ffffff' : undefined}
+          strokeWidth={halo ? Math.max(22, label.fontSize * 0.42) : undefined}
+          paintOrder={halo ? 'stroke' : undefined}
           transform={label.rotate ? `rotate(-90 ${label.x} ${label.y})` : undefined}
         >
           {label.text}
@@ -183,11 +189,15 @@ export function edgeLabelsSvgMarkup(
   width: number,
   height: number,
   fill: string,
+  halo = false,
 ): string {
   return getRectEdgeLabels(x, y, width, height)
     .map((label) => {
       const rot = label.rotate ? ` transform="rotate(-90 ${label.x} ${label.y})"` : ''
-      return `<text x="${label.x}" y="${label.y}" text-anchor="middle" dominant-baseline="middle" font-size="${label.fontSize}" font-weight="600" fill="${fill}"${rot}>${label.text}</text>`
+      const outline = halo
+        ? ` stroke="#ffffff" stroke-width="${Math.max(22, label.fontSize * 0.42)}" paint-order="stroke"`
+        : ''
+      return `<text x="${label.x}" y="${label.y}" text-anchor="middle" dominant-baseline="middle" font-size="${label.fontSize}" font-weight="600" fill="${fill}"${outline}${rot}>${label.text}</text>`
     })
     .join('')
 }
@@ -202,22 +212,32 @@ export function drawEdgeDimensionLabels(
   fill: string,
   offsetX = 0,
   offsetY = 0,
+  halo = false,
 ) {
   ctx.save()
   ctx.fillStyle = fill
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
+  if (halo) {
+    ctx.strokeStyle = '#ffffff'
+    ctx.lineWidth = Math.max(2.5, 8 * scale)
+    ctx.lineJoin = 'round'
+  }
   for (const label of getRectEdgeLabels(x, y, width, height)) {
     ctx.save()
     ctx.font = `600 ${Math.max(label.fontSize * scale, 5)}px system-ui, sans-serif`
     const lx = offsetX + label.x * scale
     const ly = offsetY + label.y * scale
+    const paint = (text: string, tx: number, ty: number) => {
+      if (halo) ctx.strokeText(text, tx, ty)
+      ctx.fillText(text, tx, ty)
+    }
     if (label.rotate) {
       ctx.translate(lx, ly)
       ctx.rotate(-Math.PI / 2)
-      ctx.fillText(label.text, 0, 0)
+      paint(label.text, 0, 0)
     } else {
-      ctx.fillText(label.text, lx, ly)
+      paint(label.text, lx, ly)
     }
     ctx.restore()
   }
@@ -255,9 +275,11 @@ export function wasteHatchLineEnds(
 export function WasteRects({
   rects,
   idPrefix,
+  fill = '#f8fafc',
 }: {
   rects: { x: number; y: number; width: number; height: number }[]
   idPrefix: string
+  fill?: string
 }) {
   const pockets = visibleWasteRects(rects)
   return (
@@ -278,7 +300,7 @@ export function WasteRects({
               y={r.y}
               width={r.width}
               height={r.height}
-              fill="#f8fafc"
+              fill={fill}
             />
             <g clipPath={`url(#${clipId})`}>
               {wasteHatchLineEnds(r.x, r.y, r.width, r.height).map((l, li) => (
@@ -314,6 +336,7 @@ export function WasteRects({
 export function wasteRectsSvgMarkup(
   rects: { x: number; y: number; width: number; height: number }[],
   idPrefix: string,
+  fill = '#f8fafc',
 ): string {
   const pockets = visibleWasteRects(rects)
   const clips = pockets
@@ -331,7 +354,7 @@ export function wasteRectsSvgMarkup(
             `<line x1="${l.x1}" y1="${l.y1}" x2="${l.x2}" y2="${l.y2}" stroke="${WASTE_HATCH_COLOR}" stroke-width="${WASTE_HATCH_STROKE}" stroke-dasharray="${WASTE_HATCH_DASH} ${WASTE_HATCH_GAP}" stroke-linecap="butt"/>`,
         )
         .join('')
-      return `<rect x="${r.x}" y="${r.y}" width="${r.width}" height="${r.height}" fill="#f8fafc"/><g clip-path="url(#${clipId})">${lines}</g><rect x="${r.x}" y="${r.y}" width="${r.width}" height="${r.height}" fill="none" stroke="#64748b" stroke-width="2"/>`
+      return `<rect x="${r.x}" y="${r.y}" width="${r.width}" height="${r.height}" fill="${fill}"/><g clip-path="url(#${clipId})">${lines}</g><rect x="${r.x}" y="${r.y}" width="${r.width}" height="${r.height}" fill="none" stroke="#64748b" stroke-width="2"/>`
     })
     .join('')
   return `<defs>${clips}</defs>${bodies}`
@@ -508,6 +531,7 @@ export function PlacedParts({
   fill = '#ffffff',
   stroke = '#1e293b',
   textFill = '#1e293b',
+  textHalo = false,
   sheetWidth,
   sheetHeight,
   editable = false,
@@ -517,6 +541,7 @@ export function PlacedParts({
   fill?: string
   stroke?: string
   textFill?: string
+  textHalo?: boolean
   sheetWidth?: number
   sheetHeight?: number
   editable?: boolean
@@ -873,6 +898,7 @@ export function PlacedParts({
                 height={displayPart.height}
                 fill={textFill}
                 opacity={isActive ? 0.9 : 1}
+                halo={textHalo}
               />
             </g>
           </g>
@@ -901,6 +927,19 @@ export function PlacedParts({
   )
 }
 
+/** Grain photo for one sheet. In the picture the grain runs top to bottom. */
+export type SheetGrain = {
+  href?: string
+  acrossMm: number
+  alongMm: number
+  color: string
+}
+
+/** On the board the grain follows the long side. The picture's height is that direction. */
+export function grainFollowsWidth(sheetWidth: number, sheetHeight: number): boolean {
+  return sheetWidth >= sheetHeight
+}
+
 export function SheetSvg({
   sheet,
   displayWidth,
@@ -908,6 +947,7 @@ export function SheetSvg({
   className,
   editable = false,
   onPartMove,
+  grain,
 }: {
   sheet: PackedSheet
   displayWidth: number
@@ -915,8 +955,11 @@ export function SheetSvg({
   className?: string
   editable?: boolean
   onPartMove?: (partIndex: number, x: number, y: number) => void
+  /** When set, the board is painted with the decor. Grain runs along the long side. */
+  grain?: SheetGrain | null
 }) {
   const hatchId = `wh${useId().replace(/:/g, '')}`
+  const clipId = `grain-${hatchId}`
   return (
     <svg
       width={displayWidth + 2}
@@ -926,8 +969,34 @@ export function SheetSvg({
       onContextMenu={editable ? (e) => e.preventDefault() : undefined}
       style={{ width: displayWidth, height: displayHeight }}
     >
-      <rect x={0} y={0} width={sheet.sheetWidth} height={sheet.sheetHeight} fill="#ffffff" />
-      <WasteRects rects={sheet.wasteRects} idPrefix={hatchId} />
+      <defs>
+        <clipPath id={clipId}>
+          <rect x={0} y={0} width={sheet.sheetWidth} height={sheet.sheetHeight} />
+        </clipPath>
+      </defs>
+      <rect x={0} y={0} width={sheet.sheetWidth} height={sheet.sheetHeight} fill={grain?.color ?? '#ffffff'} />
+      {grain?.href && (
+        <g clipPath={`url(#${clipId})`}>
+          <image
+            href={grain.href}
+            x={0}
+            y={0}
+            width={grain.acrossMm}
+            height={grain.alongMm}
+            preserveAspectRatio="none"
+            transform={
+              grainFollowsWidth(sheet.sheetWidth, sheet.sheetHeight)
+                ? `translate(${grain.alongMm} 0) rotate(90)`
+                : undefined
+            }
+          />
+        </g>
+      )}
+      <WasteRects
+        rects={sheet.wasteRects}
+        idPrefix={hatchId}
+        fill={grain ? 'rgba(255,255,255,0.62)' : '#f8fafc'}
+      />
       <WasteLabels rects={sheet.wasteRects} />
       <rect
         x={0}
@@ -940,6 +1009,9 @@ export function SheetSvg({
       />
       <PlacedParts
         parts={sheet.placed}
+        fill={grain ? 'rgba(255,255,255,0.12)' : '#ffffff'}
+        textFill="#1e293b"
+        textHalo={!!grain}
         sheetWidth={sheet.sheetWidth}
         sheetHeight={sheet.sheetHeight}
         editable={editable}
@@ -956,12 +1028,13 @@ export function drawHatchInRect(
   w: number,
   h: number,
   scale: number,
+  fill = '#f8fafc',
 ) {
   ctx.save()
   ctx.beginPath()
   ctx.rect(x, y, w, h)
   ctx.clip()
-  ctx.fillStyle = '#f8fafc'
+  ctx.fillStyle = fill
   ctx.fillRect(x, y, w, h)
   ctx.strokeStyle = WASTE_HATCH_COLOR
   ctx.lineWidth = Math.max(0.4, WASTE_HATCH_STROKE * scale)
@@ -984,21 +1057,36 @@ export function drawSheetToCanvas(
   offsetX: number,
   offsetY: number,
   scale: number,
+  grain?: { image?: CanvasImageSource | null; acrossMm: number; alongMm: number; color: string } | null,
 ) {
   const w = sheet.sheetWidth * scale
   const h = sheet.sheetHeight * scale
   const ox = offsetX
   const oy = offsetY
 
-  ctx.fillStyle = '#ffffff'
+  ctx.fillStyle = grain?.color ?? '#ffffff'
   ctx.fillRect(ox, oy, w, h)
+  if (grain?.image && grain.acrossMm > 0 && grain.alongMm > 0) {
+    ctx.save()
+    ctx.beginPath()
+    ctx.rect(ox, oy, w, h)
+    ctx.clip()
+    if (grainFollowsWidth(sheet.sheetWidth, sheet.sheetHeight)) {
+      ctx.translate(ox + grain.alongMm * scale, oy)
+      ctx.rotate(Math.PI / 2)
+      ctx.drawImage(grain.image, 0, 0, grain.acrossMm * scale, grain.alongMm * scale)
+    } else {
+      ctx.drawImage(grain.image, ox, oy, grain.acrossMm * scale, grain.alongMm * scale)
+    }
+    ctx.restore()
+  }
 
   for (const r of visibleWasteRects(sheet.wasteRects)) {
     const rx = ox + r.x * scale
     const ry = oy + r.y * scale
     const rw = r.width * scale
     const rh = r.height * scale
-    drawHatchInRect(ctx, rx, ry, rw, rh, scale)
+    drawHatchInRect(ctx, rx, ry, rw, rh, scale, grain ? 'rgba(255,255,255,0.62)' : '#f8fafc')
     ctx.strokeStyle = '#64748b'
     ctx.lineWidth = 1.5
     ctx.strokeRect(rx, ry, rw, rh)
@@ -1015,11 +1103,22 @@ export function drawSheetToCanvas(
     const pw = part.width * scale
     const ph = part.height * scale
 
-    ctx.fillStyle = '#ffffff'
+    ctx.fillStyle = grain ? 'rgba(255,255,255,0.12)' : '#ffffff'
     ctx.fillRect(px, py, pw, ph)
     ctx.strokeStyle = '#1e293b'
     ctx.lineWidth = 1.5
     ctx.strokeRect(px, py, pw, ph)
-    drawEdgeDimensionLabels(ctx, part.x, part.y, part.width, part.height, scale, '#1e293b', ox, oy)
+    drawEdgeDimensionLabels(
+      ctx,
+      part.x,
+      part.y,
+      part.width,
+      part.height,
+      scale,
+      '#1e293b',
+      ox,
+      oy,
+      !!grain,
+    )
   }
 }

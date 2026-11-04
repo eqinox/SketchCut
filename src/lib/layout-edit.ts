@@ -294,11 +294,15 @@ export function updatePackedSheetPart(
   )
   const freeRects = computeFreeRectsFromPlaced(sheet.sheetWidth, sheet.sheetHeight, placed)
 
-  return finalizePackedSheet(
-    { id: sheet.sheetId, width: sheet.sheetWidth, height: sheet.sheetHeight },
-    placed,
-    freeRects,
-  )
+  return {
+    ...finalizePackedSheet(
+      { id: sheet.sheetId, width: sheet.sheetWidth, height: sheet.sheetHeight },
+      placed,
+      freeRects,
+    ),
+    boardName: sheet.boardName,
+    finishId: sheet.finishId,
+  }
 }
 
 function totalWastePercent(sheets: PackedSheet[]): number {

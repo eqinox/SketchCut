@@ -79,40 +79,79 @@ function fillSheetCompletely(sheet: InternalSheet, remaining: ExpandedPart[]): E
   return pool
 }
 
+function nextCopyId(baseId: string, ids: string[]): string {
+  let max = -1
+  for (const id of ids) {
+    if (id === baseId) {
+      max = Math.max(max, 0)
+      continue
+    }
+    if (!id.startsWith(`${baseId}-`)) continue
+    const suffix = id.slice(baseId.length + 1)
+    if (/^\d+$/.test(suffix)) max = Math.max(max, Number(suffix))
+  }
+  return `${baseId}-${max + 1}`
+}
+
+/** Pack onto the given sheets, then keep adding copies until every part that fits is placed. */
 export function packSequential(
   sheetPool: SheetDef[],
   sortedParts: ExpandedPart[],
   variantKey: string,
+  templates: SheetDef[] = sheetPool,
 ): import('@/types').PackingResult {
+  const molds = templates.map((t) => ({ id: t.id, width: t.width, height: t.height }))
   const available = [...sheetPool]
   let remaining = [...sortedParts]
   const usedSheets: InternalSheet[] = []
+  let guard = 0
+  const guardLimit = Math.max(remaining.length * 2 + available.length + molds.length + 4, 8)
 
-  while (remaining.length > 0 && available.length > 0) {
-    const def = available.shift()!
-
-    if (!remaining.some((p) => canFitOnSheet(def, p))) {
-      const altIdx = available.findIndex((s) => remaining.some((p) => canFitOnSheet(s, p)))
-      if (altIdx >= 0) {
-        available.unshift(def)
-        available.unshift(available.splice(altIdx, 1)[0])
-        continue
-      }
-      break
+  while (remaining.length > 0 && guard < guardLimit) {
+    guard++
+    const idx = available.findIndex((s) => remaining.some((p) => canFitOnSheet(s, p)))
+    if (idx < 0) {
+      const mold = molds
+        .filter((m) => remaining.some((p) => canFitOnSheet(m, p)))
+        .sort((a, b) => b.width * b.height - a.width * a.height)[0]
+      if (!mold) break
+      const ids = [...usedSheets.map((s) => s.def.id), ...available.map((s) => s.id), mold.id]
+      available.push({
+        id: nextCopyId(mold.id, ids),
+        width: mold.width,
+        height: mold.height,
+      })
+      continue
     }
 
+    const def = available.splice(idx, 1)[0]!
+    const before = remaining.length
     const sheet = createInternalSheet(def)
     remaining = fillSheetCompletely(sheet, remaining)
-
-    if (sheet.placed.length > 0) {
+    if (sheet.placed.length > 0 && remaining.length < before) {
       usedSheets.push(sheet)
-    } else {
-      break
+      continue
+    }
+
+    for (let i = molds.length - 1; i >= 0; i--) {
+      if (molds[i]!.width === def.width && molds[i]!.height === def.height) molds.splice(i, 1)
+    }
+    for (let i = available.length - 1; i >= 0; i--) {
+      if (available[i]!.width === def.width && available[i]!.height === def.height) {
+        available.splice(i, 1)
+      }
     }
   }
 
   const sheets = usedSheets.map((s) => finalizePackedSheet(s.def, s.placed, s.freeRects))
-  return buildResult(sheets, remaining.length, variantKey)
+  return {
+    ...buildResult(sheets, remaining.length, variantKey),
+    unplaced: remaining.map((part) => ({
+      label: part.label,
+      width: part.width,
+      height: part.height,
+    })),
+  }
 }
 
 const SORT_VARIANTS = [
@@ -134,7 +173,12 @@ export function optimizeAllVariants(
   parts: PartInput[],
 ): PackingVariantOption[] {
   const expanded = expandParts(parts)
-  const sheetPool = expandSheetPool(sheetDefs, expanded.length)
+  const sheetPool = expandSheetPool(sheetDefs)
+  const templates = sheetDefs.map((sheet) => ({
+    id: sheet.id,
+    width: sheet.width,
+    height: sheet.height,
+  }))
 
   if (expanded.length === 0) {
     return [
@@ -151,7 +195,7 @@ export function optimizeAllVariants(
     ]
   }
 
-  if (sheetPool.length === 0) {
+  if (sheetPool.length === 0 && templates.length === 0) {
     return [
       {
         result: {
@@ -159,6 +203,11 @@ export function optimizeAllVariants(
           sheets: [],
           totalWastePercent: 100,
           unplacedCount: expanded.length,
+          unplaced: expanded.map((part) => ({
+            label: part.label,
+            width: part.width,
+            height: part.height,
+          })),
           variantKey: 'no-sheets',
         },
         label: 'Без плочи',
@@ -169,7 +218,7 @@ export function optimizeAllVariants(
   const allResults: import('@/types').PackingResult[] = []
   for (let i = 0; i < VARIANT_COUNT; i++) {
     const sorted = sortParts(expanded, i)
-    allResults.push(packSequential(sheetPool, sorted, `v${i}`))
+    allResults.push(packSequential(sheetPool, sorted, `v${i}`, templates))
   }
 
   const filtered = filterMinimalWasteVariants(allResults)
@@ -187,7 +236,12 @@ export function optimizePacking(
   clickIndex: number,
 ): { result: import('@/types').PackingResult; variantIndex: number } {
   const expanded = expandParts(parts)
-  const sheetPool = expandSheetPool(sheetDefs, expanded.length)
+  const sheetPool = expandSheetPool(sheetDefs)
+  const templates = sheetDefs.map((sheet) => ({
+    id: sheet.id,
+    width: sheet.width,
+    height: sheet.height,
+  }))
 
   if (expanded.length === 0) {
     return {
@@ -196,13 +250,18 @@ export function optimizePacking(
     }
   }
 
-  if (sheetPool.length === 0) {
+  if (sheetPool.length === 0 && templates.length === 0) {
     return {
       result: {
         success: false,
         sheets: [],
         totalWastePercent: 100,
         unplacedCount: expanded.length,
+        unplaced: expanded.map((part) => ({
+          label: part.label,
+          width: part.width,
+          height: part.height,
+        })),
         variantKey: 'no-sheets',
       },
       variantIndex: clickIndex,
@@ -211,7 +270,7 @@ export function optimizePacking(
 
   const sorter = SORT_VARIANTS[clickIndex % SORT_VARIANTS.length]
   const sorted = [...expanded].sort(sorter)
-  const result = packSequential(sheetPool, sorted, `v${clickIndex % 3}`)
+  const result = packSequential(sheetPool, sorted, `v${clickIndex % 3}`, templates)
 
   return { result, variantIndex: clickIndex + 1 }
 }

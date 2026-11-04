@@ -48,6 +48,7 @@ import {
   type InteriorLayout,
   type PanelHole,
 } from '@/lib/cabinets'
+import { PullChoiceContext, pullChoiceFrom, type PullSku } from '@/lib/cabinets/pulls'
 import {
   BETWEEN_FACES,
   Board,
@@ -65,9 +66,12 @@ import {
   SketchSvg,
   createDrawCam,
   hingeSwingPad,
+  type DrawCam,
+  type DrawFaces,
 } from '@/lib/cabinets/draw-3d'
+import type { DrawFrame } from '@/lib/cabinets/compose'
 import { cn } from '@/lib/utils'
-import { useCaptureSolid, type SceneSolid } from '@/lib/cabinets/scene-solids'
+import { DrawPlaceContext, useCaptureSolid, type SceneSolid } from '@/lib/cabinets/scene-solids'
 import { CapturedModel } from '@/components/CabinetModel'
 
 interface CabinetPreviewProps {
@@ -91,6 +95,25 @@ interface CabinetPreviewProps {
   /** Chosen back colour. Coloured view uses white when this is empty. */
   backColor?: string
   backImage?: string
+  /** Drop this cabinet's own doors. A door across two cabinets is drawn outside. */
+  hideDoors?: boolean
+  /** The group drawing shows this height, so the cabinet does not write it again. */
+  suppressOuterHeight?: boolean
+  /** The group drawing shows this width, so the cabinet does not write it again. */
+  suppressOuterWidth?: boolean
+  /** A cabinet stands on this top, so depth and width cannot stay there. */
+  coveredTop?: boolean
+  /** The box above another one. Its legs would sit in the lower cabinet. */
+  hideFeet?: boolean
+  /** A click in the 3D view chose a handle for one door or drawer. */
+  onPullChange?: (key: string, sku: PullSku) => void
+  /**
+   * Capture hinged doors the way the 3D view does, without starting a second
+   * picture. The room photograph uses this so a click can open the door.
+   */
+  captureSolids?: boolean
+  /** main = the front picture only. extras = the small drawings under it. */
+  part?: PreviewPart
 }
 
 const SLIDE_STROKE_COLOR = DRAW_STROKE
@@ -132,10 +155,94 @@ function shelfPinMark(vbH: number) {
 
 /** Line drawings keep sizes and shelf pins. The coloured picture and the 3D model do not. */
 const ShowCabinetMarks = React.createContext(true)
+/** The group drawing writes these sizes once, for each cabinet and for the whole. */
+const SuppressOuterDims = React.createContext({ height: false, width: false })
+/** Another cabinet sits on this top, so the sizes that were there move down. */
+const CoveredTopContext = React.createContext(false)
 const PreviewIsModel = React.createContext(false)
+const CaptureSolidsOnly = React.createContext(false)
+
+type DrawerHardware = {
+  cabinetWidth: number
+  slideLength: number
+  soft: boolean
+  sideColor: string
+}
+
+const DrawerHardwareContext = React.createContext<DrawerHardware | null>(null)
+
+function drawerHardwareValue(
+  p: { width: number; slideLength: number; slideKind: KitchenBaseParams['slideKind']; colors: { side: string } },
+): DrawerHardware {
+  return {
+    cabinetWidth: p.width,
+    slideLength: p.slideLength,
+    soft: isSoftCloseSlide(p.slideKind),
+    sideColor: p.colors.side,
+  }
+}
+const HideDoorsContext = React.createContext(false)
+/** The picture is one piece of a larger drawing, so it has no card of its own. */
+export const GroupedPreviewContext = React.createContext(false)
+export const DrawFrameContext = React.createContext<((frame: DrawFrame) => void) | null>(null)
+type PreviewPart = 'all' | 'main' | 'extras'
+const PreviewPartContext = React.createContext<PreviewPart>('all')
+
+function PlacedSketch({ frame, children }: { frame: DrawFrame; children: ReactNode }) {
+  const report = React.useContext(DrawFrameContext)
+  const place = React.useContext(DrawPlaceContext)
+  const key = `${frame.ox}|${frame.top}|${frame.w}|${frame.h}|${frame.feet}|${frame.vbW}|${frame.vbH}`
+  React.useLayoutEffect(() => {
+    report?.(frame)
+  }, [report, key])
+  return (
+    <DrawPlaceContext.Provider value={{ x: place.x, y: place.y, localLeft: 0, localTop: frame.top }}>
+      {children}
+    </DrawPlaceContext.Provider>
+  )
+}
 
 function useCabinetMarks() {
   return React.useContext(ShowCabinetMarks)
+}
+
+function useSuppressOuter() {
+  return React.useContext(SuppressOuterDims)
+}
+
+function useCoveredTop() {
+  return React.useContext(CoveredTopContext)
+}
+
+/** Depth size. On top when the edge is free, otherwise outside the lower right edge. */
+function depthMark(ox: number, edgeY: number, dx: number, dy: number, gap: number, width: number, covered: boolean) {
+  const len = Math.hypot(dx, dy) || 1
+  const rot = (Math.atan2(dy, dx) * 180) / Math.PI
+  if (!covered) {
+    const nx = dy / len
+    const ny = -dx / len
+    return {
+      x: ox + dx / 2 + nx * gap,
+      y: edgeY + dy / 2 + ny * gap,
+      rot,
+      x1: ox,
+      y1: edgeY - 8,
+      x2: ox + dx,
+      y2: edgeY + dy - 8,
+    }
+  }
+  const px = (-dy / len) * gap
+  const py = (dx / len) * gap
+  const x0 = ox + width
+  return {
+    x: x0 + dx / 2 + px,
+    y: edgeY + dy / 2 + py,
+    rot,
+    x1: x0 + px * 0.3,
+    y1: edgeY + py * 0.3,
+    x2: x0 + dx + px * 0.3,
+    y2: edgeY + dy + py * 0.3,
+  }
 }
 const SLIDE_PROFILE_H = 18
 const SLIDE_FRONT_INSET = 28
@@ -284,6 +391,9 @@ function DrawerSlidesOnCabinet({
   innerBotY,
   insetFronts = false,
   opening,
+  zLimit,
+  seatPageZ,
+  seatShelfZ,
 }: {
   layout: InteriorLayout
   T: number
@@ -305,6 +415,11 @@ function DrawerSlidesOnCabinet({
   insetFronts?: boolean
   /** Only the drawers in this opening. The page on its right is drawn afterwards. */
   opening?: { x0: number; x1: number; includeFull?: boolean; zoneId?: string }
+  /** Inside face of the back. The runner stops here and does not come out past the hardboard. */
+  zLimit?: number
+  /** Front edge of the pages, used so a set-back inner front does not leave the runner in front of it. */
+  seatPageZ?: number
+  seatShelfZ?: number
 }) {
   const marks = useCabinetMarks()
   return (
@@ -339,27 +454,38 @@ function DrawerSlidesOnCabinet({
           if (!rails) return null
           const x = drawerSlideWorldX(layout, src.id, T)
           const bottomGap = src.id === 'full' || (zone != null && zone.y0 <= 0.5) ? clearanceBottom : 0
-          const startZ =
+          const baseStart =
             partitionFrontZ != null && zone != null && zone.x0 > 0.5
               ? partitionFrontZ
               : z0
-          const z1 = startZ + slideLength
+          const face =
+            insetFronts && seatPageZ != null
+              ? innerDrawerFaceZ(
+                  seatPageZ,
+                  seatShelfZ ?? seatPageZ,
+                  zone != null && !(zone.isFirst && zone.isLast),
+                )
+              : null
+          const startZ = face != null ? Math.max(baseStart, face + thickness) : baseStart
+          const room = zLimit != null ? Math.max(1, zLimit - startZ) : slideLength
+          const drawn = Math.min(slideLength, room)
+          const z1 = startZ + drawn
           const yBot = drawerFrontTopY(src.box, src.doorCount, src.heights, i, bottomGap) + rails.outer.height
           const yTopS = yBot - SLIDE_PROFILE_H
           const a0 = cam.proj(x, yTopS, startZ)
           const a1 = cam.proj(x, yTopS, z1)
           const b0 = cam.proj(x, yBot, startZ)
           const b1 = cam.proj(x, yBot, z1)
-          const mid = cam.proj(x, yTopS, startZ + slideLength / 2)
+          const mid = cam.proj(x, yTopS, startZ + drawn / 2)
           const slideFont = scaledDimFont(Math.max(32, Math.min(slideLength * 0.1, 56)), fontScale)
           return (
             <g key={`slide-${src.id}-${i}`}>
-              <SlideBar x={x} y={yTopS} z={startZ} length={slideLength} h={SLIDE_PROFILE_H} />
+              <SlideBar x={x} y={yTopS} z={startZ} length={drawn} h={SLIDE_PROFILE_H} />
               <SlideBar
                 x={x + Math.max(0, openingW - 14)}
                 y={yTopS}
                 z={startZ}
-                length={slideLength}
+                length={drawn}
                 h={SLIDE_PROFILE_H}
               />
               <g stroke={SLIDE_STROKE_COLOR} fill="none" strokeWidth={SLIDE_STROKE} strokeLinecap="butt">
@@ -395,7 +521,17 @@ function WithDecor({
 }
 
 /** Single 3D front view with depth extending to the right. */
-export function CabinetPreview({
+export function CabinetPreview(props: CabinetPreviewProps) {
+  return (
+    <PullChoiceContext.Provider value={pullChoiceFrom(props.params, props.onPullChange)}>
+      <CaptureSolidsOnly.Provider value={props.captureSolids === true}>
+        <CabinetPreviewView {...props} />
+      </CaptureSolidsOnly.Provider>
+    </PullChoiceContext.Provider>
+  )
+}
+
+function CabinetPreviewView({
   typeId = 'kitchen-base',
   params,
   className,
@@ -410,10 +546,17 @@ export function CabinetPreview({
   frontImage,
   backColor,
   backImage,
+  hideDoors = false,
+  hideFeet = false,
+  part = 'all',
+  captureSolids = false,
+  suppressOuterHeight = false,
+  suppressOuterWidth = false,
+  coveredTop = false,
 }: CabinetPreviewProps) {
   const openDoors = doorView === 'open'
-  const pictured = drawStyle === 'color' || drawStyle === 'model'
-  const backFill = pictured ? backColor || '#f4f4f2' : DEFAULT_HARDBOARD_COLOR
+  const pictured = drawStyle === 'color' || drawStyle === 'model' || captureSolids
+  const backFill = pictured ? backColor || '#ffffff' : DEFAULT_HARDBOARD_COLOR
   const drawnParams =
     pictured && carcassColor
       ? {
@@ -437,10 +580,15 @@ export function CabinetPreview({
         ]
       : []
   const showMarks = drawStyle === 'line'
-  const model = drawStyle === 'model'
+  const model = drawStyle === 'model' || captureSolids
+  const suppressOuter = { height: suppressOuterHeight, width: suppressOuterWidth }
   if (typeId === 'kitchen-wall') {
     return (
+      <CoveredTopContext.Provider value={coveredTop}>
+      <SuppressOuterDims.Provider value={suppressOuter}>
       <ShowCabinetMarks.Provider value={showMarks}>
+      <HideDoorsContext.Provider value={hideDoors}>
+      <PreviewPartContext.Provider value={part}>
       <PreviewIsModel.Provider value={model}>
       <WithDecor entries={textureEntries}>
       <KitchenWallPreview
@@ -455,12 +603,20 @@ export function CabinetPreview({
       />
       </WithDecor>
       </PreviewIsModel.Provider>
+      </PreviewPartContext.Provider>
+      </HideDoorsContext.Provider>
       </ShowCabinetMarks.Provider>
+      </SuppressOuterDims.Provider>
+      </CoveredTopContext.Provider>
     )
   }
   if (typeId === 'nightstand' || typeId === 'section' || typeId === 'wardrobe') {
     return (
+      <CoveredTopContext.Provider value={coveredTop}>
+      <SuppressOuterDims.Provider value={suppressOuter}>
       <ShowCabinetMarks.Provider value={showMarks}>
+      <HideDoorsContext.Provider value={hideDoors}>
+      <PreviewPartContext.Provider value={part}>
       <PreviewIsModel.Provider value={model}>
       <WithDecor entries={textureEntries}>
       <PlinthBoxPreview
@@ -476,7 +632,11 @@ export function CabinetPreview({
       />
       </WithDecor>
       </PreviewIsModel.Provider>
+      </PreviewPartContext.Provider>
+      </HideDoorsContext.Provider>
       </ShowCabinetMarks.Provider>
+      </SuppressOuterDims.Provider>
+      </CoveredTopContext.Provider>
     )
   }
 
@@ -506,7 +666,12 @@ export function CabinetPreview({
   const drawerViews = uniqueDrawerViews(p, layout)
 
   return (
+    <DrawerHardwareContext.Provider value={drawerHardwareValue(p)}>
+    <CoveredTopContext.Provider value={coveredTop}>
+    <SuppressOuterDims.Provider value={suppressOuter}>
     <ShowCabinetMarks.Provider value={showMarks}>
+    <HideDoorsContext.Provider value={hideDoors}>
+    <PreviewPartContext.Provider value={part}>
     <PreviewIsModel.Provider value={model}>
     <WithDecor entries={textureEntries}>
     <div className={cn('flex flex-col gap-3', className)}>
@@ -521,6 +686,7 @@ export function CabinetPreview({
             openDoors={openDoors}
             frontColor={doorColor}
             backFill={backFill}
+            hideFeet={hideFeet}
           />
       </FrontDrawing>
       <ExtraDrawings>
@@ -582,7 +748,12 @@ export function CabinetPreview({
     </div>
     </WithDecor>
     </PreviewIsModel.Provider>
+    </PreviewPartContext.Provider>
+    </HideDoorsContext.Provider>
     </ShowCabinetMarks.Provider>
+    </SuppressOuterDims.Provider>
+    </CoveredTopContext.Provider>
+    </DrawerHardwareContext.Provider>
   )
 }
 
@@ -1567,6 +1738,7 @@ function BayShelvesAndPartials({
   clothesTrackMm = 0,
   railSideZ = 0,
   railPartitionZ,
+  railDepth = 0,
   between,
 }: {
   layout: InteriorLayout
@@ -1585,6 +1757,8 @@ function BayShelvesAndPartials({
   clothesTrackMm?: number
   railSideZ?: number
   railPartitionZ?: number
+  /** Depth of the panel the rail is screwed to. The bar sits in the middle of it. */
+  railDepth?: number
   between?: (x0: number, x1: number, includeFull: boolean, zoneId?: string) => ReactNode
 }) {
   const marks = useCabinetMarks()
@@ -1660,6 +1834,7 @@ function BayShelvesAndPartials({
   const drawZone = (zone: (typeof columnZones)[number], key: string) => {
     const zLeft = col.isFirst && zone.x0 <= col.x0 + 0.5 ? railSideZ : (railPartitionZ ?? railSideZ)
     const zRight = col.isLast && zone.x1 >= col.x1 - 0.5 ? railSideZ : (railPartitionZ ?? railSideZ)
+    const railCenter = Math.max(0, (railDepth - 22) / 2)
     return (
       <g key={key}>
         {zone.movable.map((shelf, index) => (
@@ -1711,8 +1886,8 @@ function BayShelvesAndPartials({
               w={zone.innerW}
               h={22}
               d={22}
-              z0={zLeft}
-              z1={zRight}
+              z0={zLeft + railCenter}
+              z1={zRight + railCenter}
               color={CLOTHES_RAIL_COLOR}
               cam={cam}
             />
@@ -1761,11 +1936,109 @@ function BayShelvesAndPartials({
   )
 }
 
+function CaptureOnly({ solid }: { solid: SceneSolid }) {
+  useCaptureSolid(solid)
+  return null
+}
+
+/** Front plus the four rails. The rails are only in the 3D picture; the runners stay on the cabinet. */
+function DrawerFront({
+  slideId,
+  x,
+  y,
+  z,
+  w,
+  h,
+  d,
+  color,
+  cam,
+  faces,
+  opacity,
+  openingX,
+  openingW,
+  thickness,
+}: {
+  slideId: string
+  x: number
+  y: number
+  z: number
+  w: number
+  h: number
+  d: number
+  color: string
+  cam: DrawCam
+  faces: DrawFaces
+  opacity?: number
+  openingX: number
+  openingW: number
+  thickness: number
+}) {
+  const hardware = React.useContext(DrawerHardwareContext)
+  const pulls = React.useContext(PullChoiceContext)
+  const sku = pulls?.skuFor(slideId) ?? 'none'
+  const box = hardware
+    ? drawerBoxRails(hardware.cabinetWidth, thickness, h, hardware.slideLength, hardware.soft, openingW)
+    : null
+  const reach = box ? Math.min(hardware?.slideLength ?? box.outer.width, box.outer.width) : hardware?.slideLength ?? 250
+  // Stops with the box still on the runner. Closed (0) is the drawn front, not a generic plane.
+  const slide = { id: slideId, travel: Math.max(60, Math.round(reach * 0.86)) }
+  const parts: Extract<SceneSolid, { kind: 'box' }>[] = []
+  if (box && hardware) {
+    const topReveal = Math.min(16, Math.max(0, h - box.outer.height))
+    const railTop = y + topReveal
+    const left = openingX + box.sideGapEach
+    const depth = box.outer.width
+    const sideH = box.outer.height
+    const innerTop = railTop + (sideH - box.inner.height)
+    const z0 = z + d
+    const sideColor = hardware.sideColor
+    parts.push(
+      { kind: 'box', x: left, y: railTop, z: z0, w: thickness, h: sideH, d: depth, color: sideColor, slide },
+      { kind: 'box', x: left + box.drawerOuterW - thickness, y: railTop, z: z0, w: thickness, h: sideH, d: depth, color: sideColor, slide },
+      { kind: 'box', x: left + thickness, y: innerTop, z: z0, w: box.inner.width, h: box.inner.height, d: thickness, color: sideColor, slide },
+      { kind: 'box', x: left + thickness, y: innerTop, z: z0 + depth - thickness, w: box.inner.width, h: box.inner.height, d: thickness, color: sideColor, slide },
+    )
+  }
+  return (
+    <>
+      <Board
+        x={x}
+        y={y}
+        z={z}
+        w={w}
+        h={h}
+        d={d}
+        color={color}
+        cam={cam}
+        faces={faces}
+        opacity={opacity}
+        slide={slide}
+        pull={sku === 'none' ? undefined : { key: slideId, sku }}
+      />
+      {parts.map((part, index) => (
+        <CaptureOnly key={`${slideId}-rail-${index}`} solid={part} />
+      ))}
+    </>
+  )
+}
+
 function insetFrontGeom(T: number, x0: number, innerW: number): { x: number; w: number } {
   return {
     x: T + x0 + INNER_DRAWER_SIDE_GAP_EACH,
     w: Math.max(0, innerW - INNER_DRAWER_GAP_X),
   }
+}
+
+/**
+ * Front face of an inner drawer.
+ * It begins on the front edge of the pages that frame it (internal pages in a
+ * sliding wardrobe, the carcass sides otherwise). A shelf that bounds the
+ * opening and sits further back pulls the face back onto that edge, so the
+ * edge banding stays visible and the front starts there.
+ */
+function innerDrawerFaceZ(pageFrontZ: number, shelfFrontZ: number, boundedByShelf: boolean): number {
+  if (boundedByShelf && shelfFrontZ > pageFrontZ + 0.5) return shelfFrontZ
+  return pageFrontZ
 }
 
 /**
@@ -1802,6 +2075,9 @@ function FrontsOnCabinet({
   clearanceBottom = 0,
   insetFronts = false,
   innerDrawerFronts = false,
+  insetFrontZ,
+  pageFrontZ,
+  shelfFrontZ,
   innerDoors = false,
   layer,
   fontScale = 1,
@@ -1824,6 +2100,12 @@ function FrontsOnCabinet({
   clearanceBottom?: number
   insetFronts?: boolean
   innerDrawerFronts?: boolean
+  /** Closed face of an overlay drawer when it is not the outer side (sliding wardrobe). */
+  insetFrontZ?: number
+  /** Front edge of the pages that frame an inner drawer. */
+  pageFrontZ?: number
+  /** Front edge of a shelf. An inner drawer bounded by one begins here when the shelf is further back. */
+  shelfFrontZ?: number
   innerDoors?: boolean
   /** Draw only inset fronts (between the sides) or only overlay fronts (covering the sides). */
   layer?: 'inset' | 'overlay'
@@ -1839,6 +2121,8 @@ function FrontsOnCabinet({
   visualDoor?: boolean
 }) {
   const marks = useCabinetMarks()
+  const hideDoors = React.useContext(HideDoorsContext)
+  const model = React.useContext(PreviewIsModel)
   const gap = DOOR_GAP_X
   const fill = frontColor || FRONT_FILL
   const items: ReactNode[] = []
@@ -1872,7 +2156,7 @@ function FrontsOnCabinet({
   ) => {
     if (!(h > 4)) return
     const leaves = doorLeafLayout(x, w, count, betweenGap)
-    if (openDoors) {
+    if (openDoors || model) {
       leaves.forEach((leaf, i) => {
         items.push(
           <HingedDoor
@@ -1886,6 +2170,7 @@ function FrontsOnCabinet({
             side={leaf.side}
             color={fill}
             cam={cam}
+            inset={innerDoors}
           />,
         )
       })
@@ -1920,6 +2205,8 @@ function FrontsOnCabinet({
     key: string,
     bottomGap: number,
     inset: { x: number; w: number },
+    openingBox: { x: number; w: number },
+    boundedByShelf: boolean,
   ) => {
     const hasDrawers = drawerFrontHeights.some((h) => h > 0)
     const hasDoors = doorCount > 0
@@ -1938,12 +2225,18 @@ function FrontsOnCabinet({
         if (!include(innerDrawerFronts)) continue
         const box = innerDrawerFronts ? inset : overlay
         const faces = innerDrawerFronts ? insetFaces : overlayFaces
+        const drawerZ = innerDrawerFronts
+          ? innerDrawerFaceZ(pageFrontZ ?? insetFrontZ ?? z, shelfFrontZ ?? pageFrontZ ?? z, boundedByShelf)
+          : insetFrontZ != null
+            ? insetFrontZ
+            : z
         items.push(
-          <Board
+          <DrawerFront
             key={`df-${key}-${s.index}`}
+            slideId={`drawer:${key}:${s.index}`}
             x={box.x}
             y={y}
-            z={z}
+            z={drawerZ}
             w={box.w}
             h={s.height}
             d={d}
@@ -1951,10 +2244,13 @@ function FrontsOnCabinet({
             cam={cam}
             faces={faces}
             opacity={0.92}
+            openingX={openingBox.x}
+            openingW={openingBox.w}
+            thickness={T}
           />,
         )
         if (label) pushHeightLabel(`df-${key}-${s.index}-h`, box.x, y, box.w, s.height)
-      } else if (s.doorCount != null && s.doorCount > 0) {
+      } else if (!hideDoors && s.doorCount != null && s.doorCount > 0) {
         if (!include(innerDoors)) continue
         const box = innerDoors ? inset : overlay
         const faces = innerDoors ? insetFaces : overlayFaces
@@ -1976,6 +2272,8 @@ function FrontsOnCabinet({
       'full',
       clearanceBottom,
       insetFrontGeom(T, 0, innerOpenW),
+      { x: T, w: innerOpenW },
+      false,
     )
   }
 
@@ -2009,10 +2307,12 @@ function FrontsOnCabinet({
       zone.id,
       zone.y0 <= 0.5 ? clearanceBottom : 0,
       insetFrontGeom(T, zone.x0, zoneInnerW),
+      { x: T + zone.x0, w: zoneInnerW },
+      !(zone.isFirst && zone.isLast),
     )
   }
 
-  if (visualDoor && !opening && items.length === 0) {
+  if (!hideDoors && visualDoor && !opening && items.length === 0) {
     const overlayX = insetFronts ? T : 0
     const overlayW = insetFronts ? Math.max(0, W - 2 * T) : W
     pushDoors(overlayX, carcassTopY, overlayW, carcassBotY - carcassTopY, 1, 'look', false, overlayFaces, gap)
@@ -2023,6 +2323,11 @@ function FrontsOnCabinet({
 
 function FrontDrawing({ title, children }: { title: string; children: ReactNode }) {
   const model = React.useContext(PreviewIsModel)
+  const solidsOnly = React.useContext(CaptureSolidsOnly)
+  const grouped = React.useContext(GroupedPreviewContext)
+  const part = React.useContext(PreviewPartContext)
+  if (part === 'extras') return null
+  if (grouped || solidsOnly) return <>{children}</>
   if (model) {
     return (
       <ViewCard title="3D">
@@ -2039,7 +2344,8 @@ function FrontDrawing({ title, children }: { title: string; children: ReactNode 
 
 function ExtraDrawings({ children }: { children: ReactNode }) {
   const model = React.useContext(PreviewIsModel)
-  if (model) return null
+  const part = React.useContext(PreviewPartContext)
+  if (model || part === 'main') return null
   return children
 }
 
@@ -2259,6 +2565,7 @@ function Front3DView({
   openDoors = false,
   frontColor,
   backFill = DEFAULT_HARDBOARD_COLOR,
+  hideFeet = false,
 }: {
   p: KitchenBaseParams
   m: ReturnType<typeof measureCarcass>
@@ -2269,8 +2576,11 @@ function Front3DView({
   openDoors?: boolean
   frontColor?: string
   backFill?: string
+  hideFeet?: boolean
 }) {
   const marks = useCabinetMarks()
+  const suppressOuter = useSuppressOuter()
+  const coveredTop = useCoveredTop()
   const T = m.thickness
   const W = m.outerW
   const H = m.outerH
@@ -2307,17 +2617,15 @@ function Front3DView({
   const legW = Math.max(18, T * 1.2)
   const legInset = Math.max(28, W * 0.08)
 
-  const depthLen = Math.hypot(dx, dy) || 1
-  const nx = dy / depthLen
-  const ny = -dx / depthLen
   const gap = font * 0.55
   const heightX = ox - gap
   const heightY = (topY + botY) / 2
-  const depthMx = ox + dx / 2 + nx * gap
-  const depthMy = topY + dy / 2 + ny * gap
-  const depthRot = (Math.atan2(dy, dx) * 180) / Math.PI
-  const backMx = ox + W / 2 + dx
-  const backMy = topY + dy - font * 0.45
+  const depth = depthMark(ox, coveredTop ? botY : topY, dx, dy, gap, W, coveredTop)
+  const depthMx = depth.x
+  const depthMy = depth.y
+  const depthRot = depth.rot
+  const backMx = coveredTop ? ox + W / 2 : ox + W / 2 + dx
+  const backMy = coveredTop ? floor - L * 0.55 : topY + dy - font * 0.45
   const legLabelX = ox + legInset + legW / 2
   const legLabelY = floor - L / 2
   const sideLabelX = ox + W + dx / 2
@@ -2353,7 +2661,7 @@ function Front3DView({
     obstacles: widthAvoid,
     shelves: shelfSeats(layout, T, innerFloorY, zShelfFront),
   })
-  const padB = (marks ? 36 : 16) + doorPad.bottom + (marks && widthLabels.outsideRows > 0 ? widthDimPad(railFont, widthLabels.outsideRows) : 0)
+  const padB = (marks ? 36 : 16) + doorPad.bottom + (coveredTop ? font * 0.95 : 0) + (marks && widthLabels.outsideRows > 0 ? widthDimPad(railFont, widthLabels.outsideRows) : 0)
   const vbH = padT + totalH + padB
   const cavityTopY = innerFloorY - innerClearH
   const adjShelfOffs = layout.zones.flatMap((z) => z.movable.map((s) => z.y0 + s.yBottom))
@@ -2376,14 +2684,17 @@ function Front3DView({
   const legD = legW
   const legZFront = Math.min(48, Math.max(18, D * 0.08))
   const legZBack = Math.max(legZFront, D - legZFront - legD)
+  const drawFeet = !hideFeet && L > 0
   const legBox = (x: number, z: number): SceneSolid | null =>
-    L > 0 ? { kind: 'box', x, y: floor - L, z, w: legW, h: L, d: legD, color: wood.leg } : null
+    drawFeet ? { kind: 'box', x, y: floor - L, z, w: legW, h: L, d: legD, color: wood.leg } : null
   useCaptureSolid(legBox(legInset, legZFront))
   useCaptureSolid(legBox(W - legInset - legW, legZFront))
   useCaptureSolid(legBox(legInset, legZBack))
   useCaptureSolid(legBox(W - legInset - legW, legZBack))
 
+  const frame = { ox, top: topY, w: W, h: H, feet: drawFeet ? L : 0, vbW, vbH }
   return (
+    <PlacedSketch frame={frame}>
     <SketchSvg vbW={vbW} vbH={vbH} height={460} label="3D изглед отпред">
       <defs>
         <filter id="shadow">
@@ -2391,22 +2702,26 @@ function Front3DView({
         </filter>
       </defs>
 
-      <g filter="url(#shadow)">
-        <polygon
-          points={`${ox + legInset},${floor - L} ${ox + legInset + legW},${floor - L} ${ox + legInset + legW},${floor} ${ox + legInset},${floor}`}
-          fill={wood.leg}
-          stroke="#1e293b"
-          strokeWidth={1}
-        />
-      </g>
-      <g filter="url(#shadow)">
-        <polygon
-          points={`${ox + W - legInset - legW},${floor - L} ${ox + W - legInset},${floor - L} ${ox + W - legInset},${floor} ${ox + W - legInset - legW},${floor}`}
-          fill={wood.leg}
-          stroke="#1e293b"
-          strokeWidth={1}
-        />
-      </g>
+      {drawFeet && (
+        <>
+          <g filter="url(#shadow)">
+            <polygon
+              points={`${ox + legInset},${floor - L} ${ox + legInset + legW},${floor - L} ${ox + legInset + legW},${floor} ${ox + legInset},${floor}`}
+              fill={wood.leg}
+              stroke="#1e293b"
+              strokeWidth={1}
+            />
+          </g>
+          <g filter="url(#shadow)">
+            <polygon
+              points={`${ox + W - legInset - legW},${floor - L} ${ox + W - legInset},${floor - L} ${ox + W - legInset},${floor} ${ox + W - legInset - legW},${floor}`}
+              fill={wood.leg}
+              stroke="#1e293b"
+              strokeWidth={1}
+            />
+          </g>
+        </>
+      )}
 
       <Board x={0} y={floor - L - T} w={W} h={T} d={D} color={wood.bottom} cam={view} faces={BOX_FACES} />
 
@@ -2419,6 +2734,7 @@ function Front3DView({
           h={Math.max(1, innerFloorY - cavityTopY)}
           d={1}
           color={backFill}
+          rearColor={DEFAULT_HARDBOARD_COLOR}
           cam={view}
           faces={{ front: true }}
           strokeWidth={2.4}
@@ -2442,6 +2758,7 @@ function Front3DView({
             adjZ={zShelfFront}
             adjD={shelfDepth}
             railSideZ={0}
+            railDepth={D}
             pinMark={shelfPinMark(vbH)}
             between={(x0, x1, includeFull, zoneId) => (
               <>
@@ -2450,6 +2767,7 @@ function Front3DView({
                   T={T}
                   cam={view}
                   z0={SLIDE_FRONT_INSET}
+                  zLimit={zBack}
                   width={p.width}
                   thickness={p.thickness}
                   slideLength={p.slideLength}
@@ -2462,6 +2780,8 @@ function Front3DView({
                   insetFronts={p.innerDrawerFronts === true}
                   fontScale={fontScale}
                   opening={{ x0, x1, includeFull, zoneId }}
+                  seatPageZ={0}
+                  seatShelfZ={zShelfFront}
                 />
                 {showFronts && (
                   <FrontsOnCabinet
@@ -2478,6 +2798,8 @@ function Front3DView({
                     cam={view}
                     fontScale={fontScale}
                     innerDrawerFronts={p.innerDrawerFronts === true}
+                    pageFrontZ={0}
+                    shelfFrontZ={zShelfFront}
                     innerDoors={p.innerDoors === true}
                     layer="inset"
                     opening={{ x0, x1, includeFull, zoneId }}
@@ -2563,6 +2885,8 @@ function Front3DView({
           cam={view}
           fontScale={fontScale}
           innerDrawerFronts={p.innerDrawerFronts === true}
+          pageFrontZ={0}
+          shelfFrontZ={zShelfFront}
           innerDoors={p.innerDoors === true}
           layer="overlay"
           openDoors={openDoors}
@@ -2608,9 +2932,9 @@ function Front3DView({
         />
       )}
 
-      <DimText x={heightX} y={heightY} label={mm(H)} fontSize={font} rotate={-90} />
+      {!suppressOuter.height && <DimText x={heightX} y={heightY} label={mm(H)} fontSize={font} rotate={-90} />}
       <DimText x={depthMx} y={depthMy} label={mm(D)} fontSize={font} rotate={depthRot} />
-      <DimText x={backMx} y={backMy} label={mm(W)} fontSize={font} />
+      {!suppressOuter.width && <DimText x={backMx} y={backMy} label={mm(W)} fontSize={font} />}
       {p.topStyle === 'rails' &&
         layout.columns.map((col, i) => {
         const pt = view.proj(T + col.x0 + col.innerW / 2, topY + T / 2, zRailFront + R / 2)
@@ -2621,7 +2945,7 @@ function Front3DView({
           const pt = view.proj(T + col.x0 + col.innerW / 2, topY + R / 2, FASCIA_SETBACK_MM + T / 2)
           return <DimText key={`fascia-dim-${i}`} x={pt.x} y={pt.y} label={mm(R)} fontSize={railFont} />
         })}
-      <DimText x={legLabelX} y={legLabelY} label={mm(L)} fontSize={legFont} rotate={-90} />
+      {drawFeet && !suppressOuter.height && <DimText x={legLabelX} y={legLabelY} label={mm(L)} fontSize={legFont} rotate={-90} />}
       <DimText x={sideLabelX} y={sideLabelY} label={mm(m.sideH)} fontSize={font} rotate={-90} />
       {shelfLabelPt && (
         <DimText
@@ -2635,14 +2959,22 @@ function Front3DView({
 
       {showDimLines && (
         <g>
-          <DimLine x1={heightX + font * 0.22} y1={topY} x2={heightX + font * 0.22} y2={botY} />
-          <DimLine x1={ox} y1={topY - 8} x2={ox + dx} y2={topY + dy - 8} />
-          <DimLine x1={ox + dx} y1={topY + dy - font * 0.2} x2={ox + W + dx} y2={topY + dy - font * 0.2} />
+          {!suppressOuter.height && <DimLine x1={heightX + font * 0.22} y1={topY} x2={heightX + font * 0.22} y2={botY} />}
+          <DimLine x1={depth.x1} y1={depth.y1} x2={depth.x2} y2={depth.y2} />
+          {!suppressOuter.width && (
+            <DimLine
+              x1={coveredTop ? ox : ox + dx}
+              y1={coveredTop ? backMy : topY + dy - font * 0.2}
+              x2={coveredTop ? ox + W : ox + W + dx}
+              y2={coveredTop ? backMy : topY + dy - font * 0.2}
+            />
+          )}
         </g>
       )}
       </>
       )}
     </SketchSvg>
+    </PlacedSketch>
   )
 }
 
@@ -2694,6 +3026,7 @@ function KitchenWallPreview({
   const shelfHole = wallShelfHole(p, m.innerW, shelfPanelDepth(m.sideD, p.thickness, shelfFrontInsetMm(p)))
 
   return (
+    <DrawerHardwareContext.Provider value={drawerHardwareValue(p)}>
     <div className={cn('flex flex-col gap-3', className)}>
       <FrontDrawing title="3D Изглед отпред">
           <WallFront3DView
@@ -2743,6 +3076,7 @@ function KitchenWallPreview({
         страниците захлупват плота и дъното
       </p>
     </div>
+    </DrawerHardwareContext.Provider>
   )
 }
 
@@ -2772,6 +3106,8 @@ function WallFront3DView({
   shelfHole?: PanelHole
 }) {
   const marks = useCabinetMarks()
+  const suppressOuter = useSuppressOuter()
+  const coveredTop = useCoveredTop()
   const T = m.thickness
   const W = m.outerW
   const H = m.outerH
@@ -2794,17 +3130,15 @@ function WallFront3DView({
   const floor = padT + H
   const topY = floor - H
   const view = createDrawCam({ ox, oy: 0 })
-  const depthLen = Math.hypot(dx, dy) || 1
-  const nx = dy / depthLen
-  const ny = -dx / depthLen
   const gap = font * 0.55
   const heightX = ox - gap
   const heightY = (topY + floor) / 2
-  const depthMx = ox + dx / 2 + nx * gap
-  const depthMy = topY + dy / 2 + ny * gap
-  const depthRot = (Math.atan2(dy, dx) * 180) / Math.PI
-  const backMx = ox + W / 2 + dx
-  const backMy = topY + dy - font * 0.45
+  const depth = depthMark(ox, coveredTop ? floor : topY, dx, dy, gap, W, coveredTop)
+  const depthMx = depth.x
+  const depthMy = depth.y
+  const depthRot = depth.rot
+  const backMx = coveredTop ? ox + W / 2 : ox + W / 2 + dx
+  const backMy = coveredTop ? floor - font * 0.55 : topY + dy - font * 0.45
   const zShelfFront = shelfFrontInsetMm(p)
   const shelfDepth = shelfPanelDepth(D, T, zShelfFront)
   const innerFloorY = floor - T
@@ -2833,7 +3167,7 @@ function WallFront3DView({
     obstacles: widthAvoid,
     shelves: shelfSeats(layout, T, innerFloorY, zShelfFront),
   })
-  const padB = (marks ? 36 : 16) + doorPad.bottom + (marks && widthLabels.outsideRows > 0 ? widthDimPad(small, widthLabels.outsideRows) : 0)
+  const padB = (marks ? 36 : 16) + doorPad.bottom + (coveredTop ? font * 0.95 : 0) + (marks && widthLabels.outsideRows > 0 ? widthDimPad(small, widthLabels.outsideRows) : 0)
   const vbH = padT + H + padB
   const innerTopY = topY + T
   const wood = p.colors
@@ -2842,7 +3176,9 @@ function WallFront3DView({
   const leftInnerY = topY
   const leftInnerH = H - T
 
+  const frame = { ox, top: topY, w: W, h: H, feet: 0, vbW, vbH }
   return (
+    <PlacedSketch frame={frame}>
     <SketchSvg vbW={vbW} vbH={vbH} height={460} label="3D изглед отпред">
       {p.hasBack && (
         <Board
@@ -2853,6 +3189,7 @@ function WallFront3DView({
           h={Math.max(1, innerFloorY - innerTopY)}
           d={1}
           color={backFill}
+          rearColor={DEFAULT_HARDBOARD_COLOR}
           cam={view}
           faces={{ front: true }}
           strokeWidth={2.4}
@@ -2893,6 +3230,7 @@ function WallFront3DView({
             adjZ={zShelfFront}
             adjD={shelfDepth}
             railSideZ={0}
+            railDepth={D}
             pinMark={shelfPinMark(vbH)}
             between={(x0, x1, includeFull, zoneId) =>
               showFronts ? (
@@ -2910,6 +3248,8 @@ function WallFront3DView({
                   cam={view}
                   fontScale={fontScale}
                   innerDrawerFronts={p.innerDrawerFronts === true}
+                  pageFrontZ={0}
+                  shelfFrontZ={zShelfFront}
                   innerDoors={p.innerDoors === true}
                   layer="inset"
                   opening={{ x0, x1, includeFull, zoneId }}
@@ -2962,6 +3302,8 @@ function WallFront3DView({
           cam={view}
           fontScale={fontScale}
           innerDrawerFronts={p.innerDrawerFronts === true}
+          pageFrontZ={0}
+          shelfFrontZ={zShelfFront}
           innerDoors={p.innerDoors === true}
           layer="overlay"
           openDoors={openDoors}
@@ -3007,9 +3349,9 @@ function WallFront3DView({
         />
       )}
 
-      <DimText x={heightX} y={heightY} label={mm(H)} fontSize={font} rotate={-90} />
+      {!suppressOuter.height && <DimText x={heightX} y={heightY} label={mm(H)} fontSize={font} rotate={-90} />}
       <DimText x={depthMx} y={depthMy} label={mm(D)} fontSize={font} rotate={depthRot} />
-      <DimText x={backMx} y={backMy} label={mm(W)} fontSize={font} />
+      {!suppressOuter.width && <DimText x={backMx} y={backMy} label={mm(W)} fontSize={font} />}
       {bottomHole && (
         <DimText
           x={view.proj(T + m.bottomW / 2, innerFloorY, D / 2).x}
@@ -3021,14 +3363,22 @@ function WallFront3DView({
 
       {showDimLines && (
         <g>
-          <DimLine x1={heightX + font * 0.22} y1={topY} x2={heightX + font * 0.22} y2={floor} />
-          <DimLine x1={ox} y1={topY - 8} x2={ox + dx} y2={topY + dy - 8} />
-          <DimLine x1={ox + dx} y1={topY + dy - font * 0.2} x2={ox + W + dx} y2={topY + dy - font * 0.2} />
+          {!suppressOuter.height && <DimLine x1={heightX + font * 0.22} y1={topY} x2={heightX + font * 0.22} y2={floor} />}
+          <DimLine x1={depth.x1} y1={depth.y1} x2={depth.x2} y2={depth.y2} />
+          {!suppressOuter.width && (
+            <DimLine
+              x1={coveredTop ? ox : ox + dx}
+              y1={coveredTop ? backMy : topY + dy - font * 0.2}
+              x2={coveredTop ? ox + W : ox + W + dx}
+              y2={coveredTop ? backMy : topY + dy - font * 0.2}
+            />
+          )}
         </g>
       )}
       </>
       )}
     </SketchSvg>
+    </PlacedSketch>
   )
 }
 
@@ -3162,6 +3512,7 @@ function PlinthBoxPreview({
   const counts = layoutCounts(layout)
   const drawerViews = uniqueDrawerViews(p, layout)
   return (
+    <DrawerHardwareContext.Provider value={drawerHardwareValue(p)}>
     <div className={cn('flex flex-col gap-3', className)}>
       <FrontDrawing title="3D Изглед отпред">
           <PlinthBoxFront3DView
@@ -3250,6 +3601,7 @@ function PlinthBoxPreview({
               : 'страниците външни на дъното, отворен корпус отгоре'}
       </p>
     </div>
+    </DrawerHardwareContext.Provider>
   )
 }
 
@@ -3275,6 +3627,9 @@ function PlinthBoxFront3DView({
   backFill?: string
 }) {
   const marks = useCabinetMarks()
+  const suppressOuter = useSuppressOuter()
+  const coveredTop = useCoveredTop()
+  const hideDoors = React.useContext(HideDoorsContext)
   const m = measureNightstand(p, topInner)
   const T = m.thickness
   const W = p.width
@@ -3323,17 +3678,15 @@ function PlinthBoxFront3DView({
 
   const view = createDrawCam({ ox, oy: 0 })
 
-  const depthLen = Math.hypot(dx, dy) || 1
-  const nx = dy / depthLen
-  const ny = -dx / depthLen
   const gap = font * 0.55
   const heightX = ox - gap
   const heightY = (topY + floor) / 2
-  const depthMx = ox + dx / 2 + nx * gap
-  const depthMy = topY + dy / 2 + ny * gap
-  const depthRot = (Math.atan2(dy, dx) * 180) / Math.PI
-  const backMx = ox + W / 2 + dx
-  const backMy = topY + dy - font * 0.45
+  const depth = depthMark(ox, coveredTop ? floor : topY, dx, dy, gap, W, coveredTop)
+  const depthMx = depth.x
+  const depthMy = depth.y
+  const depthRot = depth.rot
+  const backMx = coveredTop ? ox + W / 2 : ox + W / 2 + dx
+  const backMy = coveredTop ? floor - font * 0.55 : topY + dy - font * 0.45
   const sideDepthLabel = view.proj(W, sideY + m.sideH * 0.4, zSide + m.sideD / 2)
   const bottomFrontLabel = p.useLegs
     ? view.proj(W / 2, bottomY + T / 2, 0)
@@ -3439,6 +3792,7 @@ function PlinthBoxFront3DView({
   const padB =
     (marks ? Math.max(52, supportFont * 0.85) : 16) +
     doorPad.bottom +
+    (coveredTop ? font * 0.95 : 0) +
     (marks && widthLabels.outsideRows > 0 ? widthDimPad(small, widthLabels.outsideRows) : 0)
   const vbH = padT + H + padB
   const carcassBotY = floor - supportH
@@ -3459,7 +3813,9 @@ function PlinthBoxFront3DView({
     return { a, b, mid }
   })()
 
+  const frame = { ox, top: topY, w: W, h: H, feet: 0, vbW, vbH }
   return (
+    <PlacedSketch frame={frame}>
     <SketchSvg vbW={vbW} vbH={vbH} height={460} label={topInner ? (p.doorStyle === 'sliding' ? 'Гардероб 3D' : 'Секция 3D') : 'Нощно шкафче 3D'}>
       <defs>
         <filter id="ns-shadow">
@@ -3517,6 +3873,7 @@ function PlinthBoxFront3DView({
           h={Math.max(1, (p.useLegs ? H : H - p.plinthHeight) - (m.innerTopPanel || m.coveringTop ? T : 0) - T)}
           d={1}
           color={backFill}
+          rearColor={DEFAULT_HARDBOARD_COLOR}
           cam={view}
           faces={{ front: true }}
           strokeWidth={2.4}
@@ -3640,6 +3997,7 @@ function PlinthBoxFront3DView({
             clothesTrackMm={m.sliding ? SLIDING_UPPER_TRACK_HEIGHT_MM : 0}
             railSideZ={m.sliding ? zPartition : zSide}
             railPartitionZ={m.sliding ? zPartition : zSide}
+            railDepth={m.sliding ? m.partitionD : m.sideD}
             between={(x0, x1, includeFull, zoneId) => (
               <>
                 <DrawerSlidesOnCabinet
@@ -3647,6 +4005,7 @@ function PlinthBoxFront3DView({
                   T={T}
                   cam={view}
                   z0={m.sliding ? zPartition + SLIDE_FRONT_INSET : zSide + SLIDE_FRONT_INSET}
+                  zLimit={zSide + m.sideD}
                   partitionFrontZ={m.sliding ? zPartition + SLIDE_FRONT_INSET : undefined}
                   width={p.width}
                   thickness={p.thickness}
@@ -3661,6 +4020,8 @@ function PlinthBoxFront3DView({
                   fontScale={fontScale}
                   clearanceBottom={m.sliding ? SLIDING_DRAWER_FROM_BOTTOM_MM : 0}
                   opening={{ x0, x1, includeFull, zoneId }}
+                  seatPageZ={m.sliding ? zPartition : zSide}
+                  seatShelfZ={zShelfFront}
                 />
                 {showFronts && (
                   <FrontsOnCabinet
@@ -3678,6 +4039,15 @@ function PlinthBoxFront3DView({
                     clearanceBottom={m.sliding ? SLIDING_DRAWER_FROM_BOTTOM_MM : 0}
                     insetFronts={m.sliding}
                     innerDrawerFronts={p.innerDrawerFronts === true}
+                    pageFrontZ={m.sliding ? zPartition : zSide}
+                    shelfFrontZ={zShelfFront}
+                    insetFrontZ={
+                      m.sliding
+                        ? zPartition
+                        : p.innerDrawerFronts
+                          ? Math.max(x0 <= 0.5 ? zSide : zPartition, x1 >= m.innerW - 0.5 ? zSide : zPartition)
+                          : undefined
+                    }
                     innerDoors={p.innerDoors === true}
                     layer="inset"
                     fontScale={fontScale}
@@ -3861,7 +4231,7 @@ function PlinthBoxFront3DView({
         </>
       )}
 
-      {showFronts &&
+      {showFronts && !hideDoors &&
         slidingLeaves
           .slice()
           .sort((a, b) => (a.side === 'middle' ? 1 : 0) - (b.side === 'middle' ? 1 : 0))
@@ -3911,6 +4281,9 @@ function PlinthBoxFront3DView({
           clearanceBottom={m.sliding ? SLIDING_DRAWER_FROM_BOTTOM_MM : 0}
           insetFronts={m.sliding}
           innerDrawerFronts={p.innerDrawerFronts === true}
+          pageFrontZ={m.sliding ? zPartition : zSide}
+          shelfFrontZ={zShelfFront}
+          insetFrontZ={m.sliding ? zPartition : undefined}
           innerDoors={p.innerDoors === true}
           layer="overlay"
           openDoors={openDoors}
@@ -3977,9 +4350,9 @@ function PlinthBoxFront3DView({
         />
       )}
 
-      <DimText x={heightX} y={heightY} label={mm(H)} fontSize={font} rotate={-90} />
+      {!suppressOuter.height && <DimText x={heightX} y={heightY} label={mm(H)} fontSize={font} rotate={-90} />}
       <DimText x={depthMx} y={depthMy} label={mm(D)} fontSize={font} rotate={depthRot} />
-      <DimText x={backMx} y={backMy} label={mm(W)} fontSize={font} />
+      {!suppressOuter.width && <DimText x={backMx} y={backMy} label={mm(W)} fontSize={font} />}
       <DimText x={sideDepthLabel.x + 10} y={sideDepthLabel.y} label={mm(m.sideD)} fontSize={small} rotate={depthRot} />
       {partitionDepthDim && (
         <g stroke={DRAW_DIM} fill={DRAW_DIM}>
@@ -4028,14 +4401,22 @@ function PlinthBoxFront3DView({
 
       {showDimLines && (
         <g>
-          <DimLine x1={heightX + font * 0.22} y1={topY} x2={heightX + font * 0.22} y2={floor} />
-          <DimLine x1={ox} y1={topY - 8} x2={ox + dx} y2={topY + dy - 8} />
-          <DimLine x1={ox + dx} y1={topY + dy - font * 0.2} x2={ox + W + dx} y2={topY + dy - font * 0.2} />
+          {!suppressOuter.height && <DimLine x1={heightX + font * 0.22} y1={topY} x2={heightX + font * 0.22} y2={floor} />}
+          <DimLine x1={depth.x1} y1={depth.y1} x2={depth.x2} y2={depth.y2} />
+          {!suppressOuter.width && (
+            <DimLine
+              x1={coveredTop ? ox : ox + dx}
+              y1={coveredTop ? backMy : topY + dy - font * 0.2}
+              x2={coveredTop ? ox + W : ox + W + dx}
+              y2={coveredTop ? backMy : topY + dy - font * 0.2}
+            />
+          )}
         </g>
       )}
       </>
       )}
     </SketchSvg>
+    </PlacedSketch>
   )
 }
 

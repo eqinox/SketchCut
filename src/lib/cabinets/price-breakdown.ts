@@ -276,7 +276,7 @@ function isHingeItem(item: HardwareItem): boolean {
 }
 
 function isHandleItem(item: HardwareItem): boolean {
-  return item.id === HANDLE_NORMAL.id
+  return item.id === HANDLE_NORMAL.id || item.id === 'handle-tara-96' || item.id === 'handle-tara-160'
 }
 
 function isShelfPinItem(item: HardwareItem): boolean {

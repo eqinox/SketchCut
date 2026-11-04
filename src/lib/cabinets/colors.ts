@@ -11,7 +11,8 @@ export interface CabinetPartColors {
 /** Default board colour — all panels share this unless overridden. */
 export const DEFAULT_WOOD_COLOR = '#c4a574'
 export const DEFAULT_LEG_COLOR = '#334155'
-export const DEFAULT_HARDBOARD_COLOR = '#8d7a62'
+/** Yellow-brown raw hardboard, the usual back. */
+export const DEFAULT_HARDBOARD_COLOR = '#c4a15a'
 
 export const DEFAULT_PART_COLORS: CabinetPartColors = {
   bottom: DEFAULT_WOOD_COLOR,

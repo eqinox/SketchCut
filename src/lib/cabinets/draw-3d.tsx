@@ -1,15 +1,18 @@
 import { createContext, useContext, useEffect, useId, useState, type ReactNode } from 'react'
 import { decorSheetFor, type DecorSheet } from '@/lib/finish-photo'
 import { useCaptureSolid } from '@/lib/cabinets/scene-solids'
+import { PullChoiceContext, type PullSku } from '@/lib/cabinets/pulls'
+import { doorKey } from '@/lib/view3d/door-pose'
 import { partFaces, shade } from './colors'
+import { hingeOffsetsFromTop } from './hardware'
 import type { RuleSection } from './rule-text'
 
 /** Outline of every board — same as the kitchen-base 3D view. */
 export const DRAW_STROKE = '#111111'
 export const DRAW_DEPTH_SCALE = 0.5
 export const DRAW_DEPTH_ANGLE = 30
-/** Just short of a 110° hinge stop, so the door is open and still on its hinges. */
-export const HINGE_OPEN_DEG = 100
+/** Open enough to see inside, and short of 90° so two doors on one side do not cross. */
+export const HINGE_OPEN_DEG = 80
 export const DRAW_DIM = '#111111'
 export const DRAW_PAPER = '#ffffff'
 
@@ -268,6 +271,7 @@ function GrainFace({
         fill={veil ?? 'none'}
         stroke={strokeWidth > 0 ? DRAW_STROKE : 'none'}
         strokeWidth={strokeWidth}
+        strokeLinejoin="round"
       />
     </>
   )
@@ -288,6 +292,7 @@ function Face({
       fill={fill}
       stroke={strokeWidth > 0 ? DRAW_STROKE : 'none'}
       strokeWidth={strokeWidth}
+      strokeLinejoin="round"
     />
   )
 }
@@ -304,10 +309,13 @@ export function Board({
   h,
   d,
   color,
+  rearColor,
   cam,
   faces = BOX_FACES,
   strokeWidth = 1.2,
   opacity,
+  slide,
+  pull,
 }: {
   x: number
   y: number
@@ -316,13 +324,19 @@ export function Board({
   h: number
   d: number
   color: string
+  /** Outside face of a back panel. The front face stays `color`. */
+  rearColor?: string
   cam: DrawCam
   faces?: DrawFaces
   strokeWidth?: number
   opacity?: number
+  /** Groups this board with the drawer that slides out. */
+  slide?: { id: string; travel: number }
+  /** Handle on a drawer front. Rails leave this empty. */
+  pull?: { key: string; sku: PullSku }
 }) {
   useCaptureSolid(
-    w > 0.4 && h > 0.4 && d > 0.2 ? { kind: 'box', x, y, z, w, h, d, color } : null,
+    w > 0.4 && h > 0.4 && d > 0.2 ? { kind: 'box', x, y, z, w, h, d, color, rearColor, slide, pull } : null,
   )
   const c = partFaces(color)
   const sheet = useContext(DecorSheetContext).get(color.toLowerCase())
@@ -458,6 +472,7 @@ export function HingedDoor({
   side,
   color,
   cam,
+  inset = false,
 }: {
   hingeX: number
   y: number
@@ -468,7 +483,12 @@ export function HingedDoor({
   side: 'left' | 'right'
   color: string
   cam: DrawCam
+  inset?: boolean
 }) {
+  const hingeFromTop = hingeOffsetsFromTop(height)
+  const pulls = useContext(PullChoiceContext)
+  const pullKey = doorKey({ hingeX, y, z, width, height, side })
+  const sku = pulls?.skuFor(pullKey) ?? 'none'
   useCaptureSolid({
     kind: 'door',
     hingeX,
@@ -480,6 +500,9 @@ export function HingedDoor({
     side,
     openDeg: HINGE_OPEN_DEG,
     color,
+    hingeFromTop,
+    inset,
+    pull: sku === 'none' ? undefined : { key: pullKey, sku },
   })
   const rad = (HINGE_OPEN_DEG * Math.PI) / 180
   const c = Math.cos(rad)
@@ -497,10 +520,6 @@ export function HingedDoor({
   const inner = face(thickness)
   const top: XYZ[] = [map(0, 0, y), map(width, 0, y), map(width, thickness, y), map(0, thickness, y)]
   const free: XYZ[] = [map(width, thickness, y), map(width, 0, y), map(width, 0, yb), map(width, thickness, yb)]
-  const hingeInset = Math.min(100, Math.max(28, height * 0.16))
-  const hingeH = Math.min(52, height * 0.2)
-  const hingeTops =
-    height < 180 ? [y + height / 2 - hingeH / 2] : [y + hingeInset, y + height - hingeInset - hingeH]
   return (
     <g>
       <DoorFace
@@ -539,30 +558,34 @@ export function HingedDoor({
         along={height}
         show={seesFrontRight(widthDir)}
       />
-      {hingeTops.map((hy) => (
-        <Board
-          key={hy}
-          x={hingeX - 8}
-          y={hy}
-          z={z - 18}
-          w={16}
-          h={hingeH}
-          d={22}
-          color={HINGE_METAL}
-          cam={cam}
-          faces={BOX_FACES}
-          strokeWidth={0.8}
-        />
-      ))}
+      {hingeFromTop.map((fromTop) => {
+        const hy = y + fromTop
+        const mount = side === 'left'
+          ? (inset ? hingeX - 3 : hingeX + thickness)
+          : (inset ? hingeX + 3 : hingeX - thickness)
+        const plateX = side === 'left' ? mount + 0.4 : mount - 14.4
+        const plate = [0, 14].flatMap((dx) =>
+          [hy - 26, hy + 26].map((py) => cam.proj(plateX + dx, py, z + 32)),
+        )
+        const cup = map(22, thickness, hy)
+        const cupPt = cam.proj(cup[0], cup[1], cup[2])
+        return (
+          <g key={fromTop}>
+            <polygon
+              points={`${plate[0]!.x},${plate[0]!.y} ${plate[1]!.x},${plate[1]!.y} ${plate[3]!.x},${plate[3]!.y} ${plate[2]!.x},${plate[2]!.y}`}
+              fill={HINGE_METAL}
+              stroke="#6b7280"
+              strokeWidth={0.8}
+            />
+            <circle cx={cupPt.x} cy={cupPt.y} r={6} fill="#9aa3ad" stroke="#4b5563" strokeWidth={0.8} />
+          </g>
+        )
+      })}
     </g>
   )
 }
 
-/**
- * Clothes rail from the left support to the right one.
- * Each end sits on that panel's front face, so the bar starts and finishes
- * where the side or divider is drawn.
- */
+/** Clothes rail from the left support to the right one, at the depth passed in. */
 export function ClothesRailBar({
   x,
   y,
@@ -680,6 +703,9 @@ export function DimLine({
   )
 }
 
+/** Grouped drawings drop the paper fill and stretch to the box they sit in. */
+export const SketchGroupContext = createContext(false)
+
 export function SketchSvg({
   vbW,
   vbH,
@@ -693,15 +719,16 @@ export function SketchSvg({
   label: string
   children: ReactNode
 }) {
+  const grouped = useContext(SketchGroupContext)
   return (
     <svg
       viewBox={`0 0 ${vbW} ${vbH}`}
       className="w-full select-none"
-      style={{ height: `${height}px`, background: DRAW_PAPER }}
+      style={{ height: grouped ? '100%' : `${height}px`, background: grouped ? 'transparent' : DRAW_PAPER }}
       role="img"
       aria-label={label}
     >
-      <rect width={vbW} height={vbH} fill={DRAW_PAPER} />
+      {!grouped && <rect width={vbW} height={vbH} fill={DRAW_PAPER} />}
       {children}
     </svg>
   )

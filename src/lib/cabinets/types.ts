@@ -247,6 +247,8 @@ export interface KitchenBaseParams {
   cutFromOneBoard: boolean
   /** When true (default), 1 ordinary handle per door and per drawer is added to the price. */
   includeHandles: boolean
+  handleSku?: import('@/lib/cabinets/pulls').PullSku
+  handleOverrides?: Record<string, import('@/lib/cabinets/pulls').PullSku>
   /** Clothes hanging rail between the sides. */
   hasClothesRail: boolean
   clothesRails: ClothesRailSpec[]

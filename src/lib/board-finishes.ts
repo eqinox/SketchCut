@@ -2,8 +2,11 @@ import type { Part, Sheet } from '@/types'
 import {
   DEFAULT_CHIPBOARD_HEIGHT,
   DEFAULT_CHIPBOARD_WIDTH,
+  createHardboardSheet,
+  partKind,
   referenceSheet,
   sheetFraction,
+  sheetKind,
   usedBoardCostEur,
 } from '@/lib/cabinets/materials'
 import { parseHexColor } from '@/lib/cabinets/colors'
@@ -194,6 +197,63 @@ export function ensureFinishSheets(sheets: Sheet[], parts: Part[], finishes: Boa
       priceEur: finish.sheetPriceEur,
       finishId: id,
     })
+  }
+  return next
+}
+
+function plainChipboardSheet(priceEur: number): Sheet {
+  return {
+    id: generateId(),
+    width: DEFAULT_CHIPBOARD_WIDTH,
+    height: DEFAULT_CHIPBOARD_HEIGHT,
+    quantity: 1,
+    kind: 'chipboard',
+    priceEur,
+  }
+}
+
+/** Make sure generate has a sheet for every part colour, plus фазер when there are backs. */
+export function ensurePackingSheets(
+  sheets: Sheet[],
+  parts: Part[],
+  finishes: BoardFinish[],
+  prices: { chipboardPriceEur: number; hardboardPriceEur: number },
+): Sheet[] {
+  const next = [...ensureFinishSheets(sheets, parts, finishes)]
+  const chipPrice = prices.chipboardPriceEur
+  const needed = new Set(
+    parts.filter((part) => partKind(part) === 'chipboard' && part.finishId).map((part) => part.finishId!),
+  )
+  for (const id of needed) {
+    if (next.some((sheet) => sheetKind(sheet) === 'chipboard' && sheet.finishId === id)) continue
+    const finish = finishById(finishes, id)
+    next.push({
+      id: generateId(),
+      width: DEFAULT_CHIPBOARD_WIDTH,
+      height: DEFAULT_CHIPBOARD_HEIGHT,
+      quantity: 1,
+      kind: 'chipboard',
+      priceEur: finish?.sheetPriceEur ?? chipPrice,
+      finishId: id,
+    })
+  }
+
+  const chipParts = parts.filter((part) => partKind(part) === 'chipboard')
+  const plainParts = chipParts.some((part) => !part.finishId)
+  const coloredParts = chipParts.some((part) => !!part.finishId)
+  const hasChipSheet = next.some((sheet) => sheetKind(sheet) === 'chipboard')
+  const hasPlainSheet = next.some((sheet) => sheetKind(sheet) === 'chipboard' && !sheet.finishId)
+  if (chipParts.length > 0 && !hasChipSheet) {
+    next.push(plainChipboardSheet(chipPrice))
+  } else if (plainParts && coloredParts && !hasPlainSheet) {
+    next.push(plainChipboardSheet(chipPrice))
+  }
+
+  if (
+    parts.some((part) => partKind(part) === 'hardboard') &&
+    !next.some((sheet) => sheetKind(sheet) === 'hardboard')
+  ) {
+    next.push(createHardboardSheet(generateId(), prices.hardboardPriceEur))
   }
   return next
 }

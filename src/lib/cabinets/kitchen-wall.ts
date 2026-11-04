@@ -80,6 +80,8 @@ export const DEFAULT_KITCHEN_WALL_PARAMS: KitchenWallParams = {
   drawerFrontHeights: [],
   cutFromOneBoard: false,
   includeHandles: true,
+  handleSku: 'normal',
+  handleOverrides: {},
   hasClothesRail: false,
   clothesRails: [],
   slideKind: 'roller',

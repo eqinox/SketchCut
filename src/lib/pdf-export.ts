@@ -1,5 +1,5 @@
 import { jsPDF } from 'jspdf'
-import type { PackingResult } from '@/types'
+import type { PackedSheet, PackingResult } from '@/types'
 import {
   drawSheetToCanvas,
   formatDim,
@@ -7,14 +7,54 @@ import {
   visibleWasteRects,
   edgeLabelsSvgMarkup,
   wasteRectsSvgMarkup,
+  grainFollowsWidth,
+  type SheetGrain,
 } from '@/lib/layout-drawing'
 
 const PAGE_W = 297
 const PAGE_H = 210
 const MARGIN = 10
 
-export async function exportCuttingPlanPdf(result: PackingResult): Promise<void> {
+function sheetNumber(sheets: PackedSheet[], index: number): number {
+  const name = sheets[index]?.boardName
+  let n = 0
+  for (let i = 0; i <= index; i++) {
+    if (sheets[i]?.boardName === name) n++
+  }
+  return n
+}
+
+function sheetHeading(sheets: PackedSheet[], index: number): string {
+  const sheet = sheets[index]!
+  const color = sheet.boardName ? ` · ${sheet.boardName}` : ''
+  return `Плоча ${sheetNumber(sheets, index)}${color}: ${sheet.sheetWidth} × ${sheet.sheetHeight} мм`
+}
+
+function loadImage(url: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    img.onload = () => resolve(img)
+    img.onerror = () => reject(new Error('grain'))
+    img.src = url
+  })
+}
+
+export async function exportCuttingPlanPdf(
+  result: PackingResult,
+  grains?: (SheetGrain | null)[],
+): Promise<void> {
   const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
+  const photos = await Promise.all(
+    (grains ?? []).map(async (grain) => {
+      if (!grain?.href) return grain ? { ...grain, image: null } : null
+      try {
+        const image = await loadImage(grain.href)
+        return { ...grain, image }
+      } catch {
+        return { ...grain, image: null }
+      }
+    }),
+  )
 
   for (let i = 0; i < result.sheets.length; i++) {
     if (i > 0) pdf.addPage()
@@ -25,7 +65,7 @@ export async function exportCuttingPlanPdf(result: PackingResult): Promise<void>
     pdf.setFont('helvetica', 'bold')
     pdf.setFontSize(12)
     pdf.setTextColor(30, 41, 59)
-    pdf.text(`Плоча ${i + 1}: ${sheet.sheetWidth} × ${sheet.sheetHeight} мм`, MARGIN, titleY)
+    pdf.text(sheetHeading(result.sheets, i), MARGIN, titleY)
 
     pdf.setFont('helvetica', 'normal')
     pdf.setFontSize(9)
@@ -53,7 +93,17 @@ export async function exportCuttingPlanPdf(result: PackingResult): Promise<void>
     ctx.fillStyle = '#ffffff'
     ctx.fillRect(0, 0, drawW, drawH)
 
-    drawSheetToCanvas(ctx, sheet, 0, 0, scale)
+    const photo = photos[i]
+    drawSheetToCanvas(
+      ctx,
+      sheet,
+      0,
+      0,
+      scale,
+      photo
+        ? { image: photo.image, acrossMm: photo.acrossMm, alongMm: photo.alongMm, color: photo.color }
+        : null,
+    )
 
     const imgData = canvas.toDataURL('image/png')
     pdf.addImage(imgData, 'PNG', offsetX, offsetY, drawW, drawH)
@@ -66,7 +116,7 @@ export async function exportCuttingPlanPdf(result: PackingResult): Promise<void>
   pdf.save(`sketchcut-razkroi-${Date.now()}.pdf`)
 }
 
-export function printCuttingPlan(result: PackingResult): void {
+export function printCuttingPlan(result: PackingResult, grains?: (SheetGrain | null)[]): void {
   const printWindow = window.open('', '_blank')
   if (!printWindow) return
 
@@ -76,17 +126,27 @@ export function printCuttingPlan(result: PackingResult): void {
       const displayW = sheet.sheetWidth * scale
       const displayH = sheet.sheetHeight * scale
 
-      const wasteRects = wasteRectsSvgMarkup(sheet.wasteRects, `waste-${i}`)
+      const grain = grains?.[i]
+      const wasteFill = grain ? 'rgba(255,255,255,0.62)' : '#f8fafc'
+      const wasteRects = wasteRectsSvgMarkup(sheet.wasteRects, `waste-${i}`, wasteFill)
 
       const wasteLabels = visibleWasteRects(sheet.wasteRects)
         .map((r) => edgeLabelsSvgMarkup(r.x, r.y, r.width, r.height, '#475569'))
         .join('')
 
+      const partFill = grain ? 'rgba(255,255,255,0.12)' : '#fff'
+      const partText = '#1e293b'
       const parts = sheet.placed
         .map((p) => {
-          return `<rect x="${p.x}" y="${p.y}" width="${p.width}" height="${p.height}" fill="#fff" stroke="#1e293b" stroke-width="2"/>${edgeLabelsSvgMarkup(p.x, p.y, p.width, p.height, '#1e293b')}`
+          return `<rect x="${p.x}" y="${p.y}" width="${p.width}" height="${p.height}" fill="${partFill}" stroke="#1e293b" stroke-width="2"/>${edgeLabelsSvgMarkup(p.x, p.y, p.width, p.height, partText, !!grain)}`
         })
         .join('')
+      const grainTurn = grain && grainFollowsWidth(sheet.sheetWidth, sheet.sheetHeight)
+        ? ` transform="translate(${grain.alongMm} 0) rotate(90)"`
+        : ''
+      const grainImage = grain?.href
+        ? `<image href="${grain.href}" x="0" y="0" width="${grain.acrossMm}" height="${grain.alongMm}" preserveAspectRatio="none"${grainTurn}/>`
+        : ''
 
       const wasteSummary = labelableWasteRects(sheet.wasteRects)
         .map((r) => formatDim(r.width, r.height))
@@ -94,11 +154,12 @@ export function printCuttingPlan(result: PackingResult): void {
 
       return `
         <div class="sheet-page">
-          <h2>Плоча ${i + 1}: ${sheet.sheetWidth} × ${sheet.sheetHeight} мм</h2>
+          <h2>${sheetHeading(result.sheets, i)}</h2>
           <p class="meta">Фира: ${sheet.wastePercent.toFixed(1)}% · ${sheet.placed.length} детайла</p>
           ${wasteSummary ? `<p class="meta">Фири: ${wasteSummary} мм</p>` : ''}
           <svg width="${displayW}" height="${displayH}" viewBox="0 0 ${sheet.sheetWidth} ${sheet.sheetHeight}">
-            <rect width="${sheet.sheetWidth}" height="${sheet.sheetHeight}" fill="#fff"/>
+            <rect width="${sheet.sheetWidth}" height="${sheet.sheetHeight}" fill="${grain?.color ?? '#fff'}"/>
+            ${grainImage}
             ${wasteRects}
             ${wasteLabels}
             <rect width="${sheet.sheetWidth}" height="${sheet.sheetHeight}" fill="none" stroke="#1e293b" stroke-width="3"/>

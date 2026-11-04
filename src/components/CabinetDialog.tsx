@@ -1,4 +1,5 @@
-import { useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { PULL_CHOICES, parsePullSku, pullName, taraPull, type PullSku } from '@/lib/cabinets/pulls'
 import { Box, ChevronDown, ChevronRight, Plus, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -12,6 +13,17 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { CabinetPreview } from '@/components/CabinetPreview'
+import { CabinetGroupView } from '@/components/CabinetGroupView'
+import {
+  attachmentTouchesHost,
+  cabinetOuterSize,
+  isCombinationType,
+  isStacked,
+  parseCombination,
+  withAttachments,
+  type AttachedCabinet,
+} from '@/lib/cabinets/compose'
+import type { SavedCabinetGroup } from '@/lib/cabinets/apply'
 import { PriceBreakdownView } from '@/components/PriceBreakdown'
 import {
   CABINET_TYPES,
@@ -31,7 +43,6 @@ import {
   parseKitchenTopStyle,
   PART_COLOR_FIELDS,
   SHELF_PINS_PER_SHELF,
-  HANDLE_NORMAL,
   SLIDE_KIND_LABEL,
   SLIDES_PER_DRAWER,
   eligibleSlideLengths,
@@ -1194,6 +1205,12 @@ function ShelfMeasureFields({
   )
 }
 
+interface CabinetDraft {
+  typeId: string
+  params: Record<string, unknown>
+  quantity: number
+}
+
 interface CabinetDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -1201,7 +1218,21 @@ interface CabinetDialogProps {
   sheets: Sheet[]
   dailyRateEur: number
   settings?: { hardware: HardwareSettings; assemblyTime: AssemblyTimeSettings }
+  projectCabinets?: CabinetInstance[]
   onSave: (input: { typeId: string; params: Record<string, unknown>; quantity: number }) => void
+  onSaveGroup?: (group: SavedCabinetGroup) => void
+}
+
+interface CabinetDialogFormProps extends CabinetDialogProps {
+  bare?: boolean
+  treatAsNew?: boolean
+  stampAttached?: boolean
+  attachedRows?: AttachedCabinet[]
+  onAttachedRows?: (rows: AttachedCabinet[]) => void
+  onLiveChange?: (draft: CabinetDraft) => void
+  peerDrafts?: Record<string, CabinetDraft>
+  groupRole?: 'host' | 'guest'
+  lockedCabinetIds?: string[]
 }
 
 function initialDepthMode(params: Record<string, unknown> | undefined): 'without-door' | 'with-door' | 'no-doors' {
@@ -1217,8 +1248,26 @@ function initialDepthMode(params: Record<string, unknown> | undefined): 'without
   return hingedOverlay ? 'with-door' : 'without-door'
 }
 
-export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEur, settings = { hardware: DEFAULT_HARDWARE_SETTINGS, assemblyTime: DEFAULT_ASSEMBLY_TIME_SETTINGS }, onSave }: CabinetDialogProps) {
-  const isEdit = !!editing
+function CabinetDialogForm({
+  open,
+  onOpenChange,
+  editing,
+  sheets,
+  dailyRateEur,
+  settings = { hardware: DEFAULT_HARDWARE_SETTINGS, assemblyTime: DEFAULT_ASSEMBLY_TIME_SETTINGS },
+  projectCabinets = [],
+  onSave,
+  bare = false,
+  treatAsNew = false,
+  stampAttached = true,
+  attachedRows,
+  onAttachedRows,
+  onLiveChange,
+  peerDrafts,
+  groupRole = 'host',
+  lockedCabinetIds = [],
+}: CabinetDialogFormProps) {
+  const isEdit = !!editing && !treatAsNew
   const [typeId, setTypeId] = useState(editing?.typeId ?? 'kitchen-base')
   
   const initialKitchen = editing && editing.typeId === 'kitchen-base'
@@ -1309,6 +1358,8 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
   )
   const [cutFromOneBoard, setCutFromOneBoard] = useState(initialFittings.cutFromOneBoard)
   const [includeHandles, setIncludeHandles] = useState(initialFittings.includeHandles !== false)
+  const [handleSku, setHandleSku] = useState<PullSku>(initialFittings.handleSku ?? 'normal')
+  const [handleOverrides, setHandleOverrides] = useState<Record<string, PullSku>>(initialFittings.handleOverrides ?? {})
   const [slideKind, setSlideKind] = useState<SlideKind>(parseSlideKind(initialFittings.slideKind))
   const [slideLength, setSlideLength] = useState(initialFittings.slideLength)
 
@@ -1373,6 +1424,13 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
   )
   const [drawStyle, setDrawStyle] = useState<'line' | 'color' | 'model'>('line')
   const [doorView, setDoorView] = useState<'hidden' | 'closed' | 'open'>('hidden')
+  const [attachedState, setAttachedState] = useState<AttachedCabinet[]>([])
+  const attached = attachedRows ?? attachedState
+  const setAttached = (action: AttachedCabinet[] | ((rows: AttachedCabinet[]) => AttachedCabinet[])) => {
+    const next = typeof action === 'function' ? action(attached) : action
+    onAttachedRows?.(next)
+    if (attachedRows == null) setAttachedState(next)
+  }
 
   const builtParams = useMemo(() => {
     const inputDepth = parseInt(depth, 10)
@@ -1403,6 +1461,8 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
       drawerFrontHeights: drawerFrontHeights.map((s) => parseInt(s, 10) || 0).filter((n) => n > 0),
       cutFromOneBoard,
       includeHandles,
+      handleSku,
+      handleOverrides,
       slideKind,
       slideLength,
       externalDoors,
@@ -1517,7 +1577,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
       colors,
       ...fittings,
     })
-  }, [typeId, width, height, depth, depthMode, thickness, legHeight, shelfCount, movableShelves, hasBack, nailBack, clothesRails, doorCount, doorStyle, slidingDoorCount, slidingEdges, slidingUpperTrackColor, slidingLowerTrackColor, slidingHandleSkuId, slidingCapSkuId, slidingSoftCloseLeft, slidingSoftCloseRight, drawerFrontHeights, cutFromOneBoard, includeHandles, slideKind, slideLength, useLegs, plinthCount, plinthHeight, colors, topStyle, hasHood, hoodShape, hoodDiameter, hoodRectW, hoodRectD, fixedShelves, partitions, doorSpan, zoneUi, externalDoors, innerDrawerFronts, innerDoors, dimFontScale, shelfFrontInset])
+  }, [typeId, width, height, depth, depthMode, thickness, legHeight, shelfCount, movableShelves, hasBack, nailBack, clothesRails, doorCount, doorStyle, slidingDoorCount, slidingEdges, slidingUpperTrackColor, slidingLowerTrackColor, slidingHandleSkuId, slidingCapSkuId, slidingSoftCloseLeft, slidingSoftCloseRight, drawerFrontHeights, cutFromOneBoard, includeHandles, handleSku, handleOverrides, slideKind, slideLength, useLegs, plinthCount, plinthHeight, colors, topStyle, hasHood, hoodShape, hoodDiameter, hoodRectW, hoodRectD, fixedShelves, partitions, doorSpan, zoneUi, externalDoors, innerDrawerFronts, innerDoors, dimFontScale, shelfFrontInset])
 
   const params = useMemo(
     () => ({
@@ -1525,18 +1585,42 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
       ...(carcassFinishId ? { carcassFinishId } : {}),
       ...(frontFinishId ? { frontFinishId } : {}),
       ...(backFinishId ? { backFinishId } : {}),
+      ...(stampAttached && attached.length > 0 ? { attached } : {}),
     }),
-    [builtParams, carcassFinishId, frontFinishId, backFinishId],
+    [builtParams, carcassFinishId, frontFinishId, backFinishId, attached, stampAttached],
   )
 
   const qty = Math.max(1, parseInt(quantity, 10) || 1)
+
+  useEffect(() => {
+    onLiveChange?.({ typeId, params, quantity: qty })
+  }, [onLiveChange, typeId, params, qty])
+  const attachedGuests = attached.flatMap((row) => {
+    const cabinet = projectCabinets.find((item) => item.id === row.cabinetId)
+    return cabinet ? [{ row, cabinet }] : []
+  })
   const result = useMemo(() => {
     try {
-      return scaleCabinetResult(generateCabinet(typeId, { ...params }, settings), qty)
+      const span = attachedGuests.some(
+        (item, index) => item.row.spanDoor && isStacked(item.row.place) && attachmentTouchesHost(attachedGuests.map((guest) => guest.row), index),
+      )
+      const genParams = span ? { ...params, doorCount: 0 } : params
+      const generated = scaleCabinetResult(generateCabinet(typeId, { ...genParams }, settings), qty)
+      if (attachedGuests.length === 0) return generated
+      return withAttachments(
+        generated,
+        attachedGuests.map((item) => item.row),
+        cabinetOuterSize(typeId, params),
+        attachedGuests.map((item) => {
+          const peer = peerDrafts?.[item.cabinet.id]
+          return cabinetOuterSize(peer?.typeId ?? item.cabinet.typeId, peer?.params ?? item.cabinet.params)
+        }),
+        settings.hardware,
+      )
     } catch {
       return null
     }
-  }, [typeId, params, qty, settings])
+  }, [typeId, params, qty, settings, attachedGuests, peerDrafts])
 
   const estimate = result ? estimateFromPanels(result.panels) : null
   const breakdown = result
@@ -2604,13 +2688,16 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
     onOpenChange(false)
   }
 
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[92vh] max-w-4xl overflow-y-auto">
+  const dialogBody = (
+    <>
         <DialogHeader>
-          <DialogTitle>{isEdit ? 'Редактирай шкаф' : 'Добави шкаф'}</DialogTitle>
+          <DialogTitle>
+            {attached.length > 0 ? 'Комбинация' : isEdit ? 'Редактирай шкаф' : 'Добави шкаф'}
+          </DialogTitle>
           <DialogDescription>
-            {typeId === 'nightstand'
+            {attached.length > 0
+              ? 'Чертежът е общ. Промените по размери и всичко останало се записват върху оригиналните шкафове. Всеки от тях си остава отделен и се отваря сам.'
+              : typeId === 'nightstand'
               ? 'Размерите са външни в мм — плотът е пълната широчина и дълбочина. Детайлите и кантът се смятат автоматично.'
               : typeId === 'section'
                 ? 'Размерите са външни в мм — плотът влиза между страниците. Детайлите и кантът се смятат автоматично.'
@@ -5278,13 +5365,40 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
             />
             Дръжки в цената
           </label>
+          <label className="mt-2 block text-sm" htmlFor="cab-handle">
+            Дръжка
+            <select
+              id="cab-handle"
+              className="mt-1 w-full rounded-md border border-[var(--color-border)] bg-[var(--color-background)] px-2 py-1.5"
+              value={handleSku}
+              onChange={(event) => {
+                setHandleSku(parsePullSku(event.target.value))
+                setHandleOverrides({})
+              }}
+            >
+              {PULL_CHOICES.filter((choice) => choice.sku !== 'none').map((choice) => (
+                <option key={choice.sku} value={choice.sku}>
+                  {choice.name}
+                </option>
+              ))}
+            </select>
+          </label>
           <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
             {(() => {
               const n = counts.doorCount + counts.drawerCount
-              if (n === 0) return 'По 1 обикновена дръжка на врата и на чекмедже.'
-              if (!includeHandles) return 'Дръжките не влизат в цената.'
-              const unit = settings.hardware.handleNormalEur
-              return `${n} бр. ${HANDLE_NORMAL.name} · по 1 на врата и на чекмедже · ${formatEur(unit)}/бр. = ${formatEur(n * unit)}`
+              const tara = taraPull(handleSku)
+              const name = pullName(handleSku)
+              if (n === 0) {
+                return tara
+                  ? `${name}: отвор ${tara.c} или ${tara.c1} мм, дължина ${tara.l} мм, ${tara.color}.`
+                  : 'По 1 обикновена дръжка на врата и на чекмедже.'
+              }
+              if (!includeHandles && Object.keys(handleOverrides).length === 0) return 'Дръжките не влизат в цената.'
+              const unit = tara ? settings.hardware.handleTaraEur : settings.hardware.handleNormalEur
+              const mixed = Object.keys(handleOverrides).length > 0
+              return mixed
+                ? 'На някои врати и чекмеджета дръжката е сменена от 3D изгледа.'
+                : `${n} бр. ${name} · по 1 на врата и на чекмедже · ${formatEur(unit)}/бр. = ${formatEur(n * unit)}`
             })()}
           </p>
             </>
@@ -5305,7 +5419,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
             overlayLabel="Външни"
             insetLabel="Вътрешни"
             overlayHint="Челото покрива канта на страниците. Фуга 1.5 мм отляво и 1.5 мм отдясно (3 мм общо)."
-            insetHint="Челото влиза между страниците до долния край на плота (или рафта отгоре), после 3 мм фуга горе. Отстрани 3 мм + 3 мм."
+            insetHint="Челото влиза между страниците и е обградено от тях. Вижда се кантът им и челото започва от него — в гардероб от вътрешните страници, в шкаф от страниците. До рафт, плот или дъно започва от този кант. Отгоре 3 мм фуга, отстрани 3 мм + 3 мм."
           />
           <div className="mt-2 space-y-2">
             {drawerFrontHeights.map((value, i) => (
@@ -5886,12 +6000,174 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
           </div>
         )}
 
+        <div className="rounded-md border border-[var(--color-border)] px-3 py-2">
+          <p className="text-sm font-medium">Шкафове от проекта</p>
+          <p className="mt-0.5 text-xs text-[var(--color-muted-foreground)]">
+            Като добавиш още един шкаф, минаваш на комбинацията. Тя се записва отделно, без цена, и не ляга върху текущия шкаф. Промените по нея се записват върху оригиналните шкафове.
+          </p>
+          {projectCabinets.filter((cabinet) => cabinet.id !== editing?.id && !isCombinationType(cabinet.typeId) && !lockedCabinetIds.includes(cabinet.id)).length === 0 && attached.length === 0 ? (
+            <p className="mt-2 text-xs text-[var(--color-muted-foreground)]">Няма друг записан шкаф в проекта.</p>
+          ) : (
+            <>
+              {attachedGuests.map(({ row, cabinet }, index) => {
+                const touches = attachmentTouchesHost(
+                  attachedGuests.map((item) => item.row),
+                  index,
+                )
+                return (
+                  <div key={row.cabinetId} className="mt-3 border-t border-[var(--color-border)] pt-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-sm font-medium">{cabinet.name}</p>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setAttached((rows) => rows.filter((item) => item.cabinetId !== row.cabinetId))}
+                      >
+                        Махни
+                      </Button>
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {(
+                        [
+                          ['left', 'Отляво'],
+                          ['right', 'Отдясно'],
+                          ['above', 'Отгоре'],
+                          ['below', 'Отдолу'],
+                        ] as const
+                      ).map(([id, label]) => (
+                        <Button
+                          key={id}
+                          type="button"
+                          size="sm"
+                          variant={row.place === id ? 'default' : 'outline'}
+                          onClick={() =>
+                            setAttached((rows) =>
+                              rows.map((item) => (item.cabinetId === row.cabinetId ? { ...item, place: id } : item)),
+                            )
+                          }
+                        >
+                          {label}
+                        </Button>
+                      ))}
+                    </div>
+                    <p className="mt-2 text-xs">Да се хване ли с винтчета 4×30?</p>
+                    <div className="mt-1 flex gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={row.joinScrews ? 'default' : 'outline'}
+                        onClick={() =>
+                          setAttached((rows) =>
+                            rows.map((item) => (item.cabinetId === row.cabinetId ? { ...item, joinScrews: true } : item)),
+                          )
+                        }
+                      >
+                        Да, с 4×30
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={!row.joinScrews ? 'default' : 'outline'}
+                        onClick={() =>
+                          setAttached((rows) =>
+                            rows.map((item) => (item.cabinetId === row.cabinetId ? { ...item, joinScrews: false } : item)),
+                          )
+                        }
+                      >
+                        Без винтчета
+                      </Button>
+                    </div>
+                    {isStacked(row.place) && touches && (
+                      <div className="mt-2">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant={row.spanDoor ? 'default' : 'outline'}
+                          onClick={() =>
+                            setAttached((rows) =>
+                              rows.map((item) =>
+                                item.cabinetId === row.cabinetId ? { ...item, spanDoor: !item.spanDoor } : item,
+                              ),
+                            )
+                          }
+                        >
+                          Една врата на двата шкафа
+                        </Button>
+                        {row.spanDoor && (
+                          <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
+                            Вратите на този шкаф не влизат в разкроя — вместо тях е едната обща. Вратите на другия шкаф си остават в неговия списък.
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+              {projectCabinets.some((cabinet) => cabinet.id !== editing?.id && !isCombinationType(cabinet.typeId) && !lockedCabinetIds.includes(cabinet.id) && !attached.some((row) => row.cabinetId === cabinet.id)) && (
+                <label className="mt-3 flex items-center gap-2 text-sm">
+                  Добави
+                  <select
+                    className="h-8 min-w-0 flex-1 rounded-md border border-[var(--color-border)] bg-transparent px-2"
+                    value=""
+                    onChange={(e) => {
+                      const cabinetId = e.target.value
+                      if (!cabinetId) return
+                      setAttached((rows) =>
+                        rows.some((row) => row.cabinetId === cabinetId)
+                          ? rows
+                          : [...rows, { cabinetId, place: 'right', joinScrews: false, spanDoor: false }],
+                      )
+                    }}
+                  >
+                    <option value="">Избери шкаф</option>
+                    {projectCabinets
+                      .filter((cabinet) => cabinet.id !== editing?.id && !isCombinationType(cabinet.typeId) && !lockedCabinetIds.includes(cabinet.id) && !attached.some((row) => row.cabinetId === cabinet.id))
+                      .map((cabinet) => (
+                        <option key={cabinet.id} value={cabinet.id}>
+                          {cabinet.name}
+                        </option>
+                      ))}
+                  </select>
+                </label>
+              )}
+            </>
+          )}
+        </div>
+
+        {attachedGuests.length > 0 ? (
+          <CabinetGroupView
+            host={groupRole === 'guest' && peerDrafts?.host ? peerDrafts.host : { typeId, params }}
+            guests={attachedGuests.map(({ row, cabinet }) => {
+              const live = groupRole === 'guest' && editing?.id === cabinet.id
+              const peer = peerDrafts?.[cabinet.id]
+              const source = live ? { typeId, params } : peer ?? { typeId: cabinet.typeId, params: cabinet.params }
+              return { typeId: source.typeId, params: source.params, place: row.place, spanDoor: row.spanDoor }
+            })}
+            showDimLines={showDimLines}
+            showOpeningDims={showOpeningDims}
+            showFronts={drawStyle === 'model' || doorView !== 'hidden'}
+            drawStyle={drawStyle}
+            doorView={doorView}
+            carcassColor={settings.hardware.boardFinishes.find((finish) => finish.id === carcassFinishId)?.color}
+            carcassImage={settings.hardware.boardFinishes.find((finish) => finish.id === carcassFinishId)?.image}
+            frontColor={
+              settings.hardware.boardFinishes.find((finish) => finish.id === (frontFinishId || carcassFinishId))?.color
+            }
+            frontImage={
+              settings.hardware.boardFinishes.find((finish) => finish.id === (frontFinishId || carcassFinishId))?.image
+            }
+            backColor={settings.hardware.boardFinishes.find((finish) => finish.id === backFinishId)?.color}
+            backImage={settings.hardware.boardFinishes.find((finish) => finish.id === backFinishId)?.image}
+          />
+        ) : (
         <CabinetPreview
           typeId={typeId}
           params={{ ...params }}
+          onPullChange={(key, sku) => setHandleOverrides((prev) => ({ ...prev, [key]: sku }))}
           showDimLines={showDimLines}
           showOpeningDims={showOpeningDims}
-          showFronts={doorView !== 'hidden'}
+          showFronts={drawStyle === 'model' || doorView !== 'hidden'}
           drawStyle={drawStyle}
           doorView={doorView}
           carcassColor={settings.hardware.boardFinishes.find((finish) => finish.id === carcassFinishId)?.color}
@@ -5905,6 +6181,7 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
           backColor={settings.hardware.boardFinishes.find((finish) => finish.id === backFinishId)?.color}
           backImage={settings.hardware.boardFinishes.find((finish) => finish.id === backFinishId)?.image}
         />
+        )}
 
         {error && <p className="text-sm text-[var(--color-destructive)]">{error}</p>}
 
@@ -6054,6 +6331,157 @@ export function CabinetDialog({ open, onOpenChange, editing, sheets, dailyRateEu
           <Box className="h-4 w-4" />
           {isEdit ? 'Запази промените' : 'Добави в разкроя'}
         </Button>
+    </>
+  )
+  if (bare) return dialogBody
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[92vh] max-w-4xl overflow-y-auto">{dialogBody}</DialogContent>
+    </Dialog>
+  )
+}
+
+const HOST_TAB = 'host'
+
+export function CabinetDialog(props: CabinetDialogProps) {
+  const combination = props.editing && isCombinationType(props.editing.typeId) ? parseCombination(props.editing.params) : null
+  const hostCabinetId = combination ? combination.hostId : props.editing?.id ?? null
+  const hostCabinet = hostCabinetId ? props.projectCabinets?.find((cabinet) => cabinet.id === hostCabinetId) ?? null : null
+  const [active, setActive] = useState(HOST_TAB)
+  const [drafts, setDrafts] = useState<Record<string, CabinetDraft>>({})
+  const [attached, setAttached] = useState<AttachedCabinet[]>(() =>
+    combination
+      ? combination.members
+          .filter((member) => member.place !== 'host')
+          .map((member) => ({
+            cabinetId: member.cabinetId,
+            place: member.place === 'host' ? 'right' : member.place,
+            joinScrews: member.joinScrews,
+            spanDoor: member.spanDoor,
+          }))
+      : [],
+  )
+  const changeAttached = (rows: AttachedCabinet[]) => {
+    setAttached((prev) => {
+      if (prev.length === 0 && rows.length > 0) {
+        window.setTimeout(() => {
+          document.getElementById('combination-tabs')?.scrollIntoView({ block: 'start' })
+        }, 0)
+      }
+      return rows
+    })
+  }
+  const onLiveChange = (draft: CabinetDraft) => {
+    setDrafts((prev) => {
+      const key = active
+      const current = prev[key]
+      if (
+        current &&
+        current.typeId === draft.typeId &&
+        current.quantity === draft.quantity &&
+        JSON.stringify(current.params) === JSON.stringify(draft.params)
+      ) {
+        return prev
+      }
+      return { ...prev, [key]: draft }
+    })
+  }
+  const tabs = [
+    { id: HOST_TAB, label: 'Шкаф 1', hint: hostCabinet?.name ?? 'Този шкаф' },
+    ...attached.map((row, index) => ({
+      id: row.cabinetId,
+      label: `Шкаф ${index + 2}`,
+      hint: props.projectCabinets?.find((cabinet) => cabinet.id === row.cabinetId)?.name ?? '',
+    })),
+  ]
+  const formEditing = (): CabinetInstance | null => {
+    if (active === HOST_TAB) {
+      const draft = drafts[HOST_TAB]
+      if (draft && hostCabinet) return { ...hostCabinet, typeId: draft.typeId, params: draft.params, quantity: draft.quantity }
+      if (draft) {
+        return { id: 'draft', typeId: draft.typeId, name: '', quantity: draft.quantity, params: draft.params, partIds: [] }
+      }
+      return combination ? hostCabinet : props.editing ?? null
+    }
+    const cabinet = props.projectCabinets?.find((item) => item.id === active)
+    if (!cabinet) return null
+    const draft = drafts[active]
+    return draft ? { ...cabinet, typeId: draft.typeId, params: draft.params, quantity: draft.quantity } : cabinet
+  }
+  const save = (input: CabinetDraft) => {
+    const merged = { ...drafts, [active]: input }
+    if (attached.length === 0) {
+      if (combination && hostCabinetId) {
+        const host = merged[HOST_TAB] ?? (hostCabinet
+          ? { typeId: hostCabinet.typeId, params: hostCabinet.params, quantity: hostCabinet.quantity }
+          : input)
+        props.onSaveGroup?.({
+          host: { id: hostCabinetId, typeId: host.typeId, params: host.params, quantity: host.quantity },
+          guests: [],
+          combinationId: props.editing?.id ?? null,
+        })
+        if (!props.onSaveGroup) props.onSave(input)
+        return
+      }
+      props.onSave(input)
+      return
+    }
+    const host = active === HOST_TAB ? input : merged[HOST_TAB]
+    if (!host) return
+    props.onSaveGroup?.({
+      host: { id: hostCabinetId, typeId: host.typeId, params: host.params, quantity: host.quantity },
+      guests: attached.flatMap((row) => {
+        const cabinet = props.projectCabinets?.find((item) => item.id === row.cabinetId)
+        const draft = row.cabinetId === active ? input : merged[row.cabinetId]
+        if (!cabinet && !draft) return []
+        return [{
+          id: row.cabinetId,
+          typeId: draft?.typeId ?? cabinet!.typeId,
+          params: draft?.params ?? cabinet!.params,
+          quantity: draft?.quantity ?? cabinet!.quantity,
+          place: row.place,
+          joinScrews: row.joinScrews,
+          spanDoor: row.spanDoor,
+        }]
+      }),
+      combinationId: combination ? props.editing?.id ?? null : null,
+    })
+    if (!props.onSaveGroup) props.onSave(input)
+  }
+  return (
+    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
+      <DialogContent className="max-h-[92vh] max-w-4xl overflow-y-auto">
+        {attached.length > 0 && (
+          <div id="combination-tabs" className="flex flex-wrap gap-2">
+            {tabs.map((tab) => (
+              <Button
+                key={tab.id}
+                type="button"
+                size="sm"
+                variant={active === tab.id ? 'default' : 'outline'}
+                onClick={() => setActive(tab.id)}
+              >
+                {tab.label}
+                {tab.hint ? <span className="ml-1 font-normal opacity-80">{tab.hint}</span> : null}
+              </Button>
+            ))}
+          </div>
+        )}
+        <CabinetDialogForm
+          key={active}
+          {...props}
+          bare
+          editing={formEditing()}
+          treatAsNew={active === HOST_TAB && !hostCabinetId}
+          stampAttached={false}
+          attachedRows={attached}
+          onAttachedRows={changeAttached}
+          onLiveChange={onLiveChange}
+          peerDrafts={drafts}
+          groupRole={active === HOST_TAB ? 'host' : 'guest'}
+          lockedCabinetIds={hostCabinetId ? [hostCabinetId] : []}
+          onSave={save}
+        />
       </DialogContent>
     </Dialog>
   )

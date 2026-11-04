@@ -140,6 +140,7 @@ export function SettingsDialog({
   const [screw5x60, setScrew5x60] = useState('')
   const [shelfPin, setShelfPin] = useState('')
   const [handleNormal, setHandleNormal] = useState('')
+  const [handleTara, setHandleTara] = useState('')
   const [clothesRailPrice, setClothesRailPrice] = useState('')
   const [slidingUpperTrack, setSlidingUpperTrack] = useState<Record<SlidingTrackColor, string>>(
     Object.fromEntries(SLIDING_TRACK_COLOR_IDS.map((id) => [id, ''])) as Record<SlidingTrackColor, string>,
@@ -246,6 +247,7 @@ export function SettingsDialog({
     setScrew5x60(String(s.screw5x60_500PackEur))
     setShelfPin(String(s.shelfPinEur))
     setHandleNormal(String(s.handleNormalEur))
+    setHandleTara(String(s.handleTaraEur))
     setClothesRailPrice(String(s.clothesRailEurPerM))
     setSlidingUpperTrack(
       Object.fromEntries(SLIDING_TRACK_COLOR_IDS.map((id) => [id, String(s.slidingUpperTrackEur[id])])) as Record<
@@ -373,6 +375,7 @@ export function SettingsDialog({
       screw5x60_500PackEur: parseFloat(screw5x60) || DEFAULT_HARDWARE_SETTINGS.screw5x60_500PackEur,
       shelfPinEur: parseFloat(shelfPin) || DEFAULT_HARDWARE_SETTINGS.shelfPinEur,
       handleNormalEur: parseFloat(handleNormal) || DEFAULT_HARDWARE_SETTINGS.handleNormalEur,
+      handleTaraEur: parseFloat(handleTara) || DEFAULT_HARDWARE_SETTINGS.handleTaraEur,
       slidingHandleEurPerM: DEFAULT_HARDWARE_SETTINGS.slidingHandleEurPerM,
       slidingCapEurPerM: DEFAULT_HARDWARE_SETTINGS.slidingCapEurPerM,
       slidingUpperTrackEur: Object.fromEntries(
@@ -756,6 +759,20 @@ export function SettingsDialog({
               />
               <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
                 По 1 дръжка на врата и на чекмедже.
+              </p>
+              <Label htmlFor="handle-tara" className="mt-3">
+                Дръжка Тара (€/бр.)
+              </Label>
+              <Input
+                id="handle-tara"
+                type="number"
+                step="0.01"
+                min="0"
+                value={handleTara}
+                onChange={(e) => setHandleTara(e.target.value)}
+              />
+              <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
+                Лък хром/инокс. 96/128 мм е 158×26×16 мм, 160/192 мм е 233×26×18 мм. И двата размера са на тази цена.
               </p>
             </div>
             <div className="rounded-md border border-[var(--color-border)] p-4 sm:col-span-2">

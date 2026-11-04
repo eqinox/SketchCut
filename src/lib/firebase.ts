@@ -149,6 +149,18 @@ export async function saveUserSettings(
   })
 }
 
+export async function savePublicShare(ownerId: string, id: string, data: Record<string, unknown>): Promise<void> {
+  await ensureAuthReady(ownerId)
+  await setDoc(doc(requireDb(), 'shares', id), data)
+}
+
+export async function loadPublicShare(id: string): Promise<Record<string, unknown> | null> {
+  const snap = await getDoc(doc(requireDb(), 'shares', id))
+  if (!snap.exists()) return null
+  const data = snap.data()
+  return data && typeof data === 'object' ? (data as Record<string, unknown>) : null
+}
+
 export async function loadUserSettings(
   userId: string,
 ): Promise<{ hardware: HardwareSettings; assemblyTime: AssemblyTimeSettings } | null> {

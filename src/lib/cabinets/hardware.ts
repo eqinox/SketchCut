@@ -38,6 +38,14 @@ export const SCREW_4X16: FastenerPack = {
   packPriceEur: 5,
 }
 
+/** Joins two cabinets that sit against each other. */
+export const SCREW_4X30: FastenerPack = {
+  id: 'screw-4x30',
+  name: 'Винтче 4×30',
+  packQty: 1000,
+  packPriceEur: 5,
+}
+
 export const SCREW_4X20: FastenerPack = {
   id: 'screw-4x20',
   name: 'Винтче 4×20',
@@ -107,6 +115,28 @@ export const HANDLES_PER_DOOR = 1
 export const HANDLES_PER_DRAWER = 1
 
 export const HINGES_PER_SMALL_DOOR = 2
+/** Above this door height the leaf gets a third hinge. */
+export const HINGE_THREE_ABOVE_MM = 1500
+/** Above this door height the leaf gets a fourth hinge. */
+export const HINGE_FOUR_ABOVE_MM = 2000
+
+/** 2 hinges, 3 above 1500 mm, 4 above 2000 mm. */
+export function hingesForDoorHeight(heightMm: number): number {
+  if (heightMm > HINGE_FOUR_ABOVE_MM) return 4
+  if (heightMm > HINGE_THREE_ABOVE_MM) return 3
+  return HINGES_PER_SMALL_DOOR
+}
+
+/** Centres measured down from the top of the door. */
+export function hingeOffsetsFromTop(heightMm: number): number[] {
+  const count = hingesForDoorHeight(heightMm)
+  const inset = Math.min(100, Math.max(28, heightMm * 0.12))
+  if (count <= 1) return [heightMm / 2]
+  const start = Math.min(inset, (heightMm - 20) / 2)
+  const end = heightMm - start
+  return Array.from({ length: count }, (_, i) => start + ((end - start) * i) / (count - 1))
+}
+
 export const SCREWS_4X16_PER_HINGE = 2
 export const SCREWS_4X20_PER_HINGE = 2
 
@@ -259,7 +289,7 @@ export function hingeRuleBlock(): RuleBlock {
   return {
     title: 'Наложена врата',
     lines: [
-      `${HINGES_PER_SMALL_DOOR} панти на врата. На панта: ${SCREWS_4X16_PER_HINGE} винтчета 4×16 и ${SCREWS_4X20_PER_HINGE} винтчета 4×20.`,
+      `${HINGES_PER_SMALL_DOOR} панти на врата. Над ${HINGE_THREE_ABOVE_MM} мм са 3, над ${HINGE_FOUR_ABOVE_MM} мм са 4. На панта: ${SCREWS_4X16_PER_HINGE} винтчета 4×16 и ${SCREWS_4X20_PER_HINGE} винтчета 4×20.`,
       'Плавно или обикновено прибиране се избира в Настройки.',
       'Плъзгащите врати нямат панти — имат механизма MVP-005.',
     ],

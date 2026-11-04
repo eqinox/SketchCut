@@ -1,4 +1,5 @@
 import type { CabinetInstance, Part, PartEdgeBanding, Sheet } from '@/types'
+import { parseRoomPlan, type RoomPlan } from '@/lib/room'
 import { generateId } from '@/lib/utils'
 import {
   DEFAULT_CHIPBOARD_HEIGHT,
@@ -23,6 +24,7 @@ export interface DraftData {
   edgeBanding: PartEdgeBanding[]
   cabinets: CabinetInstance[]
   dailyRateEur: number
+  room: RoomPlan
   updatedAt: number
 }
 
@@ -61,6 +63,7 @@ export function loadDraft(): DraftData | null {
       edgeBanding: parsed.edgeBanding ?? [],
       cabinets: parsed.cabinets ?? [],
       dailyRateEur: parsed.dailyRateEur ?? 0,
+      room: parseRoomPlan(parsed.room),
     }
   } catch {
     return null
@@ -74,10 +77,11 @@ export function readInitialDraft(): {
   edgeBanding: PartEdgeBanding[]
   cabinets: CabinetInstance[]
   dailyRateEur: number
+  room: RoomPlan
 } {
   const draft = loadDraft()
   if (!draft) {
-    return { sheets: [DEFAULT_SHEET()], parts: [], edgeBanding: [], cabinets: [], dailyRateEur: 0 }
+    return { sheets: [DEFAULT_SHEET()], parts: [], edgeBanding: [], cabinets: [], dailyRateEur: 0, room: parseRoomPlan(undefined) }
   }
   return {
     sheets: draft.sheets.length > 0 ? draft.sheets : [DEFAULT_SHEET()],
@@ -85,6 +89,7 @@ export function readInitialDraft(): {
     edgeBanding: draft.edgeBanding,
     cabinets: draft.cabinets ?? [],
     dailyRateEur: draft.dailyRateEur ?? 0,
+    room: draft.room,
   }
 }
 

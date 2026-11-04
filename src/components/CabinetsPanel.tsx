@@ -23,6 +23,8 @@ import {
   scaleCabinetResult,
   type CabinetInstance,
 } from '@/lib/cabinets'
+import { isCombinationType, parseCombination } from '@/lib/cabinets/compose'
+import type { SavedCabinetGroup } from '@/lib/cabinets/apply'
 import type { HardwareSettings } from '@/lib/settings'
 import { DEFAULT_HARDWARE_SETTINGS } from '@/lib/settings'
 import type { AssemblyTimeSettings } from '@/lib/assembly-time'
@@ -42,6 +44,7 @@ interface CabinetsPanelProps {
     input: { typeId: string; params: Record<string, unknown>; quantity: number },
   ) => void
   applyRemove: (cabinetId: string) => void
+  onSaveGroup?: (group: SavedCabinetGroup) => void
   onClear?: () => void
 }
 
@@ -55,6 +58,7 @@ export function CabinetsPanel({
   applyAdd,
   applyUpdate,
   applyRemove,
+  onSaveGroup,
   onClear,
 }: CabinetsPanelProps) {
   const [open, setOpen] = useState(false)
@@ -63,6 +67,7 @@ export function CabinetsPanel({
   const [openCabinetId, setOpenCabinetId] = useState<string | null>(null)
   const hourly = hourlyRateEur(dailyRateEur)
   const priced = cabinets.flatMap((c) => {
+    if (isCombinationType(c.typeId)) return []
     try {
       const result = scaleCabinetResult(generateCabinet(c.typeId, c.params, settings), c.quantity)
       const perCabinetHardware = { ...settings.hardware, billWholeSheets: false, billWholeHardboardSheets: false }
@@ -302,6 +307,47 @@ export function CabinetsPanel({
         <div className="space-y-2">
           <ul className="space-y-2">
             {cabinets.map((c, i) => {
+              if (isCombinationType(c.typeId)) {
+                const group = parseCombination(c.params)
+                const hostName = cabinets.find((item) => item.id === group?.hostId)?.name ?? 'шкаф'
+                const guestNames = (group?.members ?? [])
+                  .filter((member) => member.place !== 'host')
+                  .map((member) => cabinets.find((item) => item.id === member.cabinetId)?.name ?? 'шкаф')
+                return (
+                  <li
+                    key={c.id}
+                    className="rounded-md border border-[var(--color-border)] bg-[var(--color-background)] px-3 py-2"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Box className="h-4 w-4 shrink-0 text-[var(--color-primary)]" />
+                          <span className="truncate text-sm font-medium">Ш{i + 1} · Комбинация</span>
+                        </div>
+                        <p className="mt-0.5 text-xs text-[var(--color-muted-foreground)]">
+                          {hostName}
+                          {guestNames.length > 0 ? ` + ${guestNames.join(' + ')}` : ''}
+                          {' · без отделна цена'}
+                        </p>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-1">
+                        <Button variant="ghost" size="icon" className="h-7 w-7" title="Редактирай" onClick={() => openEdit(c)}>
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          title="Изтрий"
+                          onClick={() => applyRemove(c.id)}
+                        >
+                          <Trash2 className="h-4 w-4 text-[var(--color-destructive)]" />
+                        </Button>
+                      </div>
+                    </div>
+                  </li>
+                )
+              }
               const type = getCabinetType(c.typeId)
               const p = c.typeId === 'kitchen-wall' ? parseKitchenWallParams(c.params) : parseKitchenBaseParams(c.params)
               const fit = fittingsCountsFromParams(p)
@@ -474,12 +520,17 @@ export function CabinetsPanel({
         open={open}
         onOpenChange={setOpen}
         editing={editing}
+        projectCabinets={cabinets}
         sheets={sheets}
         dailyRateEur={dailyRateEur}
         settings={settings}
         onSave={(input) => {
-          if (editing) applyUpdate(editing.id, input)
+          if (editing && !isCombinationType(editing.typeId)) applyUpdate(editing.id, input)
           else applyAdd(input)
+          setEditing(null)
+        }}
+        onSaveGroup={(group) => {
+          onSaveGroup?.(group)
           setEditing(null)
         }}
       />

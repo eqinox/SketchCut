@@ -168,6 +168,10 @@ export {
   KITCHEN_BASE_SCREWS_RAILS,
   KITCHEN_BASE_SCREWS_TOTAL,
   HINGES_PER_SMALL_DOOR,
+  HINGE_THREE_ABOVE_MM,
+  HINGE_FOUR_ABOVE_MM,
+  hingesForDoorHeight,
+  hingeOffsetsFromTop,
   SLIDES_PER_DRAWER,
   SCREWS_4X16_PER_HINGE,
   SCREWS_4X20_PER_HINGE,
@@ -266,7 +270,9 @@ export {
   updateCabinetAndLabel,
   removeCabinetAndLabel,
   rebuildCabinets,
+  saveCabinetGroup,
   type CabinetState,
+  type SavedCabinetGroup,
 } from './apply'
 export { createDrawCam, Board, BETWEEN_FACES, SIDE_LEFT_BODY, SIDE_LEFT_TOP, SIDE_RIGHT, BOX_FACES } from './draw-3d'
 export type { DrawCam, DrawFaces } from './draw-3d'

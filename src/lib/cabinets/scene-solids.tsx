@@ -1,4 +1,5 @@
 import { createContext, useContext, useLayoutEffect, useRef } from 'react'
+import type { PullSku } from '@/lib/cabinets/pulls'
 
 /** A piece in the same millimetre space as the drawing. y grows downward, z toward the back. */
 export type SceneSolid =
@@ -11,6 +12,12 @@ export type SceneSolid =
       h: number
       d: number
       color: string
+      /** The face away from the viewer, when it is a different colour from the front. */
+      rearColor?: string
+      /** Pieces that share an id slide out together. The runners stay put. */
+      slide?: { id: string; travel: number }
+      /** Bow or bar on this front. The key stays put when the cabinet is moved in a group. */
+      pull?: { key: string; sku: PullSku }
     }
   | {
       kind: 'door'
@@ -23,6 +30,12 @@ export type SceneSolid =
       side: 'left' | 'right'
       openDeg: number
       color: string
+      /** Hinge centres, millimetres down from the top of the door. */
+      hingeFromTop?: number[]
+      /** The door sits between the sides, so the plate is on the face just outside the hinge edge. */
+      inset?: boolean
+      /** Bow or bar on the outer face. */
+      pull?: { key: string; sku: PullSku }
     }
   | {
       kind: 'rail'
@@ -82,12 +95,32 @@ export function createCaptureStore(): CaptureStore {
 
 export const SceneCaptureContext = createContext<CaptureStore | null>(null)
 
+/** Moves a cabinet in the shared picture. localTop is its own drawing's carcass top. */
+export const DrawPlaceContext = createContext({ x: 0, y: 0, localLeft: 0, localTop: 0 })
+
+function placeSolid(solid: SceneSolid, place: { x: number; y: number; localLeft: number; localTop: number }): SceneSolid {
+  const dx = place.x - place.localLeft
+  const dy = place.y - place.localTop
+  if (dx === 0 && dy === 0) return solid
+  if (solid.kind === 'door') return { ...solid, hingeX: solid.hingeX + dx, y: solid.y + dy }
+  const moved = { ...solid, x: solid.x + dx, y: solid.y + dy }
+  if (moved.kind === 'box' && moved.slide) {
+    return {
+      ...moved,
+      slide: { ...moved.slide, id: `${moved.slide.id}@${Math.round(dx)}:${Math.round(dy)}` },
+    }
+  }
+  return moved
+}
+
 /** Remember a piece for the 3D view. No-op while that view is closed. */
 export function useCaptureSolid(solid: SceneSolid | null) {
   const store = useContext(SceneCaptureContext)
-  const solidRef = useRef(solid)
-  solidRef.current = solid
-  const key = solid ? JSON.stringify(solid) : ''
+  const place = useContext(DrawPlaceContext)
+  const placed = solid ? placeSolid(solid, place) : null
+  const solidRef = useRef(placed)
+  solidRef.current = placed
+  const key = placed ? JSON.stringify(placed) : ''
   useLayoutEffect(() => {
     const current = solidRef.current
     if (!store || !current) return

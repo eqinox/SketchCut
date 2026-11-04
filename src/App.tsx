@@ -9,6 +9,7 @@ import { CuttingLayout } from '@/components/CuttingLayout'
 import { EdgeBandingDialog } from '@/components/EdgeBandingDialog'
 import { AuthDialog, HeaderActions, ProjectDialog } from '@/components/AuthDialog'
 import { CabinetsPanel } from '@/components/CabinetsPanel'
+import { RoomPlanView } from '@/components/RoomPlan'
 import { SettingsDialog } from '@/components/SettingsDialog'
 import { RulesDialog } from '@/components/RulesDialog'
 import { optimizeAllVariants, raiseSheetQuantities } from '@/lib/packing/optimizer'
@@ -18,6 +19,7 @@ import {
   removeCabinetAndLabel,
   updateCabinetAndLabel,
   rebuildCabinets,
+  saveCabinetGroup,
   createHardboardSheet,
   firstSheetOfKind,
   partKind,
@@ -27,7 +29,7 @@ import {
 import { subscribeAuth, saveProject, loadProjects, deleteProject, loadUserSettings, saveUserSettings, getFirebaseInitError } from '@/lib/firebase'
 import { saveDraft, readInitialDraft, setOpenProject, getOpenProject, type OpenProjectRef } from '@/lib/draft-storage'
 import { loadSettings, saveSettings, resetSettings, type HardwareSettings } from '@/lib/settings'
-import { ensureFinishSheets } from '@/lib/board-finishes'
+import { ensureFinishSheets, ensurePackingSheets, finishById, type BoardFinish } from '@/lib/board-finishes'
 import {
   loadAssemblyTimeSettings,
   saveAssemblyTimeSettings,
@@ -39,6 +41,7 @@ import { formatFirebaseError } from '@/lib/firebase-errors'
 import { getMissingClientEnvKeys } from '@/lib/env'
 import { DbErrorBanner, type DbErrorDetails } from '@/components/DbErrorBanner'
 import type { CabinetInstance, Part, PartEdgeBanding, PackingResult, SavedProject, Sheet } from '@/types'
+import { parseRoomPlan, type RoomPlan } from '@/lib/room'
 
 const initialDraft = readInitialDraft()
 
@@ -49,6 +52,7 @@ function App() {
   const [edgeBanding, setEdgeBanding] = useState<PartEdgeBanding[]>(initialDraft.edgeBanding)
   const [cabinets, setCabinets] = useState<CabinetInstance[]>(initialDraft.cabinets)
   const [dailyRateEur, setDailyRateEur] = useState(initialDraft.dailyRateEur)
+  const [room, setRoom] = useState<RoomPlan>(initialDraft.room)
   const [packingResult, setPackingResult] = useState<PackingResult | null>(null)
   const [hardboardResult, setHardboardResult] = useState<PackingResult | null>(null)
   const saveReadyRef = useRef(false)
@@ -76,13 +80,13 @@ function App() {
   }, [])
 
   const workspaceKey = useCallback(
-    (data: { sheets: Sheet[]; parts: Part[]; edgeBanding: PartEdgeBanding[]; cabinets: CabinetInstance[]; dailyRateEur: number }) =>
+    (data: { sheets: Sheet[]; parts: Part[]; edgeBanding: PartEdgeBanding[]; cabinets: CabinetInstance[]; dailyRateEur: number; room: RoomPlan }) =>
       JSON.stringify(data),
     [],
   )
 
   const rememberOpenProject = useCallback(
-    (project: OpenProjectRef, data: { sheets: Sheet[]; parts: Part[]; edgeBanding: PartEdgeBanding[]; cabinets: CabinetInstance[]; dailyRateEur: number }) => {
+    (project: OpenProjectRef, data: { sheets: Sheet[]; parts: Part[]; edgeBanding: PartEdgeBanding[]; cabinets: CabinetInstance[]; dailyRateEur: number; room: RoomPlan }) => {
       projectBaseline.current = workspaceKey(data)
       setOpenProject(project)
       setOpenProjectState(project)
@@ -104,6 +108,7 @@ function App() {
     setEdgeBanding(project.edgeBanding)
     setCabinets(project.cabinets ?? [])
     setDailyRateEur(project.dailyRateEur ?? 0)
+    setRoom(parseRoomPlan(project.room))
     setPackingResult(null)
     setHardboardResult(null)
   }, [])
@@ -177,22 +182,22 @@ function App() {
 
   useEffect(() => {
     if (!saveReadyRef.current) return
-    saveDraft({ sheets, parts, edgeBanding, cabinets, dailyRateEur })
-  }, [sheets, parts, edgeBanding, cabinets, dailyRateEur])
+    saveDraft({ sheets, parts, edgeBanding, cabinets, dailyRateEur, room })
+  }, [sheets, parts, edgeBanding, cabinets, dailyRateEur, room])
 
   useEffect(() => {
     if (!openProject) {
       setProjectDirty(false)
       return
     }
-    const key = workspaceKey({ sheets, parts, edgeBanding, cabinets, dailyRateEur })
+    const key = workspaceKey({ sheets, parts, edgeBanding, cabinets, dailyRateEur, room })
     if (projectBaseline.current == null) {
       projectBaseline.current = key
       setProjectDirty(false)
       return
     }
     setProjectDirty(key !== projectBaseline.current)
-  }, [openProject, sheets, parts, edgeBanding, cabinets, dailyRateEur, workspaceKey])
+  }, [openProject, sheets, parts, edgeBanding, cabinets, dailyRateEur, room, workspaceKey])
 
   const loadUserProjects = useCallback(async () => {
     if (!user) return
@@ -241,26 +246,22 @@ function App() {
 
   const handleGenerate = () => {
     if (parts.length === 0) return
+    const stock = ensurePackingSheets(sheets, parts, settings.boardFinishes, {
+      chipboardPriceEur: settings.chipboardPriceEur,
+      hardboardPriceEur: settings.hardboardPriceEur,
+    })
     const chipboardParts = parts.filter((p) => partKind(p) === 'chipboard')
     const hardboardParts = parts.filter((p) => partKind(p) === 'hardboard')
-    const chipboardSheets = sheets.filter((s) => sheetKind(s) === 'chipboard')
-    const hardboardSheets = sheets.filter((s) => sheetKind(s) === 'hardboard')
+    const chipboardSheets = stock.filter((s) => sheetKind(s) === 'chipboard')
+    const hardboardSheets = stock.filter((s) => sheetKind(s) === 'hardboard')
 
-    let chipResult: PackingResult | null = null
-    if (chipboardParts.length > 0) {
-      chipResult = packChipboard(chipboardSheets, chipboardParts)
-    }
+    const chipResult =
+      chipboardParts.length > 0 ? packChipboard(chipboardSheets, chipboardParts, settings.boardFinishes) : null
+    const boardResult =
+      hardboardParts.length > 0 ? (optimizeAllVariants(hardboardSheets, hardboardParts)[0]?.result ?? null) : null
 
-    let boardResult: PackingResult | null = null
-    if (hardboardParts.length > 0) {
-      boardResult = optimizeAllVariants(hardboardSheets, hardboardParts)[0]?.result ?? null
-    }
-
-    setSheets((prev) =>
-      raiseSheetQuantities(prev, [
-        ...(chipResult?.sheets ?? []),
-        ...(boardResult?.sheets ?? []),
-      ]),
+    setSheets(
+      raiseSheetQuantities(stock, [...(chipResult?.sheets ?? []), ...(boardResult?.sheets ?? [])]),
     )
     setPackingResult(chipResult)
     setHardboardResult(boardResult)
@@ -281,7 +282,7 @@ function App() {
     try {
       const byId = existingId ? savedProjects.find((p) => p.id === existingId) : undefined
       const byName = savedProjects.find((p) => p.name === name)
-      const data = { sheets, parts, edgeBanding, cabinets, dailyRateEur }
+      const data = { sheets, parts, edgeBanding, cabinets, dailyRateEur, room }
       const project: SavedProject = {
         id: existingId ?? byId?.id ?? byName?.id ?? generateId(),
         name,
@@ -334,6 +335,7 @@ function App() {
       edgeBanding: project.edgeBanding,
       cabinets: project.cabinets ?? [],
       dailyRateEur: project.dailyRateEur ?? 0,
+      room: parseRoomPlan(project.room),
     }
     applyProjectData(project)
     rememberOpenProject({ id: project.id, name: project.name }, data)
@@ -378,6 +380,7 @@ function App() {
     setParts([])
     setEdgeBanding([])
     setCabinets([])
+    setRoom(parseRoomPlan(undefined))
     resetPacking()
     forgetOpenProject()
   }
@@ -413,6 +416,17 @@ function App() {
     setParts(next.parts)
     setEdgeBanding(next.edgeBanding)
     ensureHardboardSheet(input.params)
+    setSheets((prev) => ensureFinishSheets(prev, next.parts, settings.boardFinishes))
+    resetPacking()
+  }
+
+  const handleSaveGroup = (group: Parameters<typeof saveCabinetGroup>[1]) => {
+    const next = saveCabinetGroup(cabinetState, group, { hardware: settings, assemblyTime: assemblyTimeSettings })
+    setCabinets(next.cabinets)
+    setParts(next.parts)
+    setEdgeBanding(next.edgeBanding)
+    ensureHardboardSheet(group.host.params)
+    for (const guest of group.guests) ensureHardboardSheet(guest.params)
     setSheets((prev) => ensureFinishSheets(prev, next.parts, settings.boardFinishes))
     resetPacking()
   }
@@ -507,14 +521,7 @@ function App() {
     return defaults
   }
 
-  const chipboardPartCount = parts.filter((p) => partKind(p) === 'chipboard').length
-  const hardboardPartCount = parts.filter((p) => partKind(p) === 'hardboard').length
-  const chipboardSheetCount = sheets.filter((s) => sheetKind(s) === 'chipboard').reduce((s, sh) => s + sh.quantity, 0)
-  const hardboardSheetCount = sheets.filter((s) => sheetKind(s) === 'hardboard').reduce((s, sh) => s + sh.quantity, 0)
-  const canGenerate =
-    parts.length > 0 &&
-    (chipboardPartCount === 0 || chipboardSheetCount > 0) &&
-    (hardboardPartCount === 0 || hardboardSheetCount > 0)
+  const canGenerate = parts.length > 0
 
   return (
     <div className="flex min-h-dvh flex-col">
@@ -592,7 +599,16 @@ function App() {
           applyAdd={handleAddCabinet}
           applyUpdate={handleUpdateCabinet}
           applyRemove={handleRemoveCabinet}
+          onSaveGroup={handleSaveGroup}
           onClear={clearCabinets}
+        />
+
+        <RoomPlanView
+          room={room}
+          cabinets={cabinets}
+          finishes={settings.boardFinishes}
+          userId={user?.uid ?? null}
+          onChange={setRoom}
         />
 
         <div className="flex flex-wrap gap-3">
@@ -643,20 +659,14 @@ function App() {
             Изчисти всичко
           </Button>
 
-          {hardboardPartCount > 0 && hardboardSheetCount === 0 && (
+          {packingResult && packingResult.unplacedCount > 0 && (
             <p className="self-center text-sm text-[var(--color-destructive)]">
-              Има фазер, но няма плоча фазер — добавете от панела Плочи
+              {oversizedPartsSentence(packingResult, 'ПДЧ')}
             </p>
           )}
-
-          {packingResult && !packingResult.success && (
+          {hardboardResult && hardboardResult.unplacedCount > 0 && (
             <p className="self-center text-sm text-[var(--color-destructive)]">
-              {packingResult.unplacedCount} ПДЧ детайла не се побират в наличните {chipboardSheetCount} плочи
-            </p>
-          )}
-          {hardboardResult && !hardboardResult.success && (
-            <p className="self-center text-sm text-[var(--color-destructive)]">
-              {hardboardResult.unplacedCount} фазер детайла не се побират в наличните {hardboardSheetCount} плочи
+              {oversizedPartsSentence(hardboardResult, 'фазер')}
             </p>
           )}
         </div>
@@ -667,6 +677,7 @@ function App() {
           <CuttingLayout
             title="Разкрой ПДЧ"
             result={packingResult}
+            finishes={settings.boardFinishes}
             onResultChange={handleLayoutChange}
             onClear={() => setPackingResult(null)}
           />
@@ -676,6 +687,7 @@ function App() {
           <CuttingLayout
             title="Разкрой фазер"
             result={hardboardResult}
+            finishes={settings.boardFinishes}
             onResultChange={handleHardboardLayoutChange}
             onClear={() => setHardboardResult(null)}
           />
@@ -725,7 +737,40 @@ function App() {
   )
 }
 
-function packChipboard(sheets: Sheet[], parts: Part[]): PackingResult | null {
+function stampBoard(
+  result: PackingResult,
+  board: { name?: string; id?: string },
+): PackingResult {
+  if (!board.name && !board.id) return result
+  return {
+    ...result,
+    sheets: result.sheets.map((sheet) => ({
+      ...sheet,
+      ...(board.name ? { boardName: board.name } : {}),
+      ...(board.id ? { finishId: board.id } : {}),
+    })),
+    unplaced: result.unplaced?.map((item) => (board.name ? { ...item, boardName: board.name } : item)),
+  }
+}
+
+function mergePacked(results: PackingResult[]): PackingResult {
+  if (results.length === 1) return results[0]!
+  const packed = results.flatMap((result) => result.sheets)
+  const unplaced = results.flatMap((result) => result.unplaced ?? [])
+  const unplacedCount = results.reduce((sum, result) => sum + result.unplacedCount, 0)
+  const used = packed.reduce((sum, sheet) => sum + sheet.usedArea, 0)
+  const waste = packed.reduce((sum, sheet) => sum + sheet.wasteArea, 0)
+  return {
+    success: unplacedCount === 0,
+    sheets: packed,
+    totalWastePercent: used + waste > 0 ? (waste / (used + waste)) * 100 : 0,
+    unplacedCount,
+    unplaced,
+    variantKey: 'finishes',
+  }
+}
+
+function packChipboard(sheets: Sheet[], parts: Part[], finishes: BoardFinish[]): PackingResult | null {
   if (!parts.some((part) => part.finishId)) {
     return optimizeAllVariants(sheets, parts)[0]?.result ?? null
   }
@@ -735,21 +780,30 @@ function packChipboard(sheets: Sheet[], parts: Part[]): PackingResult | null {
     const group = parts.filter((part) => (part.finishId ?? '') === key)
     const pool = sheets.filter((sheet) => (sheet.finishId ?? '') === key)
     const hit = optimizeAllVariants(pool, group)[0]?.result
-    if (hit) results.push(hit)
+    if (!hit) continue
+    const finish = key ? finishById(finishes, key) : undefined
+    results.push(stampBoard(hit, { name: finish?.name ?? (key ? 'Цвят' : undefined), id: key || undefined }))
   }
   if (results.length === 0) return null
-  if (results.length === 1) return results[0]!
-  const packed = results.flatMap((result) => result.sheets)
-  const unplaced = results.reduce((sum, result) => sum + result.unplacedCount, 0)
-  const used = packed.reduce((sum, sheet) => sum + sheet.usedArea, 0)
-  const waste = packed.reduce((sum, sheet) => sum + sheet.wasteArea, 0)
-  return {
-    success: unplaced === 0,
-    sheets: packed,
-    totalWastePercent: used + waste > 0 ? (waste / (used + waste)) * 100 : 0,
-    unplacedCount: unplaced,
-    variantKey: 'finishes',
+  return mergePacked(results)
+}
+
+function oversizedPartsSentence(result: PackingResult, material: string): string {
+  const items = result.unplaced ?? []
+  const counts = new Map<string, number>()
+  for (const item of items) counts.set(item.boardName ?? '', (counts.get(item.boardName ?? '') ?? 0) + 1)
+  if (counts.size === 0) {
+    const n = result.unplacedCount
+    return `${n} ${material} ${n === 1 ? 'детайл е по-голям' : 'детайла са по-големи'} от плочата и ${n === 1 ? 'не може' : 'не могат'} да се ${n === 1 ? 'нареже' : 'нарежат'}.`
   }
+  return [...counts.entries()]
+    .map(([name, n]) => {
+      const color = name ? ` (${name})` : ''
+      const piece = n === 1 ? 'детайл е по-голям' : 'детайла са по-големи'
+      const verb = n === 1 ? 'не може да се нареже' : 'не могат да се нарежат'
+      return `${n} ${material} ${piece} от плочата${color} и ${verb}`
+    })
+    .join('. ')
 }
 
 export default App

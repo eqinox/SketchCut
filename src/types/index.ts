@@ -1,3 +1,5 @@
+import type { RoomPlan } from '@/lib/room'
+
 export type BoardKind = 'chipboard' | 'hardboard'
 
 export interface Sheet {
@@ -71,6 +73,16 @@ export interface PackedSheet {
   usedArea: number
   wasteArea: number
   wastePercent: number
+  /** Decor this sheet was cut from, when the parts carry a board colour. */
+  boardName?: string
+  finishId?: string
+}
+
+export interface UnplacedPart {
+  label: string
+  width: number
+  height: number
+  boardName?: string
 }
 
 export interface PackingResult {
@@ -79,6 +91,8 @@ export interface PackingResult {
   totalWastePercent: number
   unplacedCount: number
   variantKey: string
+  /** Parts that are larger than every sheet of their colour. */
+  unplaced?: UnplacedPart[]
 }
 
 export interface SavedProject {
@@ -89,6 +103,8 @@ export interface SavedProject {
   edgeBanding: PartEdgeBanding[]
   cabinets?: CabinetInstance[]
   dailyRateEur?: number
+  /** Furniture laid out in a room. Missing on older projects. */
+  room?: RoomPlan
   updatedAt: number
 }
 

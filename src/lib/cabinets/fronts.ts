@@ -10,10 +10,7 @@ import {
   SHELF_PINS_PER_SHELF,
   HINGE_SOFT_CLOSE,
   HINGE_NORMAL,
-  HANDLE_NORMAL,
-  HANDLES_PER_DOOR,
-  HANDLES_PER_DRAWER,
-  HINGES_PER_SMALL_DOOR,
+  hingesForDoorHeight,
   SCREWS_4X16_PER_HINGE,
   SCREWS_4X20_PER_HINGE,
   SLIDES_PER_DRAWER,
@@ -31,6 +28,14 @@ import {
   type SlideKind,
 } from './hardware'
 import { evenShelfBottoms, evenShelfGap } from './joinery'
+import {
+  parsePullOverrides,
+  parsePullSku,
+  pullHardwareId,
+  pullName,
+  taraPull,
+  type PullSku,
+} from './pulls'
 import {
   doorCutSize,
   doorCutRuleNote,
@@ -133,6 +138,10 @@ export interface InteriorFittings {
   cutFromOneBoard: boolean
   /** When true (default), 1 handle per door and per drawer is added to the price. */
   includeHandles: boolean
+  /** Handle used where a front has no choice of its own. */
+  handleSku: PullSku
+  /** One front, one handle. The key is the door or the drawer. */
+  handleOverrides: Record<string, PullSku>
   /** Clothes hanging rail between the sides. */
   hasClothesRail: boolean
   clothesRails: ClothesRailSpec[]
@@ -220,6 +229,8 @@ export const EMPTY_INTERIOR_FITTINGS: InteriorFittings = {
   drawerFrontHeights: [],
   cutFromOneBoard: false,
   includeHandles: true,
+  handleSku: 'normal',
+  handleOverrides: {},
   hasClothesRail: false,
   clothesRails: [],
   slideKind: 'roller',
@@ -261,6 +272,8 @@ export function parseInteriorFittings(raw: Record<string, unknown>, slideDepth: 
     drawerFrontHeights: parseDrawerFrontHeights(raw.drawerFrontHeights, raw.drawerFrontHeight),
     cutFromOneBoard: typeof raw.cutFromOneBoard === 'boolean' ? raw.cutFromOneBoard : false,
     includeHandles: raw.includeHandles !== false,
+    handleSku: parsePullSku(raw.handleSku),
+    handleOverrides: parsePullOverrides(raw.handleOverrides),
     clothesRails,
     hasClothesRail: clothesRails.length > 0,
     slideKind,
@@ -442,10 +455,10 @@ export function appendShelves(
     name,
     width: input.innerW,
     height: shelfDepth,
-    quantity: count,
-    canRotate: false,
-    edges: edges({ top: true }),
-    note: hole
+      quantity: count,
+      canRotate: true,
+      edges: edges({ top: true }),
+      note: hole
       ? `Кант: предната видима страна. Дълбочина ${shelfDepth} мм${frontInset > 0 ? ` (страницата минус ${frontInset} мм отпред)` : ''}. ${panelHoleNote(hole)}`
       : `Кант: предната видима страна. Дълбочина ${shelfDepth} мм${frontInset > 0 ? ` (страницата минус ${frontInset} мм отпред)` : ''}.`,
     hole,
@@ -527,7 +540,7 @@ export function appendFixedShelves(
       width: w,
       height: input.sideD,
       quantity: qty,
-      canRotate: false,
+      canRotate: true,
       edges: edges({ top: true }),
       note: hole
         ? `Кант: предната видима страна. Хваща се с 5×60 през страниците. Дълбочина ${input.sideD} мм. ${panelHoleNote(hole)}`
@@ -878,7 +891,7 @@ export function appendDoorsAndDrawers(
         width: box.inner.width,
         height: box.inner.height,
         quantity: 2 * qty,
-        canRotate: false,
+        canRotate: true,
         edges: edges({ top: true }),
         note: softClose
           ? `Предна и задна на кутията. ${formatMm(box.drawerOuterW)} − 2×${input.thickness} = ${formatMm(box.inner.width)} мм. С ${SOFT_INNER_RAIL_HEIGHT_DROP} мм по-ниски от външните заради канала за гърба. Кант: горната дълга страна.`
@@ -890,7 +903,7 @@ export function appendDoorsAndDrawers(
         width: box.outer.width,
         height: box.outer.height,
         quantity: 2 * qty,
-        canRotate: false,
+        canRotate: true,
         edges: edges({ top: true }),
         note: softClose
           ? `Страници на кутията. Дължина = водач ${input.slideLength} − ${SOFT_SLIDE_OUTER_RAIL_SHORTEN} мм. Кант: горната дълга страна. Канал за водача с плавно прибиране на по-високата царга.`
@@ -934,7 +947,8 @@ export function appendDoorsAndDrawers(
   if (hasDoors && door) {
     const doorWord = doorLeafWord(doorCount)
     const doorTitle = doorWord.charAt(0).toUpperCase() + doorWord.slice(1)
-    const totalHinges = doorCount * HINGES_PER_SMALL_DOOR
+    const perDoor = hingesForDoorHeight(door.height)
+    const totalHinges = doorCount * perDoor
     const hinge4x16 = totalHinges * SCREWS_4X16_PER_HINGE
     const hinge4x20 = totalHinges * SCREWS_4X20_PER_HINGE
     const hingePrice = hardwareSettings.useNormalHinge ? hardwareSettings.hingeNormalEur : hardwareSettings.hingeSoftCloseEur
@@ -946,14 +960,14 @@ export function appendDoorsAndDrawers(
         : `${where}${doorTitle}: рязане ${formatMm(door.width)} × ${formatMm(door.height)} мм (${doorCutRuleNote({ withDrawerGaps: hasDrawers, insetFront: insetDoors })}).`,
     )
     notes.push(
-      `Панти: ${totalHinges} бр. (по ${HINGES_PER_SMALL_DOOR} на врата) · винтчета 4×16: ${hinge4x16} бр. и 4×20: ${hinge4x20} бр. (по ${SCREWS_4X16_PER_HINGE}+${SCREWS_4X20_PER_HINGE} на панта).`,
+      `Панти: ${totalHinges} бр. (по ${perDoor} на врата ${formatMm(door.height)} мм) · винтчета 4×16: ${hinge4x16} бр. и 4×20: ${hinge4x20} бр. (по ${SCREWS_4X16_PER_HINGE}+${SCREWS_4X20_PER_HINGE} на панта).`,
     )
 
     hardware.push(
       pricedLine(
         { id: hardwareSettings.useNormalHinge ? HINGE_NORMAL.id : HINGE_SOFT_CLOSE.id, name: hingeName, unitPriceEur: hingePrice },
         totalHinges,
-        `по ${HINGES_PER_SMALL_DOOR} на врата`,
+        `по ${perDoor} на врата`,
       ),
     )
     hardware.push(
@@ -1014,31 +1028,6 @@ export function appendDoorsAndDrawers(
         highlightColor: 'red',
       })
     }
-  }
-
-  const handleCount =
-    doorCount * HANDLES_PER_DOOR + drawerHeights.length * HANDLES_PER_DRAWER
-  if (input.includeHandles !== false && handleCount > 0) {
-    const handlePrice = hardwareSettings.handleNormalEur
-    const doorPart =
-      doorCount > 0
-        ? `${doorCount * HANDLES_PER_DOOR} на ${doorCount === 1 ? 'вратата' : 'вратите'}`
-        : ''
-    const drawerPart =
-      drawerHeights.length > 0
-        ? `${drawerHeights.length * HANDLES_PER_DRAWER} на ${drawerHeights.length === 1 ? 'чекмеджето' : 'чекмеджетата'}`
-        : ''
-    const parts = [doorPart, drawerPart].filter(Boolean).join(' + ')
-    notes.push(
-      `Дръжки: ${handleCount} бр. ${HANDLE_NORMAL.name} (${parts}) · ${handlePrice} €/бр.`,
-    )
-    hardware.push(
-      pricedLine(
-        { id: HANDLE_NORMAL.id, name: HANDLE_NORMAL.name, unitPriceEur: handlePrice },
-        handleCount,
-        parts,
-      ),
-    )
   }
 
   return { doorCount, drawerCount: drawerHeights.length }
@@ -1480,6 +1469,8 @@ export function appendZonedInterior(
     }
   }
 
+  billCabinetHandles(f, doorCount, drawerCount, hardware, notes, hardwareSettings)
+
   const counts = layoutCounts(layout)
   return {
     doorCount,
@@ -1489,6 +1480,40 @@ export function appendZonedInterior(
     fixedShelfCount: counts.fixedShelves,
     partitionCount: counts.partitions,
     backNails: backNailGeometry(layout, input.thickness),
+  }
+}
+
+function billCabinetHandles(
+  fittings: InteriorFittings,
+  doorCount: number,
+  drawerCount: number,
+  hardware: HardwareItem[],
+  notes: string[],
+  hardwareSettings: HardwareSettings,
+) {
+  const frontCount = doorCount + drawerCount
+  if (frontCount <= 0) return
+  const chosen = Object.values(fittings.handleOverrides).slice(0, frontCount)
+  const rest = Math.max(0, frontCount - chosen.length)
+  const fallback: PullSku = fittings.includeHandles === false ? 'none' : fittings.handleSku
+  const skus: PullSku[] = [...chosen]
+  if (fittings.includeHandles !== false) {
+    for (let i = 0; i < rest; i += 1) skus.push(fallback)
+  }
+  const counts = new Map<Exclude<PullSku, 'none'>, number>()
+  for (const sku of skus) {
+    if (sku === 'none') continue
+    counts.set(sku, (counts.get(sku) ?? 0) + 1)
+  }
+  for (const [sku, count] of counts) {
+    const tara = taraPull(sku)
+    const price = tara ? hardwareSettings.handleTaraEur : hardwareSettings.handleNormalEur
+    const name = pullName(sku)
+    const detail = tara
+      ? `отвор ${formatMm(tara.c)} или ${formatMm(tara.c1)} мм, дължина ${formatMm(tara.l)} мм, височина ${formatMm(tara.h)} мм, широчина ${formatMm(tara.w)} мм, ${tara.color}`
+      : 'по 1 на врата и на чекмедже'
+    notes.push(`${name}: ${count} бр. · ${price.toFixed(2).replace('.', ',')} €/бр. · ${detail}`)
+    hardware.push(pricedLine({ id: pullHardwareId(sku), name, unitPriceEur: price }, count, detail))
   }
 }
 

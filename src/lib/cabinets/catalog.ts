@@ -1,4 +1,5 @@
 import { stampPanelFinishes } from '@/lib/board-finishes'
+import { COMBINATION_TYPE } from './compose'
 import { kitchenBaseType } from './kitchen-base'
 import { kitchenWallType } from './kitchen-wall'
 import { nightstandType } from './nightstand'
@@ -26,6 +27,15 @@ export function generateCabinet(
   params: Record<string, unknown>,
   settings?: unknown,
 ): CabinetGeneratorResult {
+  if (typeId === COMBINATION_TYPE) {
+    return {
+      panels: [],
+      joinery: { bottomSides: 'sides-cover-bottom', topSides: 'rails-between-sides', depth: 'flush' },
+      hardware: [],
+      labor: { cuttingMinutes: 0, edgingMinutes: 0, assemblyMinutes: 0, assemblySteps: [] },
+      notes: [],
+    }
+  }
   const type = getCabinetType(typeId)
   if (!type) {
     throw new Error(`Непознат тип шкаф: ${typeId}`)
@@ -67,6 +77,7 @@ export function scaleCabinetResult(
 }
 
 export function cabinetDisplayName(typeId: string, params: Record<string, unknown>): string {
+  if (typeId === COMBINATION_TYPE) return 'Комбинация'
   const type = getCabinetType(typeId)
   const width = typeof params.width === 'number' ? params.width : undefined
   const base = type?.name ?? 'Шкаф'

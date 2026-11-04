@@ -34,6 +34,8 @@ export interface HardwareSettings {
   shelfPinEur: number
   /** Ordinary cabinet handle, EUR each. */
   handleNormalEur: number
+  /** Tara bow pull, EUR each. Both sizes share this price. */
+  handleTaraEur: number
   /** @deprecated Whole-bar D1L SKUs in slidingHandleSkus. Kept for old records. */
   slidingHandleEurPerM: number
   /** @deprecated Whole-bar D2 SKUs in slidingCapSkus. Kept for old records. */
@@ -137,6 +139,7 @@ export const DEFAULT_HARDWARE_SETTINGS: HardwareSettings = {
   screw5x60_500PackEur: 13,
   shelfPinEur: 0.05,
   handleNormalEur: 1,
+  handleTaraEur: 4.5,
   slidingHandleEurPerM: 0,
   slidingCapEurPerM: 0,
   slidingUpperTrackEur: { ...DEFAULT_SLIDING_UPPER_TRACK_EUR },
@@ -204,6 +207,7 @@ export function parseHardwareSettings(raw: unknown): HardwareSettings {
     screw5x60_500PackEur: num(src, 'screw5x60_500PackEur', d.screw5x60_500PackEur),
     shelfPinEur: num(src, 'shelfPinEur', d.shelfPinEur),
     handleNormalEur: num(src, 'handleNormalEur', d.handleNormalEur),
+    handleTaraEur: num(src, 'handleTaraEur', d.handleTaraEur),
     slidingHandleEurPerM: num(src, 'slidingHandleEurPerM', d.slidingHandleEurPerM),
     slidingCapEurPerM: num(src, 'slidingCapEurPerM', d.slidingCapEurPerM),
     slidingUpperTrackEur: parseSlidingTrackPrices(src.slidingUpperTrackEur, d.slidingUpperTrackEur),
