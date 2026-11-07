@@ -124,7 +124,9 @@ export function PartsPanel({ parts, onChange, onClear }: PartsPanelProps) {
       <div className="flex items-start justify-between gap-2">
         <div>
           <h2 className="text-lg font-semibold">Детайли</h2>
-          <p className="text-xs text-[var(--color-muted-foreground)]">Tab за смяна · Enter за добавяне · влачи за пренареждане</p>
+          <p className="text-xs text-[var(--color-muted-foreground)]">
+            Първо дължината по фладера, после широчината · Tab · Enter · влачи
+          </p>
         </div>
         <Button
           type="button"
@@ -144,7 +146,7 @@ export function PartsPanel({ parts, onChange, onClear }: PartsPanelProps) {
 
       <div className="grid grid-cols-3 gap-2">
         <div>
-          <Label htmlFor="part-width">Ширина</Label>
+          <Label htmlFor="part-width">Дължина</Label>
           <Input
             id="part-width"
             ref={widthRef}
@@ -157,7 +159,7 @@ export function PartsPanel({ parts, onChange, onClear }: PartsPanelProps) {
           />
         </div>
         <div>
-          <Label htmlFor="part-height">Дължина</Label>
+          <Label htmlFor="part-height">Ширина</Label>
           <Input
             id="part-height"
             ref={heightRef}
@@ -211,8 +213,8 @@ export function PartsPanel({ parts, onChange, onClear }: PartsPanelProps) {
               <tr className="border-b border-[var(--color-border)] text-left text-xs text-[var(--color-muted-foreground)]">
                 <th className="pb-2 w-6"></th>
                 <th className="pb-2 pr-1">Име</th>
-                <th className="pb-2 pr-1">Ширина</th>
                 <th className="pb-2 pr-1">Дължина</th>
+                <th className="pb-2 pr-1">Ширина</th>
                 <th className="pb-2 pr-1">Брой</th>
                 <th className="pb-2 pr-1">Върти</th>
                 <th className="pb-2"></th>

@@ -20,6 +20,8 @@ export interface SheetDef {
   id: string
   width: number
   height: number
+  /** False: no grain, so a part may be turned even when it is marked fixed. */
+  hasGrain?: boolean
 }
 
 export interface PartInput {
@@ -49,7 +51,7 @@ export function expandParts(parts: PartInput[]): ExpandedPart[] {
 }
 
 export function expandSheetPool(
-  sheets: { id: string; width: number; height: number; quantity?: number }[],
+  sheets: { id: string; width: number; height: number; quantity?: number; hasGrain?: boolean }[],
   minCopies = 0,
 ): SheetDef[] {
   const pool: SheetDef[] = []
@@ -60,6 +62,7 @@ export function expandSheetPool(
         id: qty > 1 ? `${sheet.id}-${i}` : sheet.id,
         width: sheet.width,
         height: sheet.height,
+        hasGrain: sheet.hasGrain,
       })
     }
   }
@@ -100,9 +103,12 @@ export function raiseSheetQuantities<T extends { id: string; quantity?: number }
   return changed ? next : sheets
 }
 
-export function getOrientations(part: ExpandedPart): { w: number; h: number; rotated: boolean }[] {
+export function getOrientations(
+  part: ExpandedPart,
+  freeRotate = false,
+): { w: number; h: number; rotated: boolean }[] {
   const orientations = [{ w: part.width, h: part.height, rotated: false }]
-  if (part.canRotate && part.width !== part.height) {
+  if ((part.canRotate || freeRotate) && part.width !== part.height) {
     orientations.push({ w: part.height, h: part.width, rotated: true })
   }
   return orientations
@@ -170,6 +176,7 @@ export function finalizePackedSheet(
     usedArea,
     wasteArea,
     wastePercent: sheetArea > 0 ? (wasteArea / sheetArea) * 100 : 0,
+    hasGrain: sheet.hasGrain !== false,
   }
 }
 

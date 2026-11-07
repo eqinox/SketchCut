@@ -105,7 +105,13 @@ export function normalizeSheet(sheet: Sheet): Sheet {
       ? sheet.priceEur
       : defaultSheetPrice(kind)
   const price = kind === 'hardboard' && rawPrice === 0 ? defaultSheetPrice(kind) : rawPrice
-  return { ...sheet, kind, priceEur: price, quantity: sheet.quantity ?? 1 }
+  return {
+    ...sheet,
+    kind,
+    priceEur: price,
+    quantity: sheet.quantity ?? 1,
+    hasGrain: sheet.hasGrain !== false,
+  }
 }
 
 export function sheetAreaM2(width: number, height: number): number {

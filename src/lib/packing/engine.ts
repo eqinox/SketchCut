@@ -139,7 +139,7 @@ export function findBestOnSheet(
 ): PlacementCandidate | null {
   let best: PlacementCandidate | null = null
   for (const fr of sheet.freeRects) {
-    for (const o of getOrientations(part)) {
+    for (const o of getOrientations(part, sheet.def.hasGrain === false)) {
       if (!fits(fr, o.w, o.h)) continue
       const score = scorePlacement(sheet, fr, o.w, o.h, fr.x, fr.y, heuristic)
       if (!best || score < best.score) {
@@ -175,7 +175,9 @@ export function sheetWasteArea(sheet: InternalSheet): number {
 }
 
 export function canFitOnSheet(sheet: SheetDef, part: ExpandedPart): boolean {
-  return getOrientations(part).some((o) => o.w <= sheet.width && o.h <= sheet.height)
+  return getOrientations(part, sheet.hasGrain === false).some(
+    (o) => o.w <= sheet.width && o.h <= sheet.height,
+  )
 }
 
 export function partArea(part: ExpandedPart): number {

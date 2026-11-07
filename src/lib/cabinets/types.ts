@@ -135,6 +135,37 @@ export function edgeSideThickness(plan: PanelEdgePlan, side: EdgeSideName): Edge
   return plan.sideThickness?.[side] ?? plan.thickness
 }
 
+/** Sides, doors and fronts: the grain runs top to bottom, so that length is written first. */
+const GRAIN_ALONG_HEIGHT = new Set<PanelRole>(['side', 'door', 'sliding-door', 'drawer-front'])
+
+/**
+ * Cutting size: length along the grain first, width across it second.
+ * A side's length is its height. A shelf's length is already its width.
+ */
+export function grainLengthFirst(panel: GeneratedPanel): { width: number; height: number; edges: PanelEdgePlan } {
+  if (!GRAIN_ALONG_HEIGHT.has(panel.role)) {
+    return { width: panel.width, height: panel.height, edges: panel.edges }
+  }
+  const side = panel.edges.sideThickness
+  const moved: Partial<Record<EdgeSideName, EdgeThickness>> = {}
+  if (side?.left) moved.top = side.left
+  if (side?.right) moved.bottom = side.right
+  if (side?.top) moved.left = side.top
+  if (side?.bottom) moved.right = side.bottom
+  return {
+    width: panel.height,
+    height: panel.width,
+    edges: {
+      top: panel.edges.left,
+      bottom: panel.edges.right,
+      left: panel.edges.top,
+      right: panel.edges.bottom,
+      thickness: panel.edges.thickness,
+      ...(Object.keys(moved).length > 0 ? { sideThickness: moved } : {}),
+    },
+  }
+}
+
 export interface GeneratedPanel {
   role: PanelRole
   /** Short name shown on the cutting list, e.g. "Дъно" */

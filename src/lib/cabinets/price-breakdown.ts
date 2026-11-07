@@ -34,7 +34,7 @@ import {
 } from './hardware'
 import type { AssemblyStep } from '@/lib/assembly-time'
 import { assemblyMinutesFromSteps, describeAssemblyCalc, rescaleProjectScopedStep } from '@/lib/assembly-time'
-import { edgeSideThickness, type GeneratedPanel, type HardwareItem } from './types'
+import { edgeSideThickness, grainLengthFirst, type GeneratedPanel, type HardwareItem } from './types'
 import {
   formatArea,
   formatEur,
@@ -161,10 +161,11 @@ function boardSection(
   const lines: PriceBreakdownLine[] = billablePanels(panels)
     .filter((p) => panelKind(p) === (id === 'hardboard' ? 'hardboard' : 'chipboard'))
     .map((p) => {
+      const cut = grainLengthFirst(p)
       const area = panelAreaM2(p)
       const partCost = skipCost ? 0 : usedBoardCostEur(area, sheet.width, sheet.height, sheet.priceEur)
       return {
-        label: `${p.name} · ${p.quantity} бр. · ${mmSize(p.width, p.height)}`,
+        label: `${p.name} · ${p.quantity} бр. · ${mmSize(cut.width, cut.height)}`,
         hint: formatArea(area),
         amountEur: sheet.priceEur > 0 ? partCost : 0,
       }

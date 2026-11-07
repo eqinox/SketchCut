@@ -57,6 +57,9 @@ export function CuttingLayout({
     if (!colored) return null
     const finish = finishOf(sheet, finishes)
     if (!finish) return null
+    if (sheet.hasGrain === false) {
+      return { href: undefined, acrossMm: 0, alongMm: 0, color: finish.color }
+    }
     const built = finish.image ? sheetsReady[finish.image] : undefined
     return {
       href: built?.url,

@@ -100,7 +100,12 @@ export function packSequential(
   variantKey: string,
   templates: SheetDef[] = sheetPool,
 ): import('@/types').PackingResult {
-  const molds = templates.map((t) => ({ id: t.id, width: t.width, height: t.height }))
+  const molds = templates.map((t) => ({
+    id: t.id,
+    width: t.width,
+    height: t.height,
+    hasGrain: t.hasGrain,
+  }))
   const available = [...sheetPool]
   let remaining = [...sortedParts]
   const usedSheets: InternalSheet[] = []
@@ -120,6 +125,7 @@ export function packSequential(
         id: nextCopyId(mold.id, ids),
         width: mold.width,
         height: mold.height,
+        hasGrain: mold.hasGrain,
       })
       continue
     }
@@ -169,7 +175,7 @@ export interface PackingVariantOption {
 
 /** Generate all sort variants and return only those with minimal waste. */
 export function optimizeAllVariants(
-  sheetDefs: { id: string; width: number; height: number; quantity?: number }[],
+  sheetDefs: { id: string; width: number; height: number; quantity?: number; hasGrain?: boolean }[],
   parts: PartInput[],
 ): PackingVariantOption[] {
   const expanded = expandParts(parts)
@@ -178,6 +184,7 @@ export function optimizeAllVariants(
     id: sheet.id,
     width: sheet.width,
     height: sheet.height,
+    hasGrain: sheet.hasGrain,
   }))
 
   if (expanded.length === 0) {
@@ -231,7 +238,7 @@ export function optimizeAllVariants(
 
 /** One calculation per click. Re-click for up to 2 alternate sort orders. */
 export function optimizePacking(
-  sheetDefs: { id: string; width: number; height: number; quantity?: number }[],
+  sheetDefs: { id: string; width: number; height: number; quantity?: number; hasGrain?: boolean }[],
   parts: PartInput[],
   clickIndex: number,
 ): { result: import('@/types').PackingResult; variantIndex: number } {
@@ -241,6 +248,7 @@ export function optimizePacking(
     id: sheet.id,
     width: sheet.width,
     height: sheet.height,
+    hasGrain: sheet.hasGrain,
   }))
 
   if (expanded.length === 0) {

@@ -100,6 +100,12 @@ export interface PartitionSpec {
    */
   stopsAtShelf?: number | null
   /**
+   * User-list index of the fixed shelf this page stands on.
+   * The page fills only the opening above that shelf and does not continue below it.
+   * The shelf stays one piece.
+   */
+  startsAtShelf?: number | null
+  /**
    * Path of the bay this full-height page splits.
    * Empty: it splits the whole cabinet into Страна 1, Страна 2, …
    * "1": it splits Страна 1 into Страна 1.1, Страна 1.2, …
@@ -1212,6 +1218,9 @@ export function measurePartition(
 }
 
 export function partitionMeasureLabel(spec: PartitionSpec): string {
+  if (spec.from === 'middle' && spec.startsAtShelf != null) {
+    return 'по средата отгоре — стъпва на фиксирания рафт и не продължава под него'
+  }
   if (spec.from === 'middle' && spec.stopsAtShelf != null) {
     return 'по средата отдолу — стига до фиксирания рафт и не продължава до горе'
   }
@@ -1225,6 +1234,7 @@ export function partitionMeasureLabel(spec: PartitionSpec): string {
   const fromWord = fromFace === 'left' ? 'лявата' : 'дясната'
   const toWord = toFace === 'left' ? 'лявата' : 'дясната'
   const measure = `${formatMm(spec.offsetMm)} мм от ${fromWord} страна на ${fromPanel} до ${toWord} страна на разделителната страница`
+  if (spec.startsAtShelf != null) return `${measure}. Стъпва на фиксирания рафт и не продължава под него`
   if (spec.stopsAtShelf != null) return `${measure}. Стига до фиксирания рафт и не продължава до плота`
   return measure
 }
@@ -1412,6 +1422,7 @@ export function parsePartitions(raw: unknown): PartitionSpec[] {
         fromPartition: null,
         ...(Number.isFinite(gapN) && gapN >= 0 ? { gapIndex: Math.round(gapN) } : {}),
         stopsAtShelf: parseStopsAtShelf(src.stopsAtShelf),
+        startsAtShelf: parseStopsAtShelf(src.startsAtShelf),
         ...(typeof src.splitsPath === 'string' && src.splitsPath ? { splitsPath: src.splitsPath } : {}),
       })
       if (out.length >= MAX_PARTITIONS) break
@@ -1431,6 +1442,7 @@ export function parsePartitions(raw: unknown): PartitionSpec[] {
       fromPartition: parseFromPartition(src.fromPartition),
       ...(Number.isFinite(gapN) && gapN >= 0 ? { gapIndex: Math.round(gapN) } : {}),
       stopsAtShelf: parseStopsAtShelf(src.stopsAtShelf),
+      startsAtShelf: parseStopsAtShelf(src.startsAtShelf),
       ...(typeof src.splitsPath === 'string' && src.splitsPath ? { splitsPath: src.splitsPath } : {}),
     })
     if (out.length >= MAX_PARTITIONS) break
@@ -1773,7 +1785,7 @@ export function resolvePartitions(
   }
 
   const pending = specs.flatMap((spec, specIndex) =>
-    spec.stopsAtShelf == null ? [{ spec, specIndex }] : [],
+    spec.stopsAtShelf == null && spec.startsAtShelf == null ? [{ spec, specIndex }] : [],
   )
   const byIndex = new Map<number, ResolvedPartition>()
   const skipped = new Set<number>()
@@ -1835,7 +1847,14 @@ export function resolvePartitions(
       const ref = spec.fromPartition
       if (typeof ref === 'number') {
         const target = specs[ref]
-        if (ref === specIndex || ref < 0 || ref >= specs.length || target == null || target.stopsAtShelf != null) {
+        if (
+          ref === specIndex ||
+          ref < 0 ||
+          ref >= specs.length ||
+          target == null ||
+          target.stopsAtShelf != null ||
+          target.startsAtShelf != null
+        ) {
           skipped.add(specIndex)
           anchorError = 'Избери в коя страна да стои разделителната страница.'
           progress = true
@@ -1916,37 +1935,49 @@ export function resolvePartitions(
   return { partitions: resolved, error: anchorError }
 }
 
-/** A page that fills only the opening under a fixed shelf. */
+/** A page that fills only the opening under or over a fixed shelf. */
 export interface ResolvedPartialPartition {
   specIndex: number
   stopsAtShelf: number
   columnIndex: number
   xLeft: number
   xRight: number
-  /** From the top of the bottom to the underside of the shelf. */
+  /** Cut length of the page. */
   height: number
+  /** Bottom of the page, from the inner floor. Omitted when it sits on the bottom. */
+  y0?: number
+  /** Stands on the shelf and fills the opening above it. */
+  aboveShelf?: boolean
 }
 
-/** Pages placed under a fixed shelf. They do not split the cabinet above that shelf. */
+/** Pages placed under or over a fixed shelf. They do not split that shelf. */
 export function resolvePartialPartitions(
   specs: PartitionSpec[],
   columns: ResolvedColumn[],
   shelves: ResolvedFixedShelf[],
   thickness: number,
-  opts?: { skip?: Set<number>; missing?: 'skip' | 'error' },
+  opts?: { skip?: Set<number>; missing?: 'skip' | 'error'; innerH?: number },
 ): { partials: ResolvedPartialPartition[]; error: string | null } {
   const T = thickness
   const partials: ResolvedPartialPartition[] = []
   const seenMiddle = new Set<string>()
   const innerW = columns.length > 0 ? columns[columns.length - 1]!.x1 : 0
+  const innerH = opts?.innerH ?? 0
   if (columns.length === 0) return { partials, error: null }
   for (let specIndex = 0; specIndex < specs.length; specIndex++) {
     const spec = specs[specIndex]!
-    if (spec.stopsAtShelf == null || opts?.skip?.has(specIndex)) continue
-    const shelf = shelves.find((s) => s.specIndex === spec.stopsAtShelf)
+    const above = spec.startsAtShelf != null && spec.stopsAtShelf == null
+    const shelfIndex = above ? spec.startsAtShelf : spec.stopsAtShelf
+    if (shelfIndex == null || opts?.skip?.has(specIndex)) continue
+    const shelf = shelves.find((s) => s.specIndex === shelfIndex)
     if (!shelf) {
       if (opts?.missing === 'skip') continue
-      return { partials, error: 'Разделителната страница отдолу няма рафт, до който да стигне.' }
+      return {
+        partials,
+        error: above
+          ? 'Разделителната страница отгоре няма рафт, на който да стъпи.'
+          : 'Разделителната страница отдолу няма рафт, до който да стигне.',
+      }
     }
     let colIndex = typeof spec.gapIndex === 'number' && Number.isFinite(spec.gapIndex) ? Math.round(spec.gapIndex) : 0
     colIndex = Math.min(columns.length - 1, Math.max(0, colIndex))
@@ -1954,20 +1985,41 @@ export function resolvePartialPartitions(
     if (!shelfCoversColumn(shelf, col, colIndex)) {
       return { partials: [], error: 'Рафтът не е в тази страна.' }
     }
-    if (!col) return { partials: [], error: 'Няма страна за разделителната страница отдолу.' }
-    if (shelf.yBottom < MIN_ZONE_CLEAR_MM) {
-      return { partials: [], error: 'Под рафта няма място за разделителна страница.' }
+    if (!col) {
+      return {
+        partials: [],
+        error: above ? 'Няма страна за разделителната страница отгоре.' : 'Няма страна за разделителната страница отдолу.',
+      }
+    }
+    const nextShelf = above
+      ? shelves
+          .filter((row) => shelfCoversColumn(row, col, colIndex) && row.yBottom > shelf.yTop + 0.5)
+          .sort((a, b) => a.yBottom - b.yBottom)[0]
+      : undefined
+    const y0 = above ? shelf.yTop : 0
+    const top = above ? (nextShelf ? nextShelf.yBottom : innerH) : shelf.yBottom
+    const height = top - y0
+    if (height < MIN_ZONE_CLEAR_MM) {
+      return {
+        partials: [],
+        error: above ? 'Над рафта няма място за разделителна страница.' : 'Под рафта няма място за разделителна страница.',
+      }
     }
     const measured = spec.from !== 'middle' && spec.offsetMm > 0
     let xLeft: number
     if (!measured) {
-      const key = `${colIndex}:${shelf.specIndex}`
+      const key = `${colIndex}:${above ? 'above' : 'below'}:${shelf.specIndex}`
       if (seenMiddle.has(key)) {
-        return { partials: [], error: 'В тази долна част вече има разделителна страница.' }
+        return {
+          partials: [],
+          error: above
+            ? 'В тази горна част вече има разделителна страница.'
+            : 'В тази долна част вече има разделителна страница.',
+        }
       }
       seenMiddle.add(key)
       if (col.innerW < T + MIN_ZONE_CLEAR_MM * 2) {
-        return { partials: [], error: 'Няма място за разделителна страница по средата отдолу.' }
+        return { partials: [], error: 'Няма място за разделителна страница по средата.' }
       }
       xLeft = col.x0 + (col.innerW - T) / 2
     } else {
@@ -1975,15 +2027,20 @@ export function resolvePartialPartitions(
     }
     const xRight = xLeft + T
     if (xLeft < col.x0 + MIN_ZONE_CLEAR_MM - 0.5 || xRight > col.x1 - MIN_ZONE_CLEAR_MM + 0.5) {
-      return { partials: [], error: 'Разделителната страница под рафта излиза от страната.' }
+      return {
+        partials: [],
+        error: above
+          ? 'Разделителната страница над рафта излиза от страната.'
+          : 'Разделителната страница под рафта излиза от страната.',
+      }
     }
     for (const prev of partials) {
-      if (prev.columnIndex !== colIndex || prev.stopsAtShelf !== shelf.specIndex) continue
+      if (prev.columnIndex !== colIndex || prev.stopsAtShelf !== shelf.specIndex || prev.aboveShelf !== above) continue
       const gap = xLeft >= prev.xRight ? xLeft - prev.xRight : prev.xLeft - xRight
       if (gap < MIN_ZONE_CLEAR_MM - 0.5) {
         return {
           partials: [],
-          error: `Между разделителните страници под рафта трябва да има поне ${MIN_ZONE_CLEAR_MM} мм.`,
+          error: `Между разделителните страници трябва да има поне ${MIN_ZONE_CLEAR_MM} мм.`,
         }
       }
     }
@@ -1993,7 +2050,9 @@ export function resolvePartialPartitions(
       columnIndex: colIndex,
       xLeft,
       xRight,
-      height: shelf.yBottom,
+      height,
+      ...(y0 > 0 ? { y0 } : {}),
+      ...(above ? { aboveShelf: true } : {}),
     })
   }
   return { partials, error: null }
@@ -2006,14 +2065,17 @@ function splitZonesByPartialPartitions(
   const out: ResolvedZone[] = []
   for (const z of zones) {
     const cuts = partials
-      .filter(
-        (part) =>
+      .filter((part) => {
+        const foot = part.y0 ?? 0
+        const top = foot + part.height
+        return (
           part.columnIndex === z.colIndex &&
-          z.y0 < part.height - 0.5 &&
-          z.y1 <= part.height + 0.5 &&
+          z.y0 >= foot - 0.5 &&
+          z.y1 <= top + 0.5 &&
           part.xLeft > z.x0 + 1 &&
-          part.xRight < z.x1 - 1,
-      )
+          part.xRight < z.x1 - 1
+        )
+      })
       .sort((a, b) => a.xLeft - b.xLeft)
     if (cuts.length === 0) {
       out.push(z)
@@ -2760,15 +2822,18 @@ function trimPartialsUnderOpeningShelves(
   shelves: ResolvedFixedShelf[],
 ): ResolvedPartialPartition[] {
   return partials.map((part) => {
-    let height = part.height
+    const foot = part.y0 ?? 0
+    let top = foot + part.height
     let stopsAtShelf = part.stopsAtShelf
     for (const shelf of shelves) {
       if (!shelfSpansBays(shelf) || shelf.spanX0 == null || shelf.spanX1 == null) continue
       if (part.xLeft < shelf.spanX0 + 0.5 || part.xRight > shelf.spanX1 - 0.5) continue
-      if (shelf.yBottom >= height - 0.5) continue
-      height = shelf.yBottom
+      if (foot >= shelf.yTop - 0.5) continue
+      if (shelf.yBottom >= top - 0.5) continue
+      top = shelf.yBottom
       stopsAtShelf = shelf.specIndex
     }
+    const height = top - foot
     if (height === part.height && stopsAtShelf === part.stopsAtShelf) return part
     return { ...part, height, stopsAtShelf }
   })
@@ -2821,7 +2886,14 @@ function labelColumnStacks(zones: ResolvedZone[]): ResolvedZone[] {
 function plainSideLabels(zones: ResolvedZone[]): ResolvedZone[] {
   const paths = zones.map((zone) => zone.path)
   return zones.map((zone) => {
-    if (!zone.path || zone.path.includes('–') || zone.label.endsWith(' горе') || zone.label.endsWith(' долу')) return zone
+    if (!zone.path) {
+      const stem = String((zone.colIndex ?? 0) + 1)
+      if (paths.some((path) => path.startsWith(`${stem}.`))) {
+        return { ...zone, path: stem, label: `Страна ${stem}` }
+      }
+      return zone
+    }
+    if (zone.path.includes('–') || zone.label.endsWith(' горе') || zone.label.endsWith(' долу')) return zone
     const hasChild = paths.some((path) => path.startsWith(`${zone.path}.`))
     const alone = paths.filter((path) => path === zone.path).length === 1
     if ((hasChild && alone) || zone.path.includes('.')) return { ...zone, label: `Страна ${zone.path}` }
@@ -2866,7 +2938,10 @@ export function layoutInterior(input: {
   const earlyShelves = [...columnShelves, ...spanShelves]
   const { partials: earlyPartials, error: partialError } = partitionError
     ? { partials: [] as ResolvedPartialPartition[], error: null }
-    : resolvePartialPartitions(input.partitions ?? [], columns, earlyShelves, T, { missing: 'skip' })
+    : resolvePartialPartitions(input.partitions ?? [], columns, earlyShelves, T, {
+        missing: 'skip',
+        innerH: input.innerH,
+      })
   const allPartials = [...earlyPartials, ...spanPartials]
   const openedZones = splitZonesByPartialPartitions(
     composeCompartments([...columnShelves, ...spanShelves], columns, input.innerH, T, input.overlayCovers),
@@ -2889,6 +2964,7 @@ export function layoutInterior(input: {
     : resolvePartialPartitions(input.partitions ?? [], columns, [...earlyShelves, ...bayShelves, ...openingSpans], T, {
         skip: new Set(earlyPartials.map((part) => part.specIndex)),
         missing: 'error',
+        innerH: input.innerH,
       })
   const trimmedPartials = trimPartialsUnderOpeningShelves(
     [...earlyPartials, ...latePartials, ...spanPartials],

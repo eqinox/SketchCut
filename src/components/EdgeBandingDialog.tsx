@@ -139,7 +139,7 @@ function EdgeRow({
               checked={sides.left}
               onCheckedChange={(c) => onToggle('left', c === true)}
             />
-            <span>Дълж. Л</span>
+            <span>Шир. Л</span>
           </label>
           <label className="flex items-center gap-1.5 text-xs">
             <Checkbox
@@ -147,7 +147,7 @@ function EdgeRow({
               checked={sides.right}
               onCheckedChange={(c) => onToggle('right', c === true)}
             />
-            <span>Дълж. Д</span>
+            <span>Шир. Д</span>
           </label>
           <label className="flex items-center gap-1.5 text-xs">
             <Checkbox
@@ -155,7 +155,7 @@ function EdgeRow({
               checked={sides.top}
               onCheckedChange={(c) => onToggle('top', c === true)}
             />
-            <span>Шир. Г</span>
+            <span>Дълж. Г</span>
           </label>
           <label className="flex items-center gap-1.5 text-xs">
             <Checkbox
@@ -163,7 +163,7 @@ function EdgeRow({
               checked={sides.bottom}
               onCheckedChange={(c) => onToggle('bottom', c === true)}
             />
-            <span>Шир. Д</span>
+            <span>Дълж. Д</span>
           </label>
         </div>
       </td>

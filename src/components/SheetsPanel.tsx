@@ -1,5 +1,6 @@
 import { GripVertical, Plus, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import type { BoardKind, Sheet } from '@/types'
@@ -46,6 +47,7 @@ export function SheetsPanel({
   const [height, setHeight] = useState(String(DEFAULT_CHIPBOARD_HEIGHT))
   const [quantity, setQuantity] = useState('')
   const [price, setPrice] = useState(String(chipPrice))
+  const [hasGrain, setHasGrain] = useState(true)
   const [dragIndex, setDragIndex] = useState<number | null>(null)
   const [dropIndex, setDropIndex] = useState<number | null>(null)
 
@@ -78,6 +80,7 @@ export function SheetsPanel({
         quantity: q,
         kind,
         priceEur: Number.isFinite(p) && p >= 0 ? p : 0,
+        hasGrain,
       },
     ])
     setQuantity('')
@@ -129,7 +132,7 @@ export function SheetsPanel({
         <div>
           <h2 className="text-lg font-semibold">Плочи</h2>
           <p className="text-xs text-[var(--color-muted-foreground)]">
-            Размери в мм · ПДЧ и фазер се разкрояват отделно · влачи за пренареждане
+            Първо дължината по фладера, после широчината · ПДЧ и фазер отделно
           </p>
         </div>
         <div className="flex shrink-0 flex-wrap justify-end gap-1">
@@ -172,7 +175,7 @@ export function SheetsPanel({
 
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         <div>
-          <Label htmlFor="sheet-width">Ширина</Label>
+          <Label htmlFor="sheet-width">Дължина</Label>
           <Input
             id="sheet-width"
             type="number"
@@ -183,7 +186,7 @@ export function SheetsPanel({
           />
         </div>
         <div>
-          <Label htmlFor="sheet-height">Дължина</Label>
+          <Label htmlFor="sheet-height">Ширина</Label>
           <Input
             id="sheet-height"
             type="number"
@@ -218,6 +221,15 @@ export function SheetsPanel({
           />
         </div>
       </div>
+
+      <label className="flex items-center gap-2 text-sm">
+        <Checkbox
+          id="sheet-grain"
+          checked={hasGrain}
+          onCheckedChange={(value) => setHasGrain(value === true)}
+        />
+        С фладер
+      </label>
 
       <Button onClick={addSheet} className="w-full">
         <Plus className="h-4 w-4" />
@@ -254,6 +266,14 @@ export function SheetsPanel({
                 <span className="truncate text-sm text-[var(--color-muted-foreground)]">
                   {sheet.width} × {sheet.height} мм
                 </span>
+                <label className="flex shrink-0 items-center gap-1.5 text-xs">
+                  <Checkbox
+                    checked={sheet.hasGrain !== false}
+                    onCheckedChange={(value) => updateSheet(sheet.id, { hasGrain: value === true })}
+                    title="С фладер детайлите пазят посоката. Без фладер могат да се въртят."
+                  />
+                  Фладер
+                </label>
               </div>
               <div className="flex items-center gap-2">
                 <Input

@@ -289,6 +289,18 @@ export {
 } from './nightstand'
 export type { NightstandParams } from './nightstand'
 export {
+  VANITY_TYPE_ID,
+  DEFAULT_VANITY_PARAMS,
+  parseVanityParams,
+  vanityOpening,
+  vanityBackSpans,
+  mergeKneePartitions,
+  vanityKneeError,
+  generateVanity,
+  vanityType,
+} from './vanity'
+export type { VanityKnee, VanityParams } from './vanity'
+export {
   SECTION_TYPE_ID,
   DEFAULT_SECTION_PARAMS,
   parseSectionParams,

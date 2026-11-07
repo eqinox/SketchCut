@@ -5,6 +5,9 @@ import {
   parseKitchenBaseParams,
   parseKitchenWallParams,
   parseNightstandParams,
+  parseVanityParams,
+  vanityBackSpans,
+  vanityOpening,
   parseSectionParams,
   parseWardrobeParams,
   measureNightstand,
@@ -610,7 +613,7 @@ function CabinetPreviewView({
       </CoveredTopContext.Provider>
     )
   }
-  if (typeId === 'nightstand' || typeId === 'section' || typeId === 'wardrobe') {
+  if (typeId === 'nightstand' || typeId === 'vanity' || typeId === 'section' || typeId === 'wardrobe') {
     return (
       <CoveredTopContext.Provider value={coveredTop}>
       <SuppressOuterDims.Provider value={suppressOuter}>
@@ -1768,9 +1771,13 @@ function BayShelvesAndPartials({
   const shelfD = adjD ?? fixedD
   const cabinetTop = layout.zones.reduce((max, zone) => Math.max(max, zone.y1), 0)
   const partials = layout.partialPartitions
-    .filter((part) => part.columnIndex === colIndex)
+    .filter((part) => part.columnIndex === colIndex && !part.aboveShelf)
     .slice()
     .sort((a, b) => a.xLeft - b.xLeft || a.height - b.height)
+  const abovePartials = layout.partialPartitions
+    .filter((part) => part.columnIndex === colIndex && part.aboveShelf)
+    .slice()
+    .sort((a, b) => a.xLeft - b.xLeft)
   // A shelf across two columns is drawn in the column that holds its right edge:
   // after the page it cuts, and before the page on its right.
   const fixedShelves = layout.shelves.filter((shelf) => {
@@ -1902,11 +1909,12 @@ function BayShelvesAndPartials({
       {steps.map((step, index) => {
         if (step.kind === 'partial') {
           const part = step.part
+          const foot = part.y0 ?? 0
           return (
             <Board
               key={`partial-${part.specIndex}-c${colIndex}`}
               x={T + part.xLeft}
-              y={innerFloorY - part.height}
+              y={innerFloorY - (foot + part.height)}
               z={fixedZ}
               w={T}
               h={part.height}
@@ -1930,6 +1938,23 @@ function BayShelvesAndPartials({
                 <React.Fragment key={`span-front-${zone.id}`}>{between?.(zone.x0, zone.x1, false, zone.id)}</React.Fragment>
               ))}
           </React.Fragment>
+        )
+      })}
+      {abovePartials.map((part) => {
+        const foot = part.y0 ?? 0
+        return (
+          <Board
+            key={`partial-above-${part.specIndex}-c${colIndex}`}
+            x={T + part.xLeft}
+            y={innerFloorY - (foot + part.height)}
+            z={fixedZ}
+            w={T}
+            h={part.height}
+            d={fixedD}
+            color={sideColor}
+            cam={cam}
+            faces={SIDE_LEFT_BODY}
+          />
         )
       })}
     </>
@@ -3466,7 +3491,7 @@ function PlinthBoxPreview({
   frontColor,
   backFill = DEFAULT_HARDBOARD_COLOR,
 }: {
-  typeId: 'nightstand' | 'section' | 'wardrobe'
+  typeId: 'nightstand' | 'vanity' | 'section' | 'wardrobe'
   params: Record<string, unknown>
   className?: string
   showDimLines: boolean
@@ -3477,12 +3502,31 @@ function PlinthBoxPreview({
   backFill?: string
 }) {
   const topInner = typeId === 'section' || typeId === 'wardrobe'
+  const vanityParsed = typeId === 'vanity' ? parseVanityParams(params) : null
   const p =
-    typeId === 'wardrobe'
+    vanityParsed ??
+    (typeId === 'wardrobe'
       ? parseWardrobeParams(params)
       : topInner
         ? parseSectionParams(params)
-        : parseNightstandParams(params)
+        : parseNightstandParams(params))
+  const opening = vanityParsed ? vanityOpening(vanityParsed) : null
+  const bottomSpans =
+    opening && !opening.error ? opening.pedestals.map((pedestal) => ({ x: pedestal.x, w: pedestal.w })) : null
+  const kneeSpan =
+    opening && !opening.error ? { x: p.thickness + opening.x0, w: opening.knee } : null
+  const backSpans =
+    vanityParsed && opening && !opening.error && vanityParsed.hasBack
+      ? vanityBackSpans(vanityParsed, opening)
+      : null
+  const fascia =
+    opening && !opening.error
+      ? {
+          x: p.thickness + opening.x0,
+          w: opening.knee,
+          h: vanityParsed?.backRailHeight ?? 280,
+        }
+      : null
   const m = measureNightstand(p, topInner)
   const { colors } = p
   const sliding = p.doorStyle === 'sliding'
@@ -3525,6 +3569,12 @@ function PlinthBoxPreview({
             openDoors={openDoors}
             frontColor={frontColor}
             backFill={backFill}
+            bottomSpans={bottomSpans}
+            kneeSpan={kneeSpan}
+            backSpans={backSpans}
+            fascia={fascia}
+            dividersToFloor={bottomSpans != null}
+            sketchTitle={typeId === 'vanity' ? 'Тоалетка 3D' : ''}
           />
       </FrontDrawing>
       <ExtraDrawings>
@@ -3615,6 +3665,12 @@ function PlinthBoxFront3DView({
   openDoors = false,
   frontColor,
   backFill = DEFAULT_HARDBOARD_COLOR,
+  bottomSpans = null,
+  kneeSpan = null,
+  backSpans = null,
+  fascia = null,
+  dividersToFloor = false,
+  sketchTitle = '',
 }: {
   p: NightstandParams
   topInner: boolean
@@ -3625,6 +3681,12 @@ function PlinthBoxFront3DView({
   openDoors?: boolean
   frontColor?: string
   backFill?: string
+  bottomSpans?: { x: number; w: number }[] | null
+  kneeSpan?: { x: number; w: number } | null
+  backSpans?: { x: number; w: number }[] | null
+  fascia?: { x: number; w: number; h: number } | null
+  dividersToFloor?: boolean
+  sketchTitle?: string
 }) {
   const marks = useCabinetMarks()
   const suppressOuter = useSuppressOuter()
@@ -3702,15 +3764,8 @@ function PlinthBoxFront3DView({
   const legD = Math.max(legW, 42)
   const legInset = Math.max(28, W * 0.08)
   const legZ = Math.max(16, T)
-  const plinthY = floor - p.plinthHeight
-  const plinthFront = p.useLegs
-    ? null
-    : {
-        topL: view.proj(T, plinthY, m.plinthZ),
-        topR: view.proj(T + m.plinthLength, plinthY, m.plinthZ),
-        botR: view.proj(T + m.plinthLength, floor, m.plinthZ),
-        botL: view.proj(T, floor, m.plinthZ),
-      }
+  const plinthMeetsLeft =
+    !bottomSpans || bottomSpans.some((span) => Math.abs(span.x - T) < 1)
 
   const zShelfFront = zSide + (m.sideD - m.shelfD)
   const shelfDepth = m.shelfD
@@ -3770,9 +3825,10 @@ function PlinthBoxFront3DView({
       bottomFrontLabel.x - small * 2.6,
       bottomFrontLabel.x + small * 0.8,
     ) ?? bottomFrontLabel.x
+  const splitBottom = bottomSpans != null && bottomSpans.length > 0
   const widthAvoid = [
     ...widthAvoidBase,
-    dimLabelBox(bottomLabelX, bottomFrontLabel.y, mm(m.bottomW), small, false),
+    ...(splitBottom ? [] : [dimLabelBox(bottomLabelX, bottomFrontLabel.y, mm(m.bottomW), small, false)]),
   ]
   const widthLabels = placePartitionDimLabels({
     partitions: layout.partitions,
@@ -3816,7 +3872,7 @@ function PlinthBoxFront3DView({
   const frame = { ox, top: topY, w: W, h: H, feet: 0, vbW, vbH }
   return (
     <PlacedSketch frame={frame}>
-    <SketchSvg vbW={vbW} vbH={vbH} height={460} label={topInner ? (p.doorStyle === 'sliding' ? 'Гардероб 3D' : 'Секция 3D') : 'Нощно шкафче 3D'}>
+    <SketchSvg vbW={vbW} vbH={vbH} height={460} label={sketchTitle || (topInner ? (p.doorStyle === 'sliding' ? 'Гардероб 3D' : 'Секция 3D') : 'Нощно шкафче 3D')}>
       <defs>
         <filter id="ns-shadow">
           <feDropShadow dx="1" dy="1" stdDeviation="1.5" floodOpacity="0.3" />
@@ -3864,21 +3920,23 @@ function PlinthBoxFront3DView({
         />
       )}
 
-      {p.hasBack && (
-        <Board
-          x={T}
-          y={topY + (m.innerTopPanel || m.coveringTop ? T : 0)}
-          z={zSide + m.sideD}
-          w={Math.max(1, W - 2 * T)}
-          h={Math.max(1, (p.useLegs ? H : H - p.plinthHeight) - (m.innerTopPanel || m.coveringTop ? T : 0) - T)}
-          d={1}
-          color={backFill}
-          rearColor={DEFAULT_HARDBOARD_COLOR}
-          cam={view}
-          faces={{ front: true }}
-          strokeWidth={2.4}
-        />
-      )}
+      {p.hasBack &&
+        (backSpans && backSpans.length > 0 ? backSpans : [{ x: T, w: Math.max(1, W - 2 * T) }]).map((span) => (
+          <Board
+            key={`back-${span.x}`}
+            x={span.x}
+            y={topY + (m.innerTopPanel || m.coveringTop ? T : 0)}
+            z={zSide + m.sideD}
+            w={Math.max(1, span.w)}
+            h={Math.max(1, (p.useLegs ? H : H - p.plinthHeight) - (m.innerTopPanel || m.coveringTop ? T : 0) - T)}
+            d={1}
+            color={backFill}
+            rearColor={DEFAULT_HARDBOARD_COLOR}
+            cam={view}
+            faces={{ front: true }}
+            strokeWidth={2.4}
+          />
+        ))}
 
       <Board
         x={0}
@@ -3893,36 +3951,32 @@ function PlinthBoxFront3DView({
       />
       {!p.useLegs && (
         <>
-          <Board
-            x={0}
-            y={floor - p.plinthHeight}
-            z={zSide}
-            w={T}
-            h={p.plinthHeight}
-            d={m.plinthInset}
-            color={wood.side}
-            cam={view}
-            faces={{ right: true }}
-            strokeWidth={0}
-          />
-          <Board
-            x={T}
-            y={floor - p.plinthHeight}
-            z={m.plinthZ}
-            w={m.plinthLength}
-            h={p.plinthHeight}
-            d={T}
-            color={wood.bottom}
-            cam={view}
-            faces={{ front: true, top: true }}
-            strokeWidth={0}
-          />
-          {plinthFront && (
-            <g stroke={DRAW_STROKE} strokeWidth={1.2} fill="none">
-              <line x1={plinthFront.topL.x} y1={plinthFront.topL.y} x2={plinthFront.topR.x} y2={plinthFront.topR.y} />
-              <line x1={plinthFront.topR.x} y1={plinthFront.topR.y} x2={plinthFront.botR.x} y2={plinthFront.botR.y} />
-              <line x1={plinthFront.botR.x} y1={plinthFront.botR.y} x2={plinthFront.botL.x} y2={plinthFront.botL.y} />
-            </g>
+          {plinthMeetsLeft && (
+            <Board
+              x={0}
+              y={floor - p.plinthHeight}
+              z={zSide}
+              w={T}
+              h={p.plinthHeight}
+              d={m.plinthInset}
+              color={wood.side}
+              cam={view}
+              faces={{ right: true }}
+              strokeWidth={0}
+            />
+          )}
+          {!bottomSpans && (
+            <Board
+              x={T}
+              y={floor - p.plinthHeight}
+              z={m.plinthZ}
+              w={m.plinthLength}
+              h={p.plinthHeight}
+              d={T}
+              color={wood.bottom}
+              cam={view}
+              faces={{ front: true, top: true }}
+            />
           )}
         </>
       )}
@@ -3953,34 +4007,105 @@ function PlinthBoxFront3DView({
 
       {!p.useLegs && (
         <>
-          <Board
-            x={T}
-            y={bottomY}
-            z={zSide}
-            w={m.bottomW}
-            h={T}
-            d={m.bottomD}
-            color={wood.bottom}
-            cam={view}
-            faces={{ top: true }}
-            strokeWidth={0}
-          />
-          <Board
-            x={T}
-            y={bottomY}
-            z={zSide}
-            w={m.bottomW}
-            h={T}
-            d={1}
-            color={wood.bottom}
-            cam={view}
-            faces={{ front: true }}
-          />
+          {(!bottomSpans ? [{ x: T, w: m.bottomW }] : []).map((span) => (
+            <React.Fragment key={`bottom-${span.x}`}>
+              <Board
+                x={span.x}
+                y={bottomY}
+                z={zSide}
+                w={span.w}
+                h={T}
+                d={m.bottomD}
+                color={wood.bottom}
+                cam={view}
+                faces={{ top: true }}
+                strokeWidth={0}
+              />
+              <Board
+                x={span.x}
+                y={bottomY}
+                z={zSide}
+                w={span.w}
+                h={T}
+                d={1}
+                color={wood.bottom}
+                cam={view}
+                faces={{ front: true }}
+              />
+            </React.Fragment>
+          ))}
         </>
       )}
 
-      {layout.columns.map((_, i) => (
+      {layout.columns.map((col, i) => {
+        const inThisBay = (x: number, w: number) => {
+          const mid = x + w / 2
+          return mid >= T + col.x0 - 1 && mid <= T + col.x1 + 1
+        }
+        return (
         <g key={`ns-bay-${i}`}>
+          {fascia && inThisBay(fascia.x, fascia.w) && (
+            <Board
+              x={fascia.x}
+              y={sideY}
+              z={zSide + m.sideD - T}
+              w={fascia.w}
+              h={Math.min(fascia.h, Math.max(T, m.sideH))}
+              d={T}
+              color={wood.rail}
+              cam={view}
+              faces={{ front: true }}
+            />
+          )}
+          {bottomSpans &&
+            !p.useLegs &&
+            bottomSpans.filter((span) => inThisBay(span.x, span.w)).map((span) => {
+              const meetsLeft = Math.abs(span.x - T) < 1
+              const meetsRight = Math.abs(span.x + span.w - (W - T)) < 1
+              return (
+                <React.Fragment key={`bay-base-${span.x}`}>
+                  <Board
+                    x={span.x}
+                    y={floor - p.plinthHeight}
+                    z={m.plinthZ}
+                    w={span.w}
+                    h={p.plinthHeight}
+                    d={T}
+                    color={wood.bottom}
+                    cam={view}
+                    faces={{
+                      front: true,
+                      top: true,
+                      right: !meetsRight,
+                      left: !meetsLeft,
+                    }}
+                  />
+                  <Board
+                    x={span.x}
+                    y={bottomY}
+                    z={zSide}
+                    w={span.w}
+                    h={T}
+                    d={m.bottomD}
+                    color={wood.bottom}
+                    cam={view}
+                    faces={{ top: true }}
+                    strokeWidth={0}
+                  />
+                  <Board
+                    x={span.x}
+                    y={bottomY}
+                    z={zSide}
+                    w={span.w}
+                    h={T}
+                    d={1}
+                    color={wood.bottom}
+                    cam={view}
+                    faces={{ front: true }}
+                  />
+                </React.Fragment>
+              )
+            })}
           <BayShelvesAndPartials
             layout={layout}
             colIndex={i}
@@ -4062,10 +4187,10 @@ function PlinthBoxFront3DView({
           {layout.partitions[i] && layout.partitions[i].riseMm == null && (
             <Board
               x={T + layout.partitions[i].xLeft}
-              y={leftInnerY}
+              y={dividersToFloor ? sideY : leftInnerY}
               z={zPartition}
               w={T}
-              h={leftInnerH}
+              h={dividersToFloor ? m.sideH : leftInnerH}
               d={m.partitionD}
               color={wood.side}
               cam={view}
@@ -4073,7 +4198,8 @@ function PlinthBoxFront3DView({
             />
           )}
         </g>
-      ))}
+        )
+      })}
 
       {m.sliding && (
         <>
@@ -4135,7 +4261,6 @@ function PlinthBoxFront3DView({
         cam={view}
         faces={topInner ? SIDE_RIGHT : SIDE_LEFT_BODY}
       />
-
       {p.topStyle === 'fascia' &&
         layout.columns.map((col, i) => (
           <Board
@@ -4372,7 +4497,15 @@ function PlinthBoxFront3DView({
           />
         </g>
       )}
-      <DimText x={bottomLabelX} y={bottomFrontLabel.y} label={mm(m.bottomW)} fontSize={small} />
+      {!splitBottom && <DimText x={bottomLabelX} y={bottomFrontLabel.y} label={mm(m.bottomW)} fontSize={small} />}
+      {kneeSpan && (
+        <DimText
+          x={view.proj(kneeSpan.x + kneeSpan.w / 2, (sideY + floor) / 2, zSide).x}
+          y={view.proj(kneeSpan.x + kneeSpan.w / 2, (sideY + floor) / 2, zSide).y}
+          label={`отвор ${mm(kneeSpan.w)}`}
+          fontSize={small}
+        />
+      )}
       <g stroke={DRAW_DIM} fill={DRAW_DIM}>
         <line
           x1={supportLineX - supportTick}

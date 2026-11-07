@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { PULL_CHOICES, parsePullSku, pullName, taraPull, type PullSku } from '@/lib/cabinets/pulls'
 import { Box, ChevronDown, ChevronRight, Plus, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -179,6 +179,19 @@ import {
 import { CabinetSizeBadge } from '@/components/CabinetSizeBadge'
 import type { Sheet } from '@/types'
 import { cn, exactMm, formatMeters, formatMm, parseMm } from '@/lib/utils'
+import {
+  DEFAULT_VANITY_PARAMS,
+  VANITY_MIN_KNEE_MM,
+  mergeKneePartitions,
+  parseVanityParams,
+  VANITY_BACK_RAIL_MM,
+  vanityKneeError,
+  vanityOpening,
+  type VanityKnee,
+  type VanityLegSide,
+  type VanityParams,
+} from '@/lib/cabinets/vanity'
+import type { PartitionSpec } from '@/lib/cabinets/zones'
 
 type MovableShelfUi = {
   from: 'bottom' | 'top' | 'middle'
@@ -815,6 +828,8 @@ type PartitionUi = {
   gapIndex?: number
   /** Fixed shelf this page stops at. The page does not reach the cabinet top. */
   stopsAtShelf?: number | null
+  /** Fixed shelf this page stands on. The page does not continue below it. */
+  startsAtShelf?: number | null
   /** Bay this full-height page splits. Empty splits the whole cabinet. */
   splitsPath?: string
 }
@@ -827,6 +842,7 @@ function partitionToUi(s: {
   offsetMm: number
   gapIndex?: number
   stopsAtShelf?: number | null
+  startsAtShelf?: number | null
   splitsPath?: string
 }): PartitionUi {
   if (s.from === 'middle') {
@@ -838,6 +854,7 @@ function partitionToUi(s: {
       offsetMm: '0',
       gapIndex: s.gapIndex,
       stopsAtShelf: s.stopsAtShelf ?? null,
+      startsAtShelf: s.startsAtShelf ?? null,
       ...(s.splitsPath ? { splitsPath: s.splitsPath } : {}),
     }
   }
@@ -850,13 +867,44 @@ function partitionToUi(s: {
     offsetMm: String(s.offsetMm),
     ...(s.gapIndex != null ? { gapIndex: s.gapIndex } : {}),
     ...(s.stopsAtShelf != null ? { stopsAtShelf: s.stopsAtShelf } : {}),
+    ...(s.startsAtShelf != null ? { startsAtShelf: s.startsAtShelf } : {}),
     ...(s.splitsPath ? { splitsPath: s.splitsPath } : {}),
   }
 }
 
+function uiToPartition(row: PartitionUi): PartitionSpec {
+  return {
+    from: row.from,
+    offsetMm: row.from === 'middle' ? 0 : Math.max(0, parseInt(row.offsetMm, 10) || 0),
+    fromFace: row.fromFace,
+    toFace: row.toFace,
+    fromPartition: row.fromPartition,
+    ...(row.gapIndex != null ? { gapIndex: row.gapIndex } : {}),
+    ...(row.stopsAtShelf != null ? { stopsAtShelf: row.stopsAtShelf } : {}),
+    ...(row.startsAtShelf != null ? { startsAtShelf: row.startsAtShelf } : {}),
+    ...(row.splitsPath ? { splitsPath: row.splitsPath } : {}),
+  }
+}
+
+function samePartitionUi(a: PartitionUi[], b: PartitionUi[]): boolean {
+  if (a.length !== b.length) return false
+  return a.every((row, index) => {
+    const other = b[index]
+    return (
+      !!other &&
+      row.from === other.from &&
+      row.offsetMm === other.offsetMm &&
+      row.fromPartition === other.fromPartition &&
+      (row.stopsAtShelf ?? null) === (other.stopsAtShelf ?? null) &&
+      (row.startsAtShelf ?? null) === (other.startsAtShelf ?? null) &&
+      (row.splitsPath ?? '') === (other.splitsPath ?? '')
+    )
+  })
+}
+
 function partitionNeedsSide(rows: PartitionUi[], index: number): boolean {
   const row = rows[index]
-  if (!row || row.from === 'middle' || row.stopsAtShelf != null) return false
+  if (!row || row.from === 'middle' || row.stopsAtShelf != null || row.startsAtShelf != null) return false
   const ref = row.fromPartition
   if (ref == null) return false
   return ref === index || rows[ref] == null || rows[ref].stopsAtShelf != null
@@ -1277,18 +1325,23 @@ function CabinetDialogForm({
       : DEFAULT_KITCHEN_BASE_PARAMS
 
   const initialBox =
-    editing && editing.typeId === 'wardrobe'
-      ? parseWardrobeParams(editing.params)
-      : editing && editing.typeId === 'section'
-        ? parseSectionParams(editing.params)
-        : editing && editing.typeId === 'nightstand'
-          ? parseNightstandParams(editing.params)
-          : DEFAULT_NIGHTSTAND_PARAMS
+    editing && editing.typeId === 'vanity'
+      ? parseVanityParams(editing.params)
+      : editing && editing.typeId === 'wardrobe'
+        ? parseWardrobeParams(editing.params)
+        : editing && editing.typeId === 'section'
+          ? parseSectionParams(editing.params)
+          : editing && editing.typeId === 'nightstand'
+            ? parseNightstandParams(editing.params)
+            : DEFAULT_NIGHTSTAND_PARAMS
 
   const initialFittings =
     editing?.typeId === 'kitchen-base' || editing?.typeId === 'kitchen-wall'
       ? initialKitchen
-      : editing?.typeId === 'nightstand' || editing?.typeId === 'section' || editing?.typeId === 'wardrobe'
+      : editing?.typeId === 'nightstand' ||
+          editing?.typeId === 'vanity' ||
+          editing?.typeId === 'section' ||
+          editing?.typeId === 'wardrobe'
         ? initialBox
         : initialKitchen
 
@@ -1363,12 +1416,22 @@ function CabinetDialogForm({
   const [slideKind, setSlideKind] = useState<SlideKind>(parseSlideKind(initialFittings.slideKind))
   const [slideLength, setSlideLength] = useState(initialFittings.slideLength)
 
+  const initialVanity = editing?.typeId === 'vanity' ? parseVanityParams(editing.params) : DEFAULT_VANITY_PARAMS
+  const [knee, setKnee] = useState<VanityKnee>(initialVanity.knee)
+  const [kneeWidth, setKneeWidth] = useState(String(initialVanity.kneeWidth))
+  const [legSide, setLegSide] = useState<VanityLegSide>(initialVanity.legSide)
+  const [backRailHeight, setBackRailHeight] = useState(String(initialVanity.backRailHeight))
   const [plinthCount, setPlinthCount] = useState<1 | 2>(initialBox.plinthCount)
   const [plinthHeight, setPlinthHeight] = useState(String(initialBox.plinthHeight))
   const [useLegs, setUseLegs] = useState(initialBox.useLegs)
   const [topStyle, setTopStyle] = useState<CabinetTopStyle>(() => {
     if (editing?.typeId === 'kitchen-base') return parseKitchenTopStyle(editing.params.topStyle)
-    if (editing?.typeId === 'nightstand' || editing?.typeId === 'section' || editing?.typeId === 'wardrobe') {
+    if (
+      editing?.typeId === 'nightstand' ||
+      editing?.typeId === 'vanity' ||
+      editing?.typeId === 'section' ||
+      editing?.typeId === 'wardrobe'
+    ) {
       return parseBoxTopStyle(editing.params.topStyle)
     }
     return 'rails'
@@ -1405,6 +1468,32 @@ function CabinetDialogForm({
   const [partitions, setPartitions] = useState<PartitionUi[]>(
     (initialFittings.partitions ?? []).map(partitionToUi),
   )
+  const kneeRef = useRef(knee)
+  useEffect(() => {
+    if (typeId !== 'vanity') return
+    const prev = kneeRef.current
+    kneeRef.current = knee
+    if (knee === 'none') {
+      if (prev !== 'none') {
+        setPartitions((cur) =>
+          cur.filter((row) => row.stopsAtShelf != null || row.startsAtShelf != null || !!row.splitsPath),
+        )
+      }
+      return
+    }
+    const opening = vanityOpening({
+      width: Number(width) || 0,
+      thickness: Number(thickness) || 18,
+      knee,
+      kneeWidth: Number(kneeWidth) || 0,
+      legSide,
+    })
+    if (!opening || opening.error) return
+    setPartitions((cur) => {
+      const next = mergeKneePartitions(cur.map(uiToPartition), opening.dividers).map(partitionToUi)
+      return samePartitionUi(cur, next) ? cur : next
+    })
+  }, [typeId, knee, kneeWidth, width, thickness, legSide])
   const [doorSpan, setDoorSpan] = useState<DoorSpan>(initialFittings.doorSpan === 'zones' ? 'zones' : 'full')
   const [zoneUi, setZoneUi] = useState<Record<string, ZoneUi>>(zoneUiFromFittings(initialFittings.zones))
   const [pendingAdd, setPendingAdd] = useState<PendingAdd | null>(null)
@@ -1490,6 +1579,7 @@ function CabinetDialogForm({
           offsetMm: s.from === 'middle' ? 0 : mmNum(s.offsetMm),
           ...(s.gapIndex != null ? { gapIndex: s.gapIndex } : {}),
           ...(s.stopsAtShelf != null ? { stopsAtShelf: s.stopsAtShelf } : {}),
+          ...(s.startsAtShelf != null ? { startsAtShelf: s.startsAtShelf } : {}),
           ...(s.splitsPath ? { splitsPath: s.splitsPath } : {}),
         }))
         .filter((s) => s.from === 'middle' || s.offsetMm > 0),
@@ -1501,6 +1591,38 @@ function CabinetDialogForm({
         : zoneMap,
       dimFontScale,
       shelfFrontInset: Math.max(0, parseInt(shelfFrontInset, 10) || 0),
+    }
+    if (typeId === 'vanity') {
+      const opening = vanityOpening({
+        width: parseInt(width, 10) || 0,
+        thickness: inputThickness,
+        knee,
+        kneeWidth: parseInt(kneeWidth, 10) || 0,
+        legSide,
+      })
+      const parts =
+        opening && !opening.error
+          ? mergeKneePartitions(fittings.partitions, opening.dividers)
+          : fittings.partitions
+      return parseVanityParams({
+        width: parseInt(width, 10),
+        height: parseInt(height, 10),
+        depth: inputDepth,
+        thickness: inputThickness,
+        useLegs: knee === 'none' ? useLegs : false,
+        plinthCount,
+        plinthHeight: parseInt(plinthHeight, 10),
+        legHeight,
+        colors,
+        topStyle,
+        railWidth: DEFAULT_RAIL_WIDTH,
+        ...fittings,
+        partitions: parts,
+        knee,
+        kneeWidth: opening && !opening.error ? opening.knee : parseInt(kneeWidth, 10) || DEFAULT_VANITY_PARAMS.kneeWidth,
+        legSide,
+        backRailHeight: parseInt(backRailHeight, 10) || VANITY_BACK_RAIL_MM,
+      })
     }
     if (typeId === 'nightstand') {
       return parseNightstandParams({
@@ -1577,7 +1699,7 @@ function CabinetDialogForm({
       colors,
       ...fittings,
     })
-  }, [typeId, width, height, depth, depthMode, thickness, legHeight, shelfCount, movableShelves, hasBack, nailBack, clothesRails, doorCount, doorStyle, slidingDoorCount, slidingEdges, slidingUpperTrackColor, slidingLowerTrackColor, slidingHandleSkuId, slidingCapSkuId, slidingSoftCloseLeft, slidingSoftCloseRight, drawerFrontHeights, cutFromOneBoard, includeHandles, handleSku, handleOverrides, slideKind, slideLength, useLegs, plinthCount, plinthHeight, colors, topStyle, hasHood, hoodShape, hoodDiameter, hoodRectW, hoodRectD, fixedShelves, partitions, doorSpan, zoneUi, externalDoors, innerDrawerFronts, innerDoors, dimFontScale, shelfFrontInset])
+  }, [typeId, width, height, depth, depthMode, thickness, legHeight, shelfCount, movableShelves, hasBack, nailBack, clothesRails, doorCount, doorStyle, slidingDoorCount, slidingEdges, slidingUpperTrackColor, slidingLowerTrackColor, slidingHandleSkuId, slidingCapSkuId, slidingSoftCloseLeft, slidingSoftCloseRight, drawerFrontHeights, cutFromOneBoard, includeHandles, handleSku, handleOverrides, slideKind, slideLength, useLegs, plinthCount, plinthHeight, colors, topStyle, hasHood, hoodShape, hoodDiameter, hoodRectW, hoodRectD, fixedShelves, partitions, doorSpan, zoneUi, externalDoors, innerDrawerFronts, innerDoors, dimFontScale, shelfFrontInset, knee, kneeWidth, legSide, backRailHeight])
 
   const params = useMemo(
     () => ({
@@ -1634,9 +1756,9 @@ function CabinetDialogForm({
         settings: settings.hardware,
       })
     : null
-  const hasFittings = typeId === 'kitchen-base' || typeId === 'kitchen-wall' || typeId === 'nightstand' || typeId === 'section' || typeId === 'wardrobe'
+  const hasFittings = typeId === 'kitchen-base' || typeId === 'kitchen-wall' || typeId === 'nightstand' || typeId === 'vanity' || typeId === 'section' || typeId === 'wardrobe'
   const isKitchenCarcass = typeId === 'kitchen-base' || typeId === 'kitchen-wall'
-  const isPlinthBox = typeId === 'nightstand' || typeId === 'section' || typeId === 'wardrobe'
+  const isPlinthBox = typeId === 'nightstand' || typeId === 'vanity' || typeId === 'section' || typeId === 'wardrobe'
   const isSlidingCabinet = typeId === 'wardrobe' || (typeId === 'section' && doorStyle === 'sliding')
   const slidingLocksDepth = isSlidingCabinet && depthMode !== 'no-doors'
   const nsMeasure =
@@ -1784,7 +1906,43 @@ function CabinetDialogForm({
       (a, b) => a.yBottom - b.yBottom,
     )[0]
   }
+  const shelfBandsForColumn = (columnIndex: number) => {
+    const column = layout.columns[columnIndex]
+    if (!column) return [] as { id: string; label: string }[]
+    const shelves = [...shelvesCoveringColumn(layout.shelves, column, columnIndex)]
+      .filter((shelf) => {
+        const x0 = shelf.spanX0 ?? column.x0
+        const x1 = shelf.spanX1 ?? column.x1
+        return x0 <= column.x0 + 0.5 && x1 >= column.x1 - 0.5
+      })
+      .sort((a, b) => a.yBottom - b.yBottom)
+    if (shelves.length === 0) return [] as { id: string; label: string }[]
+    const names =
+      shelves.length === 1
+        ? ['Долна част', 'Горна част']
+        : shelves.length === 2
+          ? ['Долна част', 'Средна част', 'Горна част']
+          : null
+    const bands = [
+      {
+        id: `part-below:${columnIndex}:${shelves[0]!.specIndex}`,
+        label: names?.[0] ?? 'Най-долната част',
+      },
+    ]
+    shelves.forEach((shelf, index) => {
+      bands.push({
+        id: `part-above:${columnIndex}:${shelf.specIndex}`,
+        label: names?.[index + 1] ?? `Над рафт ${index + 1}`,
+      })
+    })
+    return bands
+  }
   const partitionPlaceChoices = partitionMiddleGaps.flatMap((g) => {
+    const bands = shelfBandsForColumn(g.index)
+    if (bands.length > 0) {
+      const prefix = partitionMiddleGaps.length > 1 ? `${g.label} · ` : ''
+      return bands.map((band) => ({ ...band, label: `${prefix}${band.label}` }))
+    }
     const choices = [{ id: `part-gap:${g.index}`, label: g.label }]
     const lowest = lowestShelfInGap(g.index)
     if (lowest && lowest.yBottom >= MIN_ZONE_CLEAR_MM && g.end - g.start >= params.thickness + MIN_ZONE_CLEAR_MM * 2) {
@@ -2066,17 +2224,25 @@ function CabinetDialogForm({
     }
   }
 
-  const addMiddlePartition = (gapIndex?: number, stopsAtShelf?: number | null) => {
+  const addMiddlePartition = (gapIndex?: number, stopsAtShelf?: number | null, startsAtShelf?: number | null) => {
     if (partitions.length >= MAX_PARTITIONS) return
-    if (stopsAtShelf == null) remapZonesForNewPartition(partitions.length)
+    if (stopsAtShelf == null && startsAtShelf == null) remapZonesForNewPartition(partitions.length)
     const parentPath =
-      stopsAtShelf == null && layout.columns.length > 1 ? layout.columns[gapIndex ?? 0]?.path ?? '' : ''
+      stopsAtShelf == null && startsAtShelf == null && layout.columns.length > 1
+        ? layout.columns[gapIndex ?? 0]?.path ?? ''
+        : ''
     setPendingAdd(null)
     setEvenPartitionError(null)
     setPartitions((rows) =>
       rows.length >= MAX_PARTITIONS
         ? rows
-        : [...rows, newMiddlePartition(gapIndex, stopsAtShelf, parentPath)],
+        : [
+            ...rows,
+            {
+              ...newMiddlePartition(gapIndex, stopsAtShelf, parentPath),
+              ...(startsAtShelf != null ? { startsAtShelf } : {}),
+            },
+          ],
     )
   }
 
@@ -2169,6 +2335,7 @@ function CabinetDialogForm({
       offsetMm: row.from === 'middle' ? 0 : mmNum(row.offsetMm),
       ...(row.from === 'middle' && row.gapIndex != null ? { gapIndex: row.gapIndex } : {}),
       ...(row.stopsAtShelf != null ? { stopsAtShelf: row.stopsAtShelf } : {}),
+      ...(row.startsAtShelf != null ? { startsAtShelf: row.startsAtShelf } : {}),
       ...(row.splitsPath ? { splitsPath: row.splitsPath } : {}),
     }))
     const result = evenBayDividerSpecs(
@@ -2217,6 +2384,7 @@ function CabinetDialogForm({
     return {
       ...newMiddlePartition(gi, currentRow?.stopsAtShelf, currentRow?.splitsPath),
       ...(currentRow?.stopsAtShelf != null ? { stopsAtShelf: currentRow.stopsAtShelf } : {}),
+      ...(currentRow?.startsAtShelf != null ? { startsAtShelf: currentRow.startsAtShelf } : {}),
     }
   }
 
@@ -2256,6 +2424,11 @@ function CabinetDialogForm({
   const applyPending = (target: FrontTarget) => {
     if (!pendingAdd) return
     if (pendingAdd.kind === 'partition-middle') {
+      const above = /^part-above:(\d+):(\d+)$/.exec(target)
+      if (above) {
+        addMiddlePartition(Number(above[1]), null, Number(above[2]))
+        return
+      }
       const below = /^part-below:(\d+):(\d+)$/.exec(target)
       if (below) {
         addMiddlePartition(Number(below[1]), Number(below[2]))
@@ -2697,6 +2870,8 @@ function CabinetDialogForm({
           <DialogDescription>
             {attached.length > 0
               ? 'Чертежът е общ. Промените по размери и всичко останало се записват върху оригиналните шкафове. Всеки от тях си остава отделен и се отваря сам.'
+              : typeId === 'vanity'
+              ? 'Седяща маса. Плотът минава над отвора за краката. Под отвора няма дъно и цокъл.'
               : typeId === 'nightstand'
               ? 'Размерите са външни в мм — плотът е пълната широчина и дълбочина. Детайлите и кантът се смятат автоматично.'
               : typeId === 'section'
@@ -2720,7 +2895,37 @@ function CabinetDialogForm({
                 const id = e.target.value
                 setTypeId(id)
                 setShelfFrontInset(String(shelfFrontInsetMm({ doorStyle: id === 'wardrobe' ? 'sliding' : 'hinged' })))
-                if (id === 'nightstand') {
+                if (id === 'vanity') {
+                  const d = DEFAULT_VANITY_PARAMS
+                  const opening = vanityOpening(d)
+                  setWidth(String(d.width))
+                  setHeight(String(d.height))
+                  setDepth(String(d.depth))
+                  setThickness(String(d.thickness))
+                  setUseLegs(false)
+                  setPlinthCount(d.plinthCount)
+                  setPlinthHeight(String(d.plinthHeight))
+                  setLegHeight(d.legHeight)
+                  setTopStyle('panel')
+                  setShelfCount(0)
+                  setMovableShelves([])
+                  setHasBack(true)
+                  setClothesRails([])
+                  setDoorCount(0)
+                  setDoorStyle('hinged')
+                  setSlidingEdges(defaultSlidingEdges(2))
+                  setDrawerFrontHeights([])
+                  setCutFromOneBoard(false)
+                  setIncludeHandles(true)
+                  setFixedShelves([])
+                  setKnee(d.knee)
+                  setKneeWidth(String(d.kneeWidth))
+                  setLegSide('none')
+                  setBackRailHeight(String(d.backRailHeight))
+                  setPartitions(opening ? opening.dividers.map(partitionToUi) : [])
+                  setDoorSpan('full')
+                  setZoneUi({ bottom: emptyZoneUi(), middle: emptyZoneUi(), top: emptyZoneUi() })
+                } else if (id === 'nightstand') {
                   setWidth(String(DEFAULT_NIGHTSTAND_PARAMS.width))
                   setHeight(String(DEFAULT_NIGHTSTAND_PARAMS.height))
                   setDepth(String(DEFAULT_NIGHTSTAND_PARAMS.depth))
@@ -3565,9 +3770,8 @@ function CabinetDialogForm({
               summary={partitions.length > 0 ? `${partitions.length} бр.` : 'няма'}
             >
               <p className="mt-0.5 text-xs text-[var(--color-muted-foreground)]">
-                Вътрешна страница — сяда на дъното, не на пода. Мери се от лявата/дясната страница на корпуса,
-                от вече добавена страница, или по средата на отвора. Страница по средата отдолу, под фиксиран
-                рафт, стига само до рафта и не продължава до горе. „На равни части“ дели избраната страна на равни отвори: 3 равни са 2 страници. Ако в страната има фиксиран рафт, те стигат до него и рафтът остава цял. До 3 страници — 4 части.
+                Вътрешна страница — сяда на дъното, не на пода. Ако вече има фиксиран рафт, пита се дали страницата да е в горната или в долната част. Тя стига до рафта и рафтът остава цял. Мери се от лявата/дясната страница на корпуса,
+                от вече добавена страница, или по средата на отвора. „На равни части“ дели избраната страна на равни отвори: 3 равни са 2 страници. Ако в страната има фиксиран рафт, те стигат до него и рафтът остава цял. До 3 страници — 4 части.
               </p>
               {partitions.map((part, i) => (
                 <div key={i} className="mt-2 space-y-2 rounded-md border border-[var(--color-border)] p-2">
@@ -3824,7 +4028,8 @@ function CabinetDialogForm({
                       offsetMm: mmNum(part.offsetMm),
                       gapIndex: part.gapIndex,
                       stopsAtShelf: part.stopsAtShelf,
-                    })}${part.from === 'middle' ? '.' : part.stopsAtShelf != null ? '.' : '. На 3D изгледа линията върви между тези две страни.'}`}
+                      startsAtShelf: part.startsAtShelf,
+                    })}${part.from === 'middle' || part.stopsAtShelf != null || part.startsAtShelf != null ? '.' : '. На 3D изгледа линията върви между тези две страни.'}`}
                   </p>
                 </div>
               ))}
@@ -3836,6 +4041,10 @@ function CabinetDialogForm({
                   disabled={partitions.length >= MAX_PARTITIONS && !danglingPartition}
                   onClick={() => {
                     if (partitions.length === 0) {
+                      if (shelfBandsForColumn(0).length > 0) {
+                        setPendingAdd({ kind: 'partition-middle' })
+                        return
+                      }
                       const center = centerSlidingPartition(params.width, params.thickness)
                       const offset = isSlidingCabinet
                         ? center.offsetMm
@@ -3872,7 +4081,7 @@ function CabinetDialogForm({
                   onClick={() => {
                     const kept = partitions.filter((_, index) => !partitionNeedsSide(partitions, index))
                     if (kept.length !== partitions.length) setPartitions(kept)
-                    if (partitionPlaceChoices.length > 0 && kept.length > 0) {
+                    if (partitionPlaceChoices.length > 0 && (kept.length > 0 || shelfBandsForColumn(partitionMiddleGaps[0]?.index ?? 0).length > 0)) {
                       setPendingAdd({ kind: 'partition-middle' })
                       return
                     }
@@ -3907,7 +4116,11 @@ function CabinetDialogForm({
                     label: g.label,
                   }))}
                   allowFull={false}
-                  hint="Избери страната. „Отдолу до рафта“ слага страницата само под фиксирания рафт — тя не стига до горе на шкафа."
+                  hint={
+                    partitionPlaceChoices.some((choice) => choice.id.startsWith('part-above') || choice.id.startsWith('part-below'))
+                      ? 'Фиксираният рафт дели шкафа. Избери горната или долната част. Страницата стига до рафта и рафтът остава цял.'
+                      : 'Избери страната. „Отдолу до рафта“ слага страницата само под фиксирания рафт — тя не стига до горе на шкафа.'
+                  }
                   onPick={applyPending}
                   onCancel={() => setPendingAdd(null)}
                 />
@@ -3946,7 +4159,8 @@ function CabinetDialogForm({
                 <p className="mt-1 text-xs text-[var(--color-destructive)]">{evenPartitionError}</p>
               )}
               {layout.error &&
-                (layout.partitions.length > 0 || partitions.some((p) => p.stopsAtShelf != null)) && (
+                (layout.partitions.length > 0 ||
+                  partitions.some((p) => p.stopsAtShelf != null || p.startsAtShelf != null)) && (
                 <p className="mt-1 text-xs text-[var(--color-destructive)]">{layout.error}</p>
               )}
             </FormSection>
@@ -5710,7 +5924,135 @@ function CabinetDialogForm({
 
         {isPlinthBox && (
           <>
-            {typeId === 'nightstand' && (
+            {typeId === 'vanity' && (
+              <FormSection
+                defaultOpen
+                title="Отвор за краката"
+                summary={
+                  knee === 'none'
+                    ? 'без отвор'
+                    : legSide === 'left'
+                      ? `лявата е крак · отвор ${kneeWidth} мм`
+                      : legSide === 'right'
+                        ? `дясната е крак · отвор ${kneeWidth} мм`
+                        : knee === 'left'
+                          ? `отляво ${kneeWidth} мм`
+                          : knee === 'right'
+                            ? `отдясно ${kneeWidth} мм`
+                            : `по средата ${kneeWidth} мм`
+                }
+              >
+                <div className="mt-1 flex flex-wrap gap-2">
+                  {(
+                    [
+                      ['middle', 'По средата'],
+                      ['left', 'Отляво'],
+                      ['right', 'Отдясно'],
+                      ['none', 'Без отвор'],
+                    ] as const
+                  ).map(([id, label]) => (
+                    <Button
+                      key={id}
+                      type="button"
+                      size="sm"
+                      variant={knee === id ? 'default' : 'outline'}
+                      onClick={() => {
+                        setKnee(id)
+                        if (id !== 'none') setUseLegs(false)
+                      }}
+                    >
+                      {label}
+                    </Button>
+                  ))}
+                </div>
+                {knee !== 'none' && (
+                  <>
+                    <div className="mt-2 flex items-center gap-2">
+                      <label htmlFor="vanity-knee" className="text-xs">
+                        Широчина на отвора (мм)
+                      </label>
+                      <Input
+                        id="vanity-knee"
+                        type="number"
+                        inputMode="numeric"
+                        min={VANITY_MIN_KNEE_MM}
+                        value={kneeWidth}
+                        onChange={(e) => setKneeWidth(e.target.value)}
+                        className="w-32"
+                      />
+                    </div>
+                    <p className="mt-2 text-xs font-medium">Половина като крак</p>
+                    <div className="mt-1 flex flex-wrap gap-2">
+                      {(
+                        [
+                          ['none', 'И двете шкафчета'],
+                          ['left', 'Лявата е крак'],
+                          ['right', 'Дясната е крак'],
+                        ] as const
+                      ).map(([id, label]) => (
+                        <Button
+                          key={id}
+                          type="button"
+                          size="sm"
+                          variant={legSide === id ? 'default' : 'outline'}
+                          onClick={() => setLegSide(id)}
+                        >
+                          {label}
+                        </Button>
+                      ))}
+                    </div>
+                    <div className="mt-2 flex items-center gap-2">
+                      <label htmlFor="vanity-rail" className="text-xs">
+                        Бленда отзад (мм)
+                      </label>
+                      <Input
+                        id="vanity-rail"
+                        type="number"
+                        inputMode="numeric"
+                        min={40}
+                        max={600}
+                        value={backRailHeight}
+                        onChange={(e) => setBackRailHeight(e.target.value)}
+                        className="w-32"
+                      />
+                    </div>
+                    <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
+                      {(() => {
+                        const opening = vanityOpening({
+                          width: Number(width) || 0,
+                          thickness: Number(thickness) || 18,
+                          knee,
+                          kneeWidth: Number(kneeWidth) || 0,
+                          legSide,
+                        })
+                        if (!opening) return ''
+                        if (opening.error) return opening.error
+                        const place =
+                          legSide === 'left'
+                            ? 'Лявата половина е една плоскост до пода. Шкафчето е отдясно.'
+                            : legSide === 'right'
+                              ? 'Дясната половина е една плоскост до пода. Шкафчето е отляво.'
+                              : knee === 'middle'
+                                ? 'Страна 1 и Страна 3 са шкафчетата. Страна 2 е отворът.'
+                                : knee === 'left'
+                                  ? 'Страна 1 е отворът. Страна 2 е шкафчето.'
+                                  : 'Страна 1 е шкафчето. Страна 2 е отворът.'
+                        return `Отвор ${formatMm(opening.knee)} мм. ${opening.pedestals
+                          .map((pedestal) => `${pedestal.name} ${formatMm(pedestal.w)} мм`)
+                          .join(', ')}. ${place} Чекмедже може и в отвора. Отзад бленда ${backRailHeight || VANITY_BACK_RAIL_MM} мм, широка колкото отвора, вместо гръб. Фазер имат шкафчетата.`
+                      })()}
+                    </p>
+                  </>
+                )}
+                {knee === 'none' && (
+                  <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
+                    Без отвор тоалетката е едно шкафче по цялата широчина, с цокъл или с крачета.
+                  </p>
+                )}
+              </FormSection>
+            )}
+
+            {(typeId === 'nightstand' || (typeId === 'vanity' && knee === 'none')) && (
             <FormSection defaultOpen={false} title="Опора" summary={useLegs ? 'Крачета' : 'Цокъл и дъно'}>
               <div className="mt-1 flex gap-2">
                 <Button
@@ -5738,7 +6080,7 @@ function CabinetDialogForm({
             </FormSection>
             )}
 
-            {typeId === 'nightstand' && useLegs ? (
+            {(typeId === 'nightstand' || (typeId === 'vanity' && knee === 'none')) && useLegs ? (
               <FormSection defaultOpen={false} title="Крачета" summary={`${legHeight / 10} см`}>
                 <div className="mt-1 flex gap-2">
                   {([100, 150] as const).map((h) => (
@@ -5882,9 +6224,9 @@ function CabinetDialogForm({
                 if (key === 'leg') return false
                 if (key === 'shelf' && counts.shelfCount === 0 && counts.fixedShelves === 0) return false
               }
-              if (typeId === 'nightstand' || typeId === 'section' || typeId === 'wardrobe') {
+              if (typeId === 'nightstand' || typeId === 'vanity' || typeId === 'section' || typeId === 'wardrobe') {
                 if (key === 'shelf' && counts.shelfCount === 0 && counts.fixedShelves === 0) return false
-                if (key === 'leg' && (typeId === 'section' || typeId === 'wardrobe' || !useLegs)) return false
+                if (key === 'leg' && (typeId === 'section' || typeId === 'wardrobe' || (typeId === 'vanity' && knee !== 'none') || !useLegs)) return false
               }
               return true
             }).map(({ key, label }) => (
@@ -6810,7 +7152,11 @@ function validate(
   clearanceBottom = 0,
   inset?: { drawers?: boolean; doors?: boolean; innerH?: number },
 ): string | null {
-  if (typeId !== 'kitchen-base' && typeId !== 'kitchen-wall' && typeId !== 'nightstand' && typeId !== 'section' && typeId !== 'wardrobe') return null
+  if (typeId !== 'kitchen-base' && typeId !== 'kitchen-wall' && typeId !== 'nightstand' && typeId !== 'vanity' && typeId !== 'section' && typeId !== 'wardrobe') return null
+  if (typeId === 'vanity') {
+    const kneeErr = vanityKneeError(p as VanityParams, layout)
+    if (kneeErr) return kneeErr
+  }
   if (p.width <= p.thickness * 2) return 'Ширината трябва да е по-голяма от двете страници.'
   if (p.height <= p.thickness + 20) return 'Височината на корпуса е твърде малка.'
   if (p.depth <= 0 || p.width <= 0) return 'Въведи валидни размери.'

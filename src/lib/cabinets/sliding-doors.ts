@@ -524,7 +524,7 @@ export function appendSlidingDoors(
     const rightL = slidingEdgeLabel(leaf.edges.right)
     if (bought) {
       notes.push(
-        `${leaf.name}: поръчай габарит ${formatMm(leaf.gabaritW)} × ${formatMm(leaf.gabaritH)} мм (ляво ${leftL}, дясно ${rightL}).`,
+        `${leaf.name}: поръчай габарит ${formatMm(leaf.gabaritH)} × ${formatMm(leaf.gabaritW)} мм (ляво ${leftL}, дясно ${rightL}).`,
       )
       panels.push({
         role: 'sliding-door',
@@ -536,12 +536,12 @@ export function appendSlidingDoors(
         edges: edges({}),
         excludeFromCutting: true,
         highlightColor: 'order',
-        note: `Външна плъзгаща врата. Готов габарит ${formatMm(leaf.gabaritW)} × ${formatMm(leaf.gabaritH)} мм. Не се реже и не се кантира при нас. Поръчай отделно.`,
+        note: `Външна плъзгаща врата. Готов габарит ${formatMm(leaf.gabaritH)} × ${formatMm(leaf.gabaritW)} мм. Не се реже и не се кантира при нас. Поръчай отделно.`,
       })
       continue
     }
     notes.push(
-      `${leaf.name}: габарит ${formatMm(leaf.gabaritW)} × ${formatMm(leaf.gabaritH)} мм · рязане ${formatMm(leaf.cutW)} × ${formatMm(leaf.cutH)} мм (ляво ${leftL} ${slidingProfileMm(leaf.edges.left)} мм, дясно ${rightL} ${slidingProfileMm(leaf.edges.right)} мм, тънък кант 0,5 мм горе и долу).`,
+      `${leaf.name}: габарит ${formatMm(leaf.gabaritH)} × ${formatMm(leaf.gabaritW)} мм · рязане ${formatMm(leaf.cutH)} × ${formatMm(leaf.cutW)} мм (ляво ${leftL} ${slidingProfileMm(leaf.edges.left)} мм, дясно ${rightL} ${slidingProfileMm(leaf.edges.right)} мм, тънък кант 0,5 мм горе и долу).`,
     )
     panels.push({
       role: 'sliding-door',

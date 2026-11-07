@@ -13,6 +13,11 @@ export interface Sheet {
   priceEur?: number
   /** Decor from the workshop list. Sheets of different decors are cut separately. */
   finishId?: string
+  /**
+   * Grain runs along the length (the first size). Missing means the sheet has grain.
+   * A smooth board (white, for example) has none, so parts on it may be turned.
+   */
+  hasGrain?: boolean
 }
 
 export interface Part {
@@ -76,6 +81,8 @@ export interface PackedSheet {
   /** Decor this sheet was cut from, when the parts carry a board colour. */
   boardName?: string
   finishId?: string
+  /** False when the board has no grain and parts were free to turn. */
+  hasGrain?: boolean
 }
 
 export interface UnplacedPart {

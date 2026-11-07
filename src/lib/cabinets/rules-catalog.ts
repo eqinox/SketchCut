@@ -5,6 +5,7 @@ import { confirmatRuleBlock, hingeRuleBlock } from './hardware'
 import { hoodRuleBlock } from './kitchen-wall'
 import { boardRuleBlocks, drawerRuleSection, insetDoorRuleSection, overlayDoorRuleSection } from './materials'
 import { carcassRuleSection, clothesRailRuleSection, depthRuleSection } from './nightstand'
+import { vanityRuleBlock } from './vanity'
 import type { RuleSection } from './rule-text'
 import { slidingDoorRuleSection } from './sliding-doors'
 import { zoneSplitRuleSection } from './zones'
@@ -20,7 +21,7 @@ export function cabinetRuleSections(): RuleSection[] {
     insetDoorRuleSection(),
     zoneSplitRuleSection(),
     depthRuleSection(),
-    { ...carcass, blocks: [...carcass.blocks, confirmatRuleBlock(), hoodRuleBlock()] },
+    { ...carcass, blocks: [...carcass.blocks, vanityRuleBlock(), confirmatRuleBlock(), hoodRuleBlock()] },
     shelfRuleSection(),
     clothesRailRuleSection(),
     drawerRuleSection(),

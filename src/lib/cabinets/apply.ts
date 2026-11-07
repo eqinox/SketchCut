@@ -3,7 +3,7 @@ import { createDefaultEdgeBanding } from '@/lib/edge-banding'
 import { generateId } from '@/lib/utils'
 import { cabinetDisplayName, generateCabinet, scaleCabinetResult } from './catalog'
 import { COMBINATION_TYPE, combinationReferences, type AttachedCabinet } from './compose'
-import { edgeSideThickness, type GeneratedPanel, type PanelEdgePlan } from './types'
+import { edgeSideThickness, grainLengthFirst, type GeneratedPanel, type PanelEdgePlan } from './types'
 
 function bandingFromPlan(partId: string, plan: PanelEdgePlan): PartEdgeBanding {
   const band = createDefaultEdgeBanding(partId)
@@ -21,10 +21,11 @@ function panelToPart(
   existingId?: string,
 ): { part: Part; banding: PartEdgeBanding } {
   const id = existingId ?? generateId()
+  const cut = grainLengthFirst(panel)
   const part: Part = {
     id,
-    width: panel.width,
-    height: panel.height,
+    width: cut.width,
+    height: cut.height,
     quantity: panel.quantity,
     canRotate: panel.canRotate,
     label: `${index + 1} ${panel.name}`,
@@ -32,7 +33,7 @@ function panelToPart(
     kind: panel.material === 'hardboard' ? 'hardboard' : 'chipboard',
     ...(panel.finishId ? { finishId: panel.finishId } : {}),
   }
-  return { part, banding: bandingFromPlan(id, panel.edges) }
+  return { part, banding: bandingFromPlan(id, cut.edges) }
 }
 
 export interface CabinetState {

@@ -560,6 +560,8 @@ export function appendPartitions(
     innerTop?: boolean
     /** The page stops at a fixed shelf. Screws go through that shelf as well. */
     stopsAtShelf?: boolean
+    /** The page stands on a fixed shelf and fills only the part above it. */
+    aboveShelf?: boolean
   },
   panels: GeneratedPanel[],
   hardware: HardwareItem[],
@@ -568,24 +570,37 @@ export function appendPartitions(
 ): void {
   if (input.count <= 0) return
   const perEnd = confirmatCount(input.sideD)
-  let screws = perEnd * input.count
-  let joinNote = input.coveringBottom
-    ? `${perEnd} през дъното отдолу`
-    : `${perEnd} през страницата в дъното`
-  if (input.innerTop) {
-    screws += perEnd * input.count
-    joinNote += ` и ${perEnd} през страницата в плота`
-  }
-  if (input.stopsAtShelf) {
-    screws += perEnd * input.count
-    joinNote += ` и ${perEnd} през рафта надолу в страницата`
+  let screws = 0
+  let joinNote = ''
+  if (input.aboveShelf) {
+    screws = perEnd * input.count
+    joinNote = `${perEnd} през рафта нагоре в страницата`
+    if (input.innerTop) {
+      screws += perEnd * input.count
+      joinNote += ` и ${perEnd} през плота надолу`
+    }
+  } else {
+    screws = perEnd * input.count
+    joinNote = input.coveringBottom
+      ? `${perEnd} през дъното отдолу`
+      : `${perEnd} през страницата в дъното`
+    if (input.innerTop) {
+      screws += perEnd * input.count
+      joinNote += ` и ${perEnd} през страницата в плота`
+    }
+    if (input.stopsAtShelf) {
+      screws += perEnd * input.count
+      joinNote += ` и ${perEnd} през рафта надолу в страницата`
+    }
   }
   notes.push(
-    input.stopsAtShelf
-      ? `${input.count === 1 ? '1 разделителна страница' : `${input.count} разделителни страници`} ${formatMm(input.sideD)} × ${formatMm(input.sideH)} мм — отдолу, до фиксирания рафт. Не продължава до горе на шкафа.${input.positionsNote ? ` ${input.positionsNote}` : ''}`
+    input.aboveShelf
+      ? `${input.count === 1 ? '1 разделителна страница' : `${input.count} разделителни страници`} ${formatMm(input.sideH)} × ${formatMm(input.sideD)} мм — в горната част, от фиксирания рафт нагоре. Рафтът остава цял.${input.positionsNote ? ` ${input.positionsNote}` : ''}`
+      : input.stopsAtShelf
+      ? `${input.count === 1 ? '1 разделителна страница' : `${input.count} разделителни страници`} ${formatMm(input.sideH)} × ${formatMm(input.sideD)} мм — отдолу, до фиксирания рафт. Не продължава до горе на шкафа.${input.positionsNote ? ` ${input.positionsNote}` : ''}`
       : input.count === 1
-        ? `1 разделителна страница ${formatMm(input.sideD)} × ${formatMm(input.sideH)} мм — вътрешна страница, сяда на дъното и разделя шкафа.${input.positionsNote ? ` ${input.positionsNote}` : ''}`
-        : `${input.count} разделителни страници ${formatMm(input.sideD)} × ${formatMm(input.sideH)} мм — сядат на дъното и разделят шкафа на ${input.count + 1} части.${input.positionsNote ? ` ${input.positionsNote}` : ''}`,
+        ? `1 разделителна страница ${formatMm(input.sideH)} × ${formatMm(input.sideD)} мм — вътрешна страница, сяда на дъното и разделя шкафа.${input.positionsNote ? ` ${input.positionsNote}` : ''}`
+        : `${input.count} разделителни страници ${formatMm(input.sideH)} × ${formatMm(input.sideD)} мм — сядат на дъното и разделят шкафа на ${input.count + 1} части.${input.positionsNote ? ` ${input.positionsNote}` : ''}`,
   )
   notes.push(`Винтове 5×60: ${screws} бр. (${joinNote} × ${input.count === 1 ? '1 страница' : `${input.count} страници`}).`)
   hardware.push(
@@ -603,9 +618,11 @@ export function appendPartitions(
     quantity: input.count,
     canRotate: false,
     edges: edges({ top: true, left: true }),
-    note: input.stopsAtShelf
-      ? 'Кант: предна и горна. Сяда на дъното и стига до долната страна на фиксирания рафт.'
-      : 'Кант: предна и горна. Сяда на дъното като вътрешна страница.',
+    note: input.aboveShelf
+      ? 'Кант: предна и горна. Стъпва на фиксирания рафт и не продължава под него.'
+      : input.stopsAtShelf
+        ? 'Кант: предна и горна. Сяда на дъното и стига до долната страна на фиксирания рафт.'
+        : 'Кант: предна и горна. Сяда на дъното като вътрешна страница.',
   })
 }
 
@@ -733,7 +750,7 @@ export function appendDoorsAndDrawers(
       ].join(', ')
 
       notes.push(
-        `${doorFromCombined ? 'Чела и врата' : 'Чела'} от една плоча: Първо рязане ${formatMm(width)} × ${formatMm(combinedHeight)} мм (${partsLabel}${bufferNote}).`,
+        `${doorFromCombined ? 'Чела и врата' : 'Чела'} от една плоча: Първо рязане ${formatMm(combinedHeight)} × ${formatMm(width)} мм (${partsLabel}${bufferNote}).`,
       )
       notes.push(`След кантиране се разрязва на ${afterSplit}.`)
 
@@ -792,7 +809,7 @@ export function appendDoorsAndDrawers(
           (n === 1 ? '  ↳ Чело (след разрязване)' : `  ↳ Чело ${i + 1} (${formatMm(frontH)} мм)`) +
           zoneInName
         notes.push(
-          `${where}${n === 1 ? 'Чело' : `Чело ${i + 1}`}: рязане ${formatMm(cut.width)} × ${formatMm(cut.height)} мм — от комбинираната плоча.`,
+          `${where}${n === 1 ? 'Чело' : `Чело ${i + 1}`}: рязане ${formatMm(cut.height)} × ${formatMm(cut.width)} мм — от комбинираната плоча.`,
         )
         panels.push({
           role: 'drawer-front',
@@ -819,7 +836,7 @@ export function appendDoorsAndDrawers(
         })
         if (boughtFronts) {
           notes.push(
-            `${name}: поръчай ${formatMm(drawerFront.width)} × ${formatMm(drawerFront.height)} мм (${fitNote}). Поръчва се отделно — не влиза в разкроя.`,
+            `${name}: поръчай ${formatMm(drawerFront.height)} × ${formatMm(drawerFront.width)} мм (${fitNote}). Поръчва се отделно — не влиза в разкроя.`,
           )
           panels.push({
             role: 'drawer-front',
@@ -837,7 +854,7 @@ export function appendDoorsAndDrawers(
           })
         } else {
           notes.push(
-            `${name}: рязане ${formatMm(drawerFront.width)} × ${formatMm(drawerFront.height)} мм (${fitNote}).`,
+            `${name}: рязане ${formatMm(drawerFront.height)} × ${formatMm(drawerFront.width)} мм (${fitNote}).`,
           )
           panels.push({
             role: 'drawer-front',
@@ -956,8 +973,8 @@ export function appendDoorsAndDrawers(
 
     notes.push(
       boughtDoors
-        ? `${where}${doorTitle}: готов размер ${formatMm(door.width)} × ${formatMm(door.height)} мм (${doorCutRuleNote({ withDrawerGaps: hasDrawers, subtractEdge: false, insetFront: insetDoors })}). Поръчва се отделно — не влиза в разкроя.`
-        : `${where}${doorTitle}: рязане ${formatMm(door.width)} × ${formatMm(door.height)} мм (${doorCutRuleNote({ withDrawerGaps: hasDrawers, insetFront: insetDoors })}).`,
+        ? `${where}${doorTitle}: готов размер ${formatMm(door.height)} × ${formatMm(door.width)} мм (${doorCutRuleNote({ withDrawerGaps: hasDrawers, subtractEdge: false, insetFront: insetDoors })}). Поръчва се отделно — не влиза в разкроя.`
+        : `${where}${doorTitle}: рязане ${formatMm(door.height)} × ${formatMm(door.width)} мм (${doorCutRuleNote({ withDrawerGaps: hasDrawers, insetFront: insetDoors })}).`,
     )
     notes.push(
       `Панти: ${totalHinges} бр. (по ${perDoor} на врата ${formatMm(door.height)} мм) · винтчета 4×16: ${hinge4x16} бр. и 4×20: ${hinge4x20} бр. (по ${SCREWS_4X16_PER_HINGE}+${SCREWS_4X20_PER_HINGE} на панта).`,
@@ -1188,25 +1205,31 @@ export function appendZonedInterior(
   }
 
   if (layout.partialPartitions.length > 0) {
-    const groups = new Map<number, typeof layout.partialPartitions>()
+    const groups = new Map<string, typeof layout.partialPartitions>()
     for (const part of layout.partialPartitions) {
-      const key = Math.round(part.height * 1000)
+      const key = `${Math.round(part.height * 1000)}:${part.aboveShelf ? 'above' : 'below'}`
       const group = groups.get(key) ?? []
       group.push(part)
       groups.set(key, group)
     }
     for (const group of groups.values()) {
+      const above = group[0]!.aboveShelf === true
       appendPartitions(
         {
           count: group.length,
           sideD: partitionD,
           sideH: group[0]!.height,
-          stopsAtShelf: true,
-          positionsNote:
-            group.length > 1
+          stopsAtShelf: !above,
+          aboveShelf: above,
+          positionsNote: above
+            ? group.length > 1
+              ? `На равни отвори над рафта.${sliding ? ` Дълбочина ${formatMm(partitionD)} мм.` : ''}`
+              : `По средата на горната част.${sliding ? ` Дълбочина ${formatMm(partitionD)} мм.` : ''}`
+            : group.length > 1
               ? `На равни отвори под рафта.${sliding ? ` Дълбочина ${formatMm(partitionD)} мм.` : ''}`
               : `По средата на долната част.${sliding ? ` Дълбочина ${formatMm(partitionD)} мм.` : ''}`,
-          coveringBottom: input.coveringBottom,
+          coveringBottom: above ? false : input.coveringBottom,
+          innerTop: above ? input.innerTop : undefined,
         },
         panels,
         hardware,

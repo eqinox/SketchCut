@@ -290,7 +290,7 @@ export function withAttachments(
         ),
       )
       notes.push(
-        `Една врата на двата шкафа: рязане ${formatMm(door.width)} × ${formatMm(door.height)} мм. Панти: ${hinges} бр.`,
+        `Една врата на двата шкафа: рязане ${formatMm(door.height)} × ${formatMm(door.width)} мм. Панти: ${hinges} бр.`,
       )
     }
   })
