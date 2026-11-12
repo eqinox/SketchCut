@@ -233,6 +233,7 @@ function GrainFace({
   sheet,
   veil,
   strokeWidth,
+  stroke = DRAW_STROKE,
 }: {
   pts: DrawPt[]
   p0: DrawPt
@@ -247,10 +248,11 @@ function GrainFace({
   sheet: DecorSheet
   veil?: string
   strokeWidth: number
+  stroke?: string
 }) {
   const id = useId().replace(/:/g, '')
   const matrix = textureMatrix(p0, u0, v0, pU, uU, vU, pV, uV, vV, sheet.acrossMm, sheet.alongMm)
-  if (!matrix) return <Face pts={pts} fill={veil ?? '#c4a574'} strokeWidth={strokeWidth} />
+  if (!matrix) return <Face pts={pts} fill={veil ?? '#c4a574'} strokeWidth={strokeWidth} stroke={stroke} />
   const points = polyPts(...pts)
   return (
     <>
@@ -269,7 +271,7 @@ function GrainFace({
       <polygon
         points={points}
         fill={veil ?? 'none'}
-        stroke={strokeWidth > 0 ? DRAW_STROKE : 'none'}
+        stroke={strokeWidth > 0 ? stroke : 'none'}
         strokeWidth={strokeWidth}
         strokeLinejoin="round"
       />
@@ -281,21 +283,31 @@ function Face({
   pts,
   fill,
   strokeWidth,
+  stroke = DRAW_STROKE,
 }: {
   pts: DrawPt[]
   fill: string
   strokeWidth: number
+  stroke?: string
 }) {
   return (
     <polygon
       points={polyPts(...pts)}
       fill={fill}
-      stroke={strokeWidth > 0 ? DRAW_STROKE : 'none'}
+      stroke={strokeWidth > 0 ? stroke : 'none'}
       strokeWidth={strokeWidth}
       strokeLinejoin="round"
     />
   )
 }
+
+/** Click a drawn board to choose that kind of part (all sides, all shelves, …). */
+export type BoardPick = 'bottom' | 'side' | 'rail' | 'shelf' | 'leg'
+
+export const BoardPickContext = createContext<{
+  selected: BoardPick | null
+  onSelect: (pick: BoardPick) => void
+} | null>(null)
 
 /**
  * One rectangular board in the same cavalier view as the kitchen-base drawing.
@@ -316,6 +328,7 @@ export function Board({
   opacity,
   slide,
   pull,
+  pick,
 }: {
   x: number
   y: number
@@ -334,7 +347,11 @@ export function Board({
   slide?: { id: string; travel: number }
   /** Handle on a drawer front. Rails leave this empty. */
   pull?: { key: string; sku: PullSku }
+  /** Which colour group this board belongs to, so a click can select it. */
+  pick?: BoardPick
 }) {
+  const pickState = useContext(BoardPickContext)
+  const chosen = Boolean(pick && pickState?.selected === pick)
   useCaptureSolid(
     w > 0.4 && h > 0.4 && d > 0.2 ? { kind: 'box', x, y, z, w, h, d, color, rearColor, slide, pull } : null,
   )
@@ -355,7 +372,9 @@ export function Board({
   ) => {
     const [a, b, , d] = corners
     const pts = corners.map(([cx, cy, cz]) => proj(cx, cy, cz))
-    if (!sheet) return <Face pts={pts} fill={fill} strokeWidth={line} />
+    const ink = chosen ? '#1d4ed8' : DRAW_STROKE
+    const width = chosen ? Math.max(line, 2.8) : line
+    if (!sheet) return <Face pts={pts} fill={fill} strokeWidth={width} stroke={ink} />
     const uv = (p: [number, number, number]) => faceUV(grain, face, p[0], p[1], p[2])
     const o = uv(a)
     const u = uv(b)
@@ -374,12 +393,24 @@ export function Board({
         vV={v.v}
         sheet={sheet}
         veil={fill === c.front ? FACE_VEIL.front : face === 'top' ? FACE_VEIL.top : FACE_VEIL[face]}
-        strokeWidth={line}
+        strokeWidth={chosen ? Math.max(line, 2.8) : line}
+        stroke={chosen ? '#1d4ed8' : DRAW_STROKE}
       />
     )
   }
   return (
-    <g opacity={opacity}>
+    <g
+      opacity={opacity}
+      style={pick && pickState ? { cursor: 'pointer' } : undefined}
+      onClick={
+        pick && pickState
+          ? (event) => {
+              event.stopPropagation()
+              pickState.onSelect(pick)
+            }
+          : undefined
+      }
+    >
       {faces.back &&
         paint('back', [[x, y, z2], [x2, y, z2], [x2, yb, z2], [x, yb, z2]], c.side, sw)}
       {faces.left &&

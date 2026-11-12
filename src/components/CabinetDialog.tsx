@@ -13,6 +13,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { CabinetPreview } from '@/components/CabinetPreview'
+import { BoardPickContext, type BoardPick } from '@/lib/cabinets/draw-3d'
 import { CabinetGroupView } from '@/components/CabinetGroupView'
 import {
   attachmentTouchesHost,
@@ -1516,6 +1517,7 @@ function CabinetDialogForm({
     ...DEFAULT_PART_COLORS,
     ...(editing?.params.colors as CabinetPartColors | undefined),
   })
+  const [pickedPart, setPickedPart] = useState<BoardPick | null>(null)
   const [carcassFinishId, setCarcassFinishId] = useState(
     typeof editing?.params.carcassFinishId === 'string' ? editing.params.carcassFinishId : '',
   )
@@ -6590,6 +6592,29 @@ function CabinetDialogForm({
             backImage={settings.hardware.boardFinishes.find((finish) => finish.id === backFinishId)?.image}
           />
         ) : (
+        <BoardPickContext.Provider value={{ selected: pickedPart, onSelect: setPickedPart }}>
+        <div className="flex flex-wrap items-center gap-3">
+          <p className="text-xs text-[var(--color-muted-foreground)]">
+            Кликни детайл на чертежа. Цветът се сменя за всички от същия вид.
+          </p>
+          {pickedPart && (
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="color"
+                value={colors[pickedPart]}
+                aria-label={`Цвят ${pickedPart}`}
+                onChange={(e) => setColors((current) => ({ ...current, [pickedPart]: e.target.value }))}
+                className="h-8 w-10 cursor-pointer rounded border border-[var(--color-border)] bg-transparent"
+              />
+              {pickedPart === 'rail' &&
+              (typeId === 'nightstand' || typeId === 'section' || typeId === 'wardrobe' || typeId === 'kitchen-wall' || typeId === 'bed')
+                ? 'Плот'
+                : pickedPart === 'shelf' && typeId === 'bed'
+                  ? 'Вътрешни плоскости'
+                  : PART_COLOR_FIELDS.find((field) => field.key === pickedPart)?.label}
+            </label>
+          )}
+        </div>
         <CabinetPreview
           typeId={typeId}
           params={{ ...params }}
@@ -6610,6 +6635,7 @@ function CabinetDialogForm({
           backColor={settings.hardware.boardFinishes.find((finish) => finish.id === backFinishId)?.color}
           backImage={settings.hardware.boardFinishes.find((finish) => finish.id === backFinishId)?.image}
         />
+        </BoardPickContext.Provider>
         )}
 
         {error && <p className="text-sm text-[var(--color-destructive)]">{error}</p>}
