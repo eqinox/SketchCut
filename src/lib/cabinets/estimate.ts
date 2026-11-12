@@ -78,7 +78,7 @@ export function panelsEdgeMeters(panels: GeneratedPanel[]): { mm2: number; mm05:
   let mm2 = 0
   let mm05 = 0
   for (const p of panels) {
-    if (p.excludeFromCutting) continue
+    if (p.excludeFromCutting && !p.billEdges) continue
     const meters = panelEdgeMeters(p)
     mm2 += meters.mm2
     mm05 += meters.mm05

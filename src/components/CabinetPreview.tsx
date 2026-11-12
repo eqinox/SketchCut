@@ -6,6 +6,7 @@ import {
   parseKitchenWallParams,
   parseNightstandParams,
   parseVanityParams,
+  parseBedParams,
   vanityBackSpans,
   vanityOpening,
   parseSectionParams,
@@ -51,6 +52,7 @@ import {
   type InteriorLayout,
   type PanelHole,
 } from '@/lib/cabinets'
+import { BedPreview } from '@/components/BedPreview'
 import { PullChoiceContext, pullChoiceFrom, type PullSku } from '@/lib/cabinets/pulls'
 import {
   BETWEEN_FACES,
@@ -585,6 +587,23 @@ function CabinetPreviewView({
   const showMarks = drawStyle === 'line'
   const model = drawStyle === 'model' || captureSolids
   const suppressOuter = { height: suppressOuterHeight, width: suppressOuterWidth }
+  if (typeId === 'bed') {
+    return (
+      <ShowCabinetMarks.Provider value={showMarks}>
+      <PreviewPartContext.Provider value={part}>
+      <PreviewIsModel.Provider value={model}>
+      <WithDecor entries={textureEntries}>
+        <div className={cn('flex flex-col gap-3', className)}>
+          <FrontDrawing title="3D Изглед отпред">
+            <BedPreview params={parseBedParams(drawnParams)} showDims={showMarks} />
+          </FrontDrawing>
+        </div>
+      </WithDecor>
+      </PreviewIsModel.Provider>
+      </PreviewPartContext.Provider>
+      </ShowCabinetMarks.Provider>
+    )
+  }
   if (typeId === 'kitchen-wall') {
     return (
       <CoveredTopContext.Provider value={coveredTop}>

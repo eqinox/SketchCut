@@ -184,6 +184,8 @@ export interface GeneratedPanel {
   groupId?: string
   /** If true, this panel is for reference only and should not be included in cutting layout */
   excludeFromCutting?: boolean
+  /** Bought piece that is still edged in the workshop, so its edge metres stay in the price. */
+  billEdges?: boolean
   /** Visual highlight color for grouping (e.g., 'red', 'blue') */
   highlightColor?: string
   /** Cut-out for a cooker hood / duct, drawn on the panel and noted on the list. */

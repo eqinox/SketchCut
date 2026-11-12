@@ -141,6 +141,8 @@ export function SettingsDialog({
   const [shelfPin, setShelfPin] = useState('')
   const [handleNormal, setHandleNormal] = useState('')
   const [handleTara, setHandleTara] = useState('')
+  const [bedSlatFrame, setBedSlatFrame] = useState('')
+  const [bedLiftPrice, setBedLiftPrice] = useState('')
   const [clothesRailPrice, setClothesRailPrice] = useState('')
   const [slidingUpperTrack, setSlidingUpperTrack] = useState<Record<SlidingTrackColor, string>>(
     Object.fromEntries(SLIDING_TRACK_COLOR_IDS.map((id) => [id, ''])) as Record<SlidingTrackColor, string>,
@@ -248,6 +250,8 @@ export function SettingsDialog({
     setShelfPin(String(s.shelfPinEur))
     setHandleNormal(String(s.handleNormalEur))
     setHandleTara(String(s.handleTaraEur))
+    setBedSlatFrame(String(s.bedSlatFrameEur))
+    setBedLiftPrice(String(s.bedLiftMechanismEur))
     setClothesRailPrice(String(s.clothesRailEurPerM))
     setSlidingUpperTrack(
       Object.fromEntries(SLIDING_TRACK_COLOR_IDS.map((id) => [id, String(s.slidingUpperTrackEur[id])])) as Record<
@@ -376,6 +380,8 @@ export function SettingsDialog({
       shelfPinEur: parseFloat(shelfPin) || DEFAULT_HARDWARE_SETTINGS.shelfPinEur,
       handleNormalEur: parseFloat(handleNormal) || DEFAULT_HARDWARE_SETTINGS.handleNormalEur,
       handleTaraEur: parseFloat(handleTara) || DEFAULT_HARDWARE_SETTINGS.handleTaraEur,
+      bedSlatFrameEur: Math.max(0, parseFloat(bedSlatFrame) || 0),
+      bedLiftMechanismEur: Math.max(0, parseFloat(bedLiftPrice) || 0),
       slidingHandleEurPerM: DEFAULT_HARDWARE_SETTINGS.slidingHandleEurPerM,
       slidingCapEurPerM: DEFAULT_HARDWARE_SETTINGS.slidingCapEurPerM,
       slidingUpperTrackEur: Object.fromEntries(
@@ -773,6 +779,32 @@ export function SettingsDialog({
               />
               <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
                 Лък хром/инокс. 96/128 мм е 158×26×16 мм, 160/192 мм е 233×26×18 мм. И двата размера са на тази цена.
+              </p>
+            </div>
+            <div className="rounded-md border border-[var(--color-border)] p-4">
+              <h3 className="mb-3 font-medium">Легло</h3>
+              <Label htmlFor="bed-frame-price">Подматрачна рамка (€/бр.)</Label>
+              <Input
+                id="bed-frame-price"
+                type="number"
+                step="0.01"
+                min="0"
+                value={bedSlatFrame}
+                onChange={(e) => setBedSlatFrame(e.target.value)}
+              />
+              <Label htmlFor="bed-lift-price" className="mt-3">
+                Механизъм за повдигане (€/бр.)
+              </Label>
+              <Input
+                id="bed-lift-price"
+                type="number"
+                step="0.01"
+                min="0"
+                value={bedLiftPrice}
+                onChange={(e) => setBedLiftPrice(e.target.value)}
+              />
+              <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
+                Рамката е 20 мм и се кантира. Механизмът е един за ляво и дясно.
               </p>
             </div>
             <div className="rounded-md border border-[var(--color-border)] p-4 sm:col-span-2">

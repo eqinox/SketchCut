@@ -208,7 +208,7 @@ function edgeSection(panels: GeneratedPanel[], settings: HardwareSettings): Pric
   const lines: PriceBreakdownLine[] = []
   let mm2 = 0
   let mm05 = 0
-  for (const p of billablePanels(panels)) {
+  for (const p of panels.filter((panel) => !panel.excludeFromCutting || panel.billEdges)) {
     const meters = panelEdgeMeters(p)
     const pushBand = (kind: 'mm2' | 'mm05', totalM: number) => {
       if (!(totalM > 0)) return

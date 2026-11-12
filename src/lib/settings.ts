@@ -55,6 +55,10 @@ export interface HardwareSettings {
   slidingLinks: SlidingHardwareLinks
   /** Clothes hanging rail, EUR per metre. */
   clothesRailEurPerM: number
+  /** Bought slat base for a bed, EUR each. */
+  bedSlatFrameEur: number
+  /** Mattress lift mechanism for a bed, EUR each. */
+  bedLiftMechanismEur: number
 
   edgeMm2Eur: number
   edgeMm05Eur: number
@@ -150,6 +154,8 @@ export const DEFAULT_HARDWARE_SETTINGS: HardwareSettings = {
   slidingCapSkus: DEFAULT_SLIDING_CAP_SKUS.map((sku) => ({ ...sku })),
   slidingLinks: { ...DEFAULT_SLIDING_LINKS },
   clothesRailEurPerM: 1,
+  bedSlatFrameEur: 0,
+  bedLiftMechanismEur: 0,
   edgeMm2Eur: 0.7,
   edgeMm05Eur: 0.35,
   billWholeSheets: true,
@@ -218,6 +224,8 @@ export function parseHardwareSettings(raw: unknown): HardwareSettings {
     slidingCapSkus: parseSlidingSkuList(src.slidingCapSkus, d.slidingCapSkus),
     slidingLinks: parseSlidingLinks(src.slidingLinks),
     clothesRailEurPerM: num(src, 'clothesRailEurPerM', d.clothesRailEurPerM),
+    bedSlatFrameEur: num(src, 'bedSlatFrameEur', d.bedSlatFrameEur),
+    bedLiftMechanismEur: num(src, 'bedLiftMechanismEur', d.bedLiftMechanismEur),
     edgeMm2Eur: num(src, 'edgeMm2Eur', d.edgeMm2Eur),
     edgeMm05Eur: num(src, 'edgeMm05Eur', d.edgeMm05Eur),
     billWholeSheets: flag(src, 'billWholeSheets', d.billWholeSheets),

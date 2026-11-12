@@ -4,6 +4,7 @@ import { kitchenBaseType } from './kitchen-base'
 import { kitchenWallType } from './kitchen-wall'
 import { nightstandType } from './nightstand'
 import { sectionType } from './section'
+import { bedType } from './bed'
 import { vanityType } from './vanity'
 import { wardrobeType } from './wardrobe'
 import type { CabinetGeneratorResult, CabinetTypeDefinition } from './types'
@@ -17,7 +18,7 @@ import {
  * Register new cabinet / wardrobe types here. Each type owns its default
  * params and a generate() that returns panels, joinery, hardware and notes.
  */
-export const CABINET_TYPES: CabinetTypeDefinition[] = [kitchenBaseType, kitchenWallType, nightstandType, vanityType, sectionType, wardrobeType]
+export const CABINET_TYPES: CabinetTypeDefinition[] = [kitchenBaseType, kitchenWallType, nightstandType, vanityType, bedType, sectionType, wardrobeType]
 
 export function getCabinetType(id: string): CabinetTypeDefinition | undefined {
   return CABINET_TYPES.find((t) => t.id === id)

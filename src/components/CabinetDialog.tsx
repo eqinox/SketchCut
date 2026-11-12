@@ -191,6 +191,13 @@ import {
   type VanityLegSide,
   type VanityParams,
 } from '@/lib/cabinets/vanity'
+import {
+  BED_INNER_DROP_MM,
+  DEFAULT_BED_PARAMS,
+  bedError,
+  measureBed,
+  parseBedParams,
+} from '@/lib/cabinets/bed'
 import type { PartitionSpec } from '@/lib/cabinets/zones'
 
 type MovableShelfUi = {
@@ -1345,6 +1352,13 @@ function CabinetDialogForm({
         ? initialBox
         : initialKitchen
 
+  const initialBed = editing?.typeId === 'bed' ? parseBedParams(editing.params) : DEFAULT_BED_PARAMS
+  const [bedMattressLength, setBedMattressLength] = useState(String(initialBed.mattressLength))
+  const [bedMattressWidth, setBedMattressWidth] = useState(String(initialBed.mattressWidth))
+  const [bedSideHeight, setBedSideHeight] = useState(String(initialBed.sideHeight))
+  const [bedLift, setBedLift] = useState(initialBed.liftMechanism)
+  const [bedHeadboard, setBedHeadboard] = useState(initialBed.headboard)
+  const [bedHeadboardHeight, setBedHeadboardHeight] = useState(String(initialBed.headboardHeight))
   const [width, setWidth] = useState(String(editing?.params.width ?? DEFAULT_KITCHEN_BASE_PARAMS.width))
   const [height, setHeight] = useState(String(editing?.params.height ?? DEFAULT_KITCHEN_BASE_PARAMS.height))
   const [depth, setDepth] = useState(String(editing?.params.depth ?? DEFAULT_KITCHEN_BASE_PARAMS.depth))
@@ -1522,6 +1536,32 @@ function CabinetDialogForm({
   }
 
   const builtParams = useMemo(() => {
+    if (typeId === 'bed') {
+      const bed = parseBedParams({
+        mattressLength: parseInt(bedMattressLength, 10),
+        mattressWidth: parseInt(bedMattressWidth, 10),
+        sideHeight: parseInt(bedSideHeight, 10),
+        thickness: parseInt(thickness, 10),
+        liftMechanism: bedLift,
+        headboard: bedHeadboard,
+        headboardHeight: parseInt(bedHeadboardHeight, 10),
+        colors,
+      })
+      return {
+        ...bed,
+        drawerFrontHeights: [] as number[],
+        doorCount: 0 as DoorCount,
+        shelfCount: 0,
+        movableShelves: [] as never[],
+        fixedShelves: [] as never[],
+        partitions: [] as never[],
+        doorSpan: 'full' as const,
+        zones: {} as Record<string, never>,
+        hasClothesRail: false,
+        clothesRails: [] as never[],
+        cutFromOneBoard: false,
+      }
+    }
     const inputDepth = parseInt(depth, 10)
     const inputThickness = parseInt(thickness, 10)
 
@@ -1699,7 +1739,7 @@ function CabinetDialogForm({
       colors,
       ...fittings,
     })
-  }, [typeId, width, height, depth, depthMode, thickness, legHeight, shelfCount, movableShelves, hasBack, nailBack, clothesRails, doorCount, doorStyle, slidingDoorCount, slidingEdges, slidingUpperTrackColor, slidingLowerTrackColor, slidingHandleSkuId, slidingCapSkuId, slidingSoftCloseLeft, slidingSoftCloseRight, drawerFrontHeights, cutFromOneBoard, includeHandles, handleSku, handleOverrides, slideKind, slideLength, useLegs, plinthCount, plinthHeight, colors, topStyle, hasHood, hoodShape, hoodDiameter, hoodRectW, hoodRectD, fixedShelves, partitions, doorSpan, zoneUi, externalDoors, innerDrawerFronts, innerDoors, dimFontScale, shelfFrontInset, knee, kneeWidth, legSide, backRailHeight])
+  }, [typeId, width, height, depth, depthMode, thickness, legHeight, shelfCount, movableShelves, hasBack, nailBack, clothesRails, doorCount, doorStyle, slidingDoorCount, slidingEdges, slidingUpperTrackColor, slidingLowerTrackColor, slidingHandleSkuId, slidingCapSkuId, slidingSoftCloseLeft, slidingSoftCloseRight, drawerFrontHeights, cutFromOneBoard, includeHandles, handleSku, handleOverrides, slideKind, slideLength, useLegs, plinthCount, plinthHeight, colors, topStyle, hasHood, hoodShape, hoodDiameter, hoodRectW, hoodRectD, fixedShelves, partitions, doorSpan, zoneUi, externalDoors, innerDrawerFronts, innerDoors, dimFontScale, shelfFrontInset, knee, kneeWidth, legSide, backRailHeight, bedMattressLength, bedMattressWidth, bedSideHeight, bedLift, bedHeadboard, bedHeadboardHeight])
 
   const params = useMemo(
     () => ({
@@ -1762,10 +1802,14 @@ function CabinetDialogForm({
   const isSlidingCabinet = typeId === 'wardrobe' || (typeId === 'section' && doorStyle === 'sliding')
   const slidingLocksDepth = isSlidingCabinet && depthMode !== 'no-doors'
   const nsMeasure =
-    isKitchenCarcass
+    isKitchenCarcass || typeId === 'bed'
       ? null
       : measureNightstand(params as ReturnType<typeof parseNightstandParams>, typeId === 'section' || typeId === 'wardrobe')
-  const slidePanelD = isKitchenCarcass ? params.depth : isSlidingCabinet ? nsMeasure!.partitionD : nsMeasure!.sideD
+  const slidePanelD = nsMeasure
+    ? isSlidingCabinet
+      ? nsMeasure.partitionD
+      : nsMeasure.sideD
+    : params.depth
   const slideOverlayMm =
     isSlidingCabinet &&
     !(params as { innerDrawerFronts?: boolean }).innerDrawerFronts &&
@@ -1776,9 +1820,11 @@ function CabinetDialogForm({
   const shelfFromPartition = nsMeasure?.sliding === true
   const shelfReferenceD = isKitchenCarcass
     ? flushCarcassDepth(params.depth, params.thickness, depthMode)
-    : shelfFromPartition
-      ? nsMeasure!.partitionD
-      : nsMeasure!.sideD
+    : !nsMeasure
+      ? params.depth
+      : shelfFromPartition
+        ? nsMeasure.partitionD
+        : nsMeasure.sideD
   const shelfInsetValue = Math.max(0, parseInt(shelfFrontInset, 10) || 0)
   const shelfCutDepth = Math.max(params.thickness, shelfReferenceD - shelfInsetValue)
   function alignShelfInset(nextSliding: boolean) {
@@ -1797,7 +1843,9 @@ function CabinetDialogForm({
       ? kitchenClearInnerH(params.height, params.thickness, (params as ReturnType<typeof parseKitchenBaseParams>).topStyle)
       : typeId === 'kitchen-wall'
         ? params.height - 2 * params.thickness
-        : nsMeasure!.innerH
+        : typeId === 'bed'
+          ? params.height
+          : nsMeasure!.innerH
   const floorDropMm =
     typeId === 'kitchen-wall'
       ? 0
@@ -1814,8 +1862,8 @@ function CabinetDialogForm({
         : 'горе'
   const topOriginLabel =
     topBoardCaption === 'плота' ? 'Плот' : topBoardCaption === 'блендата' ? 'Бленда' : 'Отгоре'
-  const innerW = isKitchenCarcass ? params.width - 2 * params.thickness : nsMeasure!.innerW
-  const frontH = isKitchenCarcass ? params.height : nsMeasure!.frontHeight
+  const innerW = isKitchenCarcass || typeId === 'bed' ? params.width - 2 * params.thickness : nsMeasure!.innerW
+  const frontH = isKitchenCarcass || typeId === 'bed' ? params.height : nsMeasure!.frontHeight
   const overlayFrontH = isSlidingCabinet ? innerH : frontH
   const drawerFrontH = innerDrawerFronts ? innerH : overlayFrontH
   const doorFrontH = innerDoors ? innerH : overlayFrontH
@@ -2870,6 +2918,8 @@ function CabinetDialogForm({
           <DialogDescription>
             {attached.length > 0
               ? 'Чертежът е общ. Промените по размери и всичко останало се записват върху оригиналните шкафове. Всеки от тях си остава отделен и се отваря сам.'
+              : typeId === 'bed'
+              ? 'Матракът плюс 50 мм е леглото. Дъното е отвън, плотът влиза между страниците.'
               : typeId === 'vanity'
               ? 'Седяща маса. Плотът минава над отвора за краката. Под отвора няма дъно и цокъл.'
               : typeId === 'nightstand'
@@ -2895,7 +2945,20 @@ function CabinetDialogForm({
                 const id = e.target.value
                 setTypeId(id)
                 setShelfFrontInset(String(shelfFrontInsetMm({ doorStyle: id === 'wardrobe' ? 'sliding' : 'hinged' })))
-                if (id === 'vanity') {
+                if (id === 'bed') {
+                  const d = DEFAULT_BED_PARAMS
+                  setBedMattressLength(String(d.mattressLength))
+                  setBedMattressWidth(String(d.mattressWidth))
+                  setBedSideHeight(String(d.sideHeight))
+                  setBedLift(false)
+                  setBedHeadboard(false)
+                  setBedHeadboardHeight(String(d.headboardHeight))
+                  setThickness(String(d.thickness))
+                  setDoorCount(0)
+                  setDrawerFrontHeights([])
+                  setShelfCount(0)
+                  setHasBack(false)
+                } else if (id === 'vanity') {
                   const d = DEFAULT_VANITY_PARAMS
                   const opening = vanityOpening(d)
                   setWidth(String(d.width))
@@ -3093,13 +3156,35 @@ function CabinetDialogForm({
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <NumField id="cab-w" label="Ширина" value={width} onChange={setWidth} />
-          <NumField id="cab-h" label={typeId === 'kitchen-base' ? 'Височина корпус' : 'Височина'} value={height} onChange={setHeight} />
-          <NumField id="cab-d" label="Дълбочина" value={depth} onChange={setDepth} />
-          <NumField id="cab-t" label="Плоскост" value={thickness} onChange={setThickness} />
-        </div>
-        
+        {typeId === 'bed' ? (
+          <>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <NumField id="bed-len" label="Матрак дължина" value={bedMattressLength} onChange={setBedMattressLength} />
+              <NumField id="bed-wid" label="Матрак широчина" value={bedMattressWidth} onChange={setBedMattressWidth} />
+              <NumField id="bed-side" label="Височина на страниците" value={bedSideHeight} onChange={setBedSideHeight} />
+              <NumField id="cab-t" label="Плоскост" value={thickness} onChange={setThickness} />
+            </div>
+            <BedOptions
+              lift={bedLift}
+              onLift={setBedLift}
+              headboard={bedHeadboard}
+              onHeadboard={setBedHeadboard}
+              headHeight={bedHeadboardHeight}
+              onHeadHeight={setBedHeadboardHeight}
+              hint={bedHint(bedMattressLength, bedMattressWidth, bedSideHeight, thickness, bedHeadboard, bedHeadboardHeight)}
+            />
+          </>
+        ) : (
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <NumField id="cab-w" label="Ширина" value={width} onChange={setWidth} />
+            <NumField id="cab-h" label={typeId === 'kitchen-base' ? 'Височина корпус' : 'Височина'} value={height} onChange={setHeight} />
+            <NumField id="cab-d" label="Дълбочина" value={depth} onChange={setDepth} />
+            <NumField id="cab-t" label="Плоскост" value={thickness} onChange={setThickness} />
+          </div>
+        )}
+
+        {typeId !== 'bed' && (
+        <>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded border p-2">
           <span className="text-sm font-medium">Дълбочината е:</span>
           <div className="flex items-center gap-2">
@@ -3167,6 +3252,8 @@ function CabinetDialogForm({
                 ? `Без вратата в размера, но има наложено чело: страниците са ${formatMm(nsMeasure.sideD)} мм.`
                 : 'Без вратата: въведената дълбочина е на корпуса.'}
         </p>
+        </>
+        )}
 
         <CabinetSizeBadge
           width={params.width}
@@ -7152,6 +7239,7 @@ function validate(
   clearanceBottom = 0,
   inset?: { drawers?: boolean; doors?: boolean; innerH?: number },
 ): string | null {
+  if (typeId === 'bed') return bedError(parseBedParams(p as unknown as Record<string, unknown>))
   if (typeId !== 'kitchen-base' && typeId !== 'kitchen-wall' && typeId !== 'nightstand' && typeId !== 'vanity' && typeId !== 'section' && typeId !== 'wardrobe') return null
   if (typeId === 'vanity') {
     const kneeErr = vanityKneeError(p as VanityParams, layout)
@@ -7237,6 +7325,63 @@ function combineHint(doorCount: number, fromOneBoard: boolean, adjacentParts = f
     return 'Челата и вратата се режат от една плоча за продължена фладера, кантират се, после се разрязват.'
   }
   return 'Челата се режат от една плоча за продължена фладера, кантират се, после се разрязват.'
+}
+
+function bedHint(
+  len: string,
+  wid: string,
+  side: string,
+  thick: string,
+  head: boolean,
+  headH: string,
+): string {
+  const parsed = parseBedParams({
+    mattressLength: parseInt(len, 10),
+    mattressWidth: parseInt(wid, 10),
+    sideHeight: parseInt(side, 10),
+    thickness: parseInt(thick, 10),
+    headboard: head,
+    headboardHeight: parseInt(headH, 10),
+  })
+  const m = measureBed(parsed)
+  return `Легло ${formatMm(m.length)} × ${formatMm(m.width)} мм. Страници ${formatMm(m.sideLength)} × ${formatMm(m.sideHeight)}. Плот ${formatMm(m.topWidth)}. Вътрешни ${formatMm(m.innerHeight)} мм, със ${BED_INNER_DROP_MM} мм по-ниски. Плоскости ${formatMm(Math.round(m.supportWidth))} × ${formatMm(m.innerHeight)}.`
+}
+
+function BedOptions({
+  lift,
+  onLift,
+  headboard,
+  onHeadboard,
+  headHeight,
+  onHeadHeight,
+  hint,
+}: {
+  lift: boolean
+  onLift: (next: boolean) => void
+  headboard: boolean
+  onHeadboard: (next: boolean) => void
+  headHeight: string
+  onHeadHeight: (next: string) => void
+  hint: string
+}) {
+  return (
+    <div className="rounded border p-2">
+      <div className="flex flex-wrap gap-2">
+        <Button type="button" size="sm" variant={lift ? 'default' : 'outline'} onClick={() => onLift(!lift)}>
+          Механизъм за повдигане
+        </Button>
+        <Button type="button" size="sm" variant={headboard ? 'default' : 'outline'} onClick={() => onHeadboard(!headboard)}>
+          Табла
+        </Button>
+      </div>
+      {headboard && (
+        <div className="mt-2 max-w-xs">
+          <NumField id="bed-head" label="Височина на таблата" value={headHeight} onChange={onHeadHeight} />
+        </div>
+      )}
+      <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">{hint}</p>
+    </div>
+  )
 }
 
 function NumField({

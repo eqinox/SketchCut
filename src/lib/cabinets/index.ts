@@ -301,6 +301,20 @@ export {
 } from './vanity'
 export type { VanityKnee, VanityParams } from './vanity'
 export {
+  BED_TYPE_ID,
+  BED_MATTRESS_ALLOWANCE_MM,
+  BED_INNER_DROP_MM,
+  BED_FRAME_HEIGHT_MM,
+  BED_LIFT_PANEL_MM,
+  DEFAULT_BED_PARAMS,
+  parseBedParams,
+  measureBed,
+  bedError,
+  generateBed,
+  bedType,
+} from './bed'
+export type { BedParams } from './bed'
+export {
   SECTION_TYPE_ID,
   DEFAULT_SECTION_PARAMS,
   parseSectionParams,
