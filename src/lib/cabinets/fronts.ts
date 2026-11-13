@@ -410,6 +410,7 @@ export function appendShelves(
     shelfDepth?: number
     depthNote?: string
     placements?: MovableShelfSpec[]
+    pieceKeys?: string[]
   },
   panels: GeneratedPanel[],
   hardware: HardwareItem[],
@@ -462,6 +463,7 @@ export function appendShelves(
       ? `Кант: предната видима страна. Дълбочина ${shelfDepth} мм${frontInset > 0 ? ` (страницата минус ${frontInset} мм отпред)` : ''}. ${panelHoleNote(hole)}`
       : `Кант: предната видима страна. Дълбочина ${shelfDepth} мм${frontInset > 0 ? ` (страницата минус ${frontInset} мм отпред)` : ''}.`,
     hole,
+    ...(input.pieceKeys && input.pieceKeys.length > 0 ? { pieceKeys: input.pieceKeys } : {}),
   })
 }
 
@@ -480,6 +482,7 @@ export function appendFixedShelves(
     shelfWidths?: (number | null)[]
     hole?: PanelHole
     depthNote?: string
+    shelfKeys?: string[]
   },
   panels: GeneratedPanel[],
   hardware: HardwareItem[],
@@ -490,24 +493,29 @@ export function appendFixedShelves(
   const allBays = (input.columnInnerWs?.filter((w) => w > 0) ?? []).length > 1
     ? input.columnInnerWs!.filter((w) => w > 0)
     : [input.innerW]
-  const pieces: number[] = []
+  const pieces: { w: number; key?: string }[] = []
+  const pushPiece = (w: number | undefined, key?: string) => {
+    if (typeof w === 'number' && w > 0) pieces.push({ w, key })
+  }
   if (input.shelfColumns && input.shelfColumns.length > 0) {
     input.shelfColumns.forEach((col, index) => {
+      const key = input.shelfKeys?.[index]
       const span = input.shelfWidths?.[index]
       if (typeof span === 'number' && span > 0) {
-        pieces.push(span)
+        pushPiece(span, key)
         return
       }
       if (col == null) {
-        pieces.push(...allBays)
+        for (const w of allBays) pushPiece(w, key)
       } else {
         const w = input.columnInnerWs?.[col]
-        if (typeof w === 'number' && w > 0) pieces.push(w)
-        else if (allBays.length === 1) pieces.push(allBays[0])
+        pushPiece(typeof w === 'number' && w > 0 ? w : allBays.length === 1 ? allBays[0] : undefined, key)
       }
     })
   } else {
-    for (let i = 0; i < input.count; i++) pieces.push(...allBays)
+    for (let i = 0; i < input.count; i++) {
+      for (const w of allBays) pushPiece(w, input.shelfKeys?.[i])
+    }
   }
   if (pieces.length === 0) return
   const perSide = confirmatCount(input.sideD)
@@ -530,16 +538,21 @@ export function appendFixedShelves(
       `Фиксиран рафт — ${perSide} на страница`,
     ),
   )
-  const byWidth = new Map<number, number>()
-  for (const w of pieces) byWidth.set(w, (byWidth.get(w) ?? 0) + 1)
-  for (const [w, qty] of byWidth) {
+  const byWidth = new Map<number, string[]>()
+  for (const piece of pieces) {
+    const keys = byWidth.get(piece.w) ?? []
+    keys.push(piece.key ?? '')
+    byWidth.set(piece.w, keys)
+  }
+  for (const [w, keys] of byWidth) {
       const hole = input.hole && panelHoleFits(w, input.sideD, input.hole) ? input.hole : undefined
       panels.push({
       role: 'shelf',
       name: pieces.length > input.count || allBays.length > 1 ? 'Фиксиран рафт (част)' : 'Фиксиран рафт',
       width: w,
       height: input.sideD,
-      quantity: qty,
+      quantity: keys.length,
+      ...(keys.some(Boolean) ? { pieceKeys: keys } : {}),
       canRotate: true,
       edges: edges({ top: true }),
       note: hole
@@ -562,6 +575,7 @@ export function appendPartitions(
     stopsAtShelf?: boolean
     /** The page stands on a fixed shelf and fills only the part above it. */
     aboveShelf?: boolean
+    pieceKeys?: string[]
   },
   panels: GeneratedPanel[],
   hardware: HardwareItem[],
@@ -623,6 +637,7 @@ export function appendPartitions(
       : input.stopsAtShelf
         ? 'Кант: предна и горна. Сяда на дъното и стига до долната страна на фиксирания рафт.'
         : 'Кант: предна и горна. Сяда на дъното като вътрешна страница.',
+    ...(input.pieceKeys && input.pieceKeys.length > 0 ? { pieceKeys: input.pieceKeys } : {}),
   })
 }
 
@@ -651,6 +666,8 @@ export function appendDoorsAndDrawers(
     innerWidth?: number
     /** Clear height of the cavity (underside of the top / shelf above). */
     innerHeight?: number
+    /** Drawing id stem: `full` or a zone id. Doors and drawer fronts use it. */
+    pieceStem?: string
   },
   panels: GeneratedPanel[],
   hardware: HardwareItem[],
@@ -864,6 +881,7 @@ export function appendDoorsAndDrawers(
             quantity: 1,
             canRotate: false,
             edges: edges({ top: true, bottom: true, left: true, right: true }),
+            ...(input.pieceStem ? { pieceKeys: [`drawer-front-${input.pieceStem}-${i}`] } : {}),
             note: insetDrawers
               ? 'Вътрешно чело — влиза между страниците. Фуга 3 мм отляво и 3 мм отдясно. Кант 2 мм от 4 страни. Размерът е за рязане (без канта).'
               : 'Външно чело — покрива канта на страниците. Кант 2 мм от 4 страни. Размерът е за рязане (без канта).',
@@ -1026,6 +1044,14 @@ export function appendDoorsAndDrawers(
         quantity: doorCount,
         canRotate: false,
         edges: edges({ top: true, bottom: true, left: true, right: true }),
+        ...(input.pieceStem
+          ? {
+              pieceKeys:
+                doorCount <= 1
+                  ? [`door-${input.pieceStem}`]
+                  : Array.from({ length: doorCount }, (_, i) => `door-${input.pieceStem}-${i}`),
+            }
+          : {}),
         note: insetDoors
           ? `Вътрешна врата — влиза между страниците. Фуга 3 мм отляво и 3 мм отдясно. Кант 2 мм от 4 страни. ${doorWord}. Размерът е за рязане (без канта).`
           : `Външна врата — покрива канта на страниците. Кант 2 мм от 4 страни. ${doorWord}. Размерът е за рязане (без канта).`,
@@ -1191,6 +1217,7 @@ export function appendZonedInterior(
     appendPartitions(
       {
         count: fullPartitions.length,
+        pieceKeys: fullPartitions.map((part) => `divider-${part.specIndex}`),
         sideD: partitionD,
         sideH: input.sideH ?? input.innerH,
         positionsNote: `Позиция: ${pos}.${sliding ? ` Дълбочина ${formatMm(partitionD)} мм — ${SLIDING_PARTITION_SETBACK_MM} мм по-плитка от корпуса, за плъзгащите врати.` : ''}`,
@@ -1217,6 +1244,7 @@ export function appendZonedInterior(
       appendPartitions(
         {
           count: group.length,
+          pieceKeys: group.map((part) => `divider-${part.specIndex}`),
           sideD: partitionD,
           sideH: group[0]!.height,
           stopsAtShelf: !above,
@@ -1255,6 +1283,7 @@ export function appendZonedInterior(
         ),
         hole: input.shelfHole,
         depthNote: fixedDepthNote,
+        shelfKeys: layout.shelves.map((shelf) => `shelf-${shelf.specIndex}`),
       },
       panels,
       hardware,
@@ -1277,6 +1306,7 @@ export function appendZonedInterior(
         hole: input.shelfHole,
         shelfDepth: shelfD,
         depthNote: slidingShelfNote,
+        pieceKeys: Array.from({ length: z.movable.length > 0 ? z.movable.length : z.shelfCount }, (_, index) => `shelf-${z.id}-${index}`),
       },
       panels,
       hardware,
@@ -1396,6 +1426,7 @@ export function appendZonedInterior(
         innerDoors: f.innerDoors,
         innerWidth: input.innerW,
         innerHeight: input.innerH,
+        pieceStem: 'full',
       },
       panels,
       hardware,
@@ -1422,6 +1453,7 @@ export function appendZonedInterior(
         innerDoors: f.innerDoors,
         innerWidth: input.innerW,
         innerHeight: input.innerH,
+        pieceStem: 'full',
       },
       panels,
       hardware,
@@ -1453,6 +1485,7 @@ export function appendZonedInterior(
           innerDoors: f.innerDoors,
           innerWidth: z.innerW > 0 ? z.innerW : input.innerW,
           innerHeight: z.innerH,
+          pieceStem: z.id,
         },
         panels,
         hardware,
@@ -1482,6 +1515,7 @@ export function appendZonedInterior(
           innerDoors: f.innerDoors,
           innerWidth: z.innerW > 0 ? z.innerW : input.innerW,
           innerHeight: z.innerH,
+          pieceStem: z.id,
         },
         panels,
         hardware,
@@ -1554,18 +1588,21 @@ export function appendHangingFascias(
 ): { screws: number; bayCount: number } {
   const bayCount = Math.max(1, input.columns.length)
   const R = input.railWidth
-  const byWidth = new Map<number, number>()
-  for (const col of input.columns) {
+  const byWidth = new Map<number, string[]>()
+  input.columns.forEach((col, i) => {
     const w = exactMm(col.innerW > 0 ? col.innerW : input.fallbackInnerW)
-    byWidth.set(w, (byWidth.get(w) ?? 0) + 1)
-  }
-  for (const [w, qty] of byWidth) {
+    const keys = byWidth.get(w) ?? []
+    keys.push(`fascia-${i}`)
+    byWidth.set(w, keys)
+  })
+  for (const [w, keys] of byWidth) {
     panels.push({
       role: 'rail',
       name: bayCount > 1 ? 'Бленда надолу (част)' : 'Бленда надолу',
       width: w,
       height: R,
-      quantity: qty,
+      quantity: keys.length,
+      pieceKeys: keys,
       canRotate: false,
       edges: edges({ bottom: true }),
       note:

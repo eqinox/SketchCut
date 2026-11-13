@@ -64,6 +64,40 @@ export function finishById(finishes: BoardFinish[], id: string | undefined): Boa
   return finishes.find((finish) => finish.id === id)
 }
 
+/** One drawn piece points at a board from the workshop list, not at a free colour. */
+export function parsePieceFinishes(raw: unknown): Record<string, string> {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {}
+  const out: Record<string, string> = {}
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (!key || key.length > 80 || typeof value !== 'string') continue
+    const id = value.trim()
+    if (!id || id.length > 80) continue
+    out[key] = id
+  }
+  return out
+}
+
+/** Colour and photo of each piece, taken from the board it points at. */
+export function paintForPieceFinishes(
+  raw: unknown,
+  finishes: BoardFinish[],
+): { colors: Record<string, string>; images: { color: string; image: string }[] } {
+  const colors: Record<string, string> = {}
+  const images: { color: string; image: string }[] = []
+  const seen = new Set<string>()
+  for (const [piece, id] of Object.entries(parsePieceFinishes(raw))) {
+    const finish = finishById(finishes, id)
+    if (!finish) continue
+    colors[piece] = finish.color
+    const key = finish.color.toLowerCase()
+    if (finish.image && !seen.has(key)) {
+      seen.add(key)
+      images.push({ color: finish.color, image: finish.image })
+    }
+  }
+  return { colors, images }
+}
+
 export function newBoardFinish(
   name: string,
   color: string,
@@ -80,21 +114,59 @@ export function newBoardFinish(
   }
 }
 
-/** Doors and fronts take the front decor. The rest of the chipboard takes the carcass decor. */
+function panelWithoutPieceKeys(panel: GeneratedPanel): GeneratedPanel {
+  if (!panel.pieceKeys) return panel
+  const { pieceKeys: _keys, ...rest } = panel
+  return rest
+}
+
+function withFinish(panel: GeneratedPanel, finishId: string): GeneratedPanel {
+  const plain = panelWithoutPieceKeys(panel)
+  return finishId ? { ...plain, finishId } : plain
+}
+
+/**
+ * Doors and fronts take the front decor. The rest of the chipboard takes the carcass decor.
+ * A piece chosen on the drawing takes that board instead, and a shared line splits when the copies differ.
+ */
 export function stampPanelFinishes(
   panels: GeneratedPanel[],
   carcassId: unknown,
   frontId: unknown,
+  pieceFinishesRaw?: unknown,
 ): GeneratedPanel[] {
+  const chosen = parsePieceFinishes(pieceFinishesRaw)
   const carcass = typeof carcassId === 'string' ? carcassId : ''
   const front = typeof frontId === 'string' ? frontId : ''
-  if (!carcass && !front) return panels
   const carcassFinish = carcass || front
   const frontFinish = front || carcass
-  return panels.map((panel) => {
-    if (panel.material === 'hardboard' || panel.excludeFromCutting) return panel
-    return { ...panel, finishId: isFrontPanel(panel.role) ? frontFinish : carcassFinish }
-  })
+  const out: GeneratedPanel[] = []
+  for (const panel of panels) {
+    if (panel.material === 'hardboard' || panel.excludeFromCutting) {
+      out.push(panelWithoutPieceKeys(panel))
+      continue
+    }
+    const fallback = isFrontPanel(panel.role) ? frontFinish : carcassFinish
+    const keys = panel.pieceKeys
+    if (!keys || keys.length === 0) {
+      out.push(withFinish(panel, fallback))
+      continue
+    }
+    const groups = new Map<string, number>()
+    for (let i = 0; i < panel.quantity; i++) {
+      const key = keys[i]
+      const id = (key && chosen[key]) || fallback || ''
+      groups.set(id, (groups.get(id) ?? 0) + 1)
+    }
+    if (groups.size <= 1) {
+      out.push(withFinish(panel, [...groups.keys()][0] ?? ''))
+      continue
+    }
+    for (const [id, quantity] of groups) {
+      out.push(withFinish({ ...panel, quantity }, id))
+    }
+  }
+  return out
 }
 
 export function chipboardFinishIds(panels: GeneratedPanel[]): string[] {

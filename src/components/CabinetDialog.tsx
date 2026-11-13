@@ -13,14 +13,14 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { CabinetPreview } from '@/components/CabinetPreview'
-import { BoardPickContext, type BoardPick } from '@/lib/cabinets/draw-3d'
+import { BoardPickContext } from '@/lib/cabinets/draw-3d'
 import { CabinetGroupView } from '@/components/CabinetGroupView'
 import {
   attachmentTouchesHost,
   cabinetOuterSize,
   isCombinationType,
-  isStacked,
   parseCombination,
+  spanDoorCountOf,
   withAttachments,
   type AttachedCabinet,
 } from '@/lib/cabinets/compose'
@@ -166,6 +166,7 @@ import {
   type CabinetTopStyle,
   type HoodShape,
 } from '@/lib/cabinets'
+import { parsePieceFinishes } from '@/lib/board-finishes'
 import type { HardwareSettings } from '@/lib/settings'
 import { DEFAULT_HARDWARE_SETTINGS } from '@/lib/settings'
 import type { AssemblyTimeSettings } from '@/lib/assembly-time'
@@ -1277,6 +1278,8 @@ interface CabinetDialogProps {
   projectCabinets?: CabinetInstance[]
   onSave: (input: { typeId: string; params: Record<string, unknown>; quantity: number }) => void
   onSaveGroup?: (group: SavedCabinetGroup) => void
+  /** Cabinets already chosen to join, when the dialog is opened from the cabinet list. */
+  startAttached?: AttachedCabinet[]
 }
 
 interface CabinetDialogFormProps extends CabinetDialogProps {
@@ -1302,6 +1305,30 @@ function initialDepthMode(params: Record<string, unknown> | undefined): 'without
       params?.doorCount === 3 ||
       params?.doorCount === 4)
   return hingedOverlay ? 'with-door' : 'without-door'
+}
+
+function pieceColorLabel(id: string): string {
+  if (id === 'side-left' || id === 'inner-left') return id === 'inner-left' ? 'Лява вътрешна' : 'Лява страница'
+  if (id === 'side-right') return 'Дясна страница'
+  if (id === 'inner-right') return 'Дясна вътрешна'
+  if (id === 'middle') return 'Средна страница'
+  if (id === 'headboard') return 'Табла'
+  if (id === 'top') return 'Плот'
+  if (id === 'bottom' || id.startsWith('bottom-')) return 'Дъно'
+  if (id === 'plinth' || id.startsWith('plinth-')) return 'Цокъл'
+  if (id.startsWith('rail-front')) return 'Предна бленда'
+  if (id.startsWith('rail-back')) return 'Задна бленда'
+  if (id.startsWith('fascia')) return 'Бленда'
+  if (id.startsWith('shelf-')) return 'Рафт'
+  if (id.startsWith('divider-')) return 'Разделителна'
+  if (id.startsWith('leg-')) return 'Краче'
+  if (id.startsWith('door')) return 'Врата'
+  if (id.startsWith('drawer-front')) return 'Чело'
+  if (id.startsWith('back')) return 'Гръб'
+  if (id.startsWith('support-')) return 'Плоскост под рамката'
+  if (id.startsWith('lift-')) return 'Плоскост за механизма'
+  if (id.startsWith('box-')) return 'Царга'
+  return 'Детайл'
 }
 
 function CabinetDialogForm({
@@ -1517,7 +1544,10 @@ function CabinetDialogForm({
     ...DEFAULT_PART_COLORS,
     ...(editing?.params.colors as CabinetPartColors | undefined),
   })
-  const [pickedPart, setPickedPart] = useState<BoardPick | null>(null)
+  const [pieceFinishes, setPieceFinishes] = useState<Record<string, string>>(() =>
+    parsePieceFinishes(editing?.params.pieceFinishes),
+  )
+  const [pickedPiece, setPickedPiece] = useState<string | null>(null)
   const [carcassFinishId, setCarcassFinishId] = useState(
     typeof editing?.params.carcassFinishId === 'string' ? editing.params.carcassFinishId : '',
   )
@@ -1746,12 +1776,13 @@ function CabinetDialogForm({
   const params = useMemo(
     () => ({
       ...builtParams,
+      ...(Object.keys(pieceFinishes).length > 0 ? { pieceFinishes } : {}),
       ...(carcassFinishId ? { carcassFinishId } : {}),
       ...(frontFinishId ? { frontFinishId } : {}),
       ...(backFinishId ? { backFinishId } : {}),
       ...(stampAttached && attached.length > 0 ? { attached } : {}),
     }),
-    [builtParams, carcassFinishId, frontFinishId, backFinishId, attached, stampAttached],
+    [builtParams, pieceFinishes, carcassFinishId, frontFinishId, backFinishId, attached, stampAttached],
   )
 
   const qty = Math.max(1, parseInt(quantity, 10) || 1)
@@ -1766,7 +1797,7 @@ function CabinetDialogForm({
   const result = useMemo(() => {
     try {
       const span = attachedGuests.some(
-        (item, index) => item.row.spanDoor && isStacked(item.row.place) && attachmentTouchesHost(attachedGuests.map((guest) => guest.row), index),
+        (item, index) => spanDoorCountOf(item.row) > 0 && attachmentTouchesHost(attachedGuests.map((guest) => guest.row), index),
       )
       const genParams = span ? { ...params, doorCount: 0 } : params
       const generated = scaleCabinetResult(generateCabinet(typeId, { ...genParams }, settings), qty)
@@ -1780,6 +1811,7 @@ function CabinetDialogForm({
           return cabinetOuterSize(peer?.typeId ?? item.cabinet.typeId, peer?.params ?? item.cabinet.params)
         }),
         settings.hardware,
+        frontFinishId || carcassFinishId,
       )
     } catch {
       return null
@@ -6336,7 +6368,11 @@ function CabinetDialogForm({
               type="button"
               variant="ghost"
               size="sm"
-              onClick={() => setColors({ ...DEFAULT_PART_COLORS })}
+              onClick={() => {
+                setColors({ ...DEFAULT_PART_COLORS })
+                setPieceFinishes({})
+                setPickedPiece(null)
+              }}
             >
               Еднакви
             </Button>
@@ -6368,7 +6404,7 @@ function CabinetDialogForm({
                 setDrawStyle(next === 'color' || next === 'model' ? next : 'line')
               }}
             >
-              <option value="line">Сегашният</option>
+              <option value="line">Чертеж</option>
               <option value="color">Цветен</option>
               <option value="model">3D</option>
             </select>
@@ -6431,7 +6467,7 @@ function CabinetDialogForm({
           </div>
         )}
 
-        <div className="rounded-md border border-[var(--color-border)] px-3 py-2">
+        <div id="cabinet-join" className="rounded-md border border-[var(--color-border)] px-3 py-2">
           <p className="text-sm font-medium">Шкафове от проекта</p>
           <p className="mt-0.5 text-xs text-[var(--color-muted-foreground)]">
             Като добавиш още един шкаф, минаваш на комбинацията. Тя се записва отделно, без цена, и не ляга върху текущия шкаф. Промените по нея се записват върху оригиналните шкафове.
@@ -6509,25 +6545,53 @@ function CabinetDialogForm({
                         Без винтчета
                       </Button>
                     </div>
-                    {isStacked(row.place) && touches && (
+                    {touches && (
                       <div className="mt-2">
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant={row.spanDoor ? 'default' : 'outline'}
-                          onClick={() =>
-                            setAttached((rows) =>
-                              rows.map((item) =>
-                                item.cabinetId === row.cabinetId ? { ...item, spanDoor: !item.spanDoor } : item,
-                              ),
-                            )
-                          }
-                        >
-                          Една врата на двата шкафа
-                        </Button>
-                        {row.spanDoor && (
+                        <p className="text-xs">Врати отгоре до долу</p>
+                        <div className="mt-1 flex flex-wrap gap-2">
+                          {[0, 1, 2, 3, 4].map((count) => (
+                            <Button
+                              key={count}
+                              type="button"
+                              size="sm"
+                              variant={spanDoorCountOf(row) === count ? 'default' : 'outline'}
+                              onClick={() =>
+                                setAttached((rows) =>
+                                  rows.map((item) =>
+                                    item.cabinetId === row.cabinetId
+                                      ? { ...item, spanDoor: count > 0, spanDoorCount: count }
+                                      : item,
+                                  ),
+                                )
+                              }
+                            >
+                              {count === 0 ? 'Без' : String(count)}
+                            </Button>
+                          ))}
+                        </div>
+                        <label className="mt-2 flex items-center gap-2 text-xs">
+                          Брой
+                          <Input
+                            className="h-8 w-16"
+                            type="number"
+                            min={0}
+                            max={12}
+                            value={spanDoorCountOf(row)}
+                            onChange={(e) => {
+                              const count = Math.max(0, Math.min(12, Math.round(Number(e.target.value) || 0)))
+                              setAttached((rows) =>
+                                rows.map((item) =>
+                                  item.cabinetId === row.cabinetId
+                                    ? { ...item, spanDoor: count > 0, spanDoorCount: count }
+                                    : item,
+                                ),
+                              )
+                            }}
+                          />
+                        </label>
+                        {spanDoorCountOf(row) > 0 && (
                           <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
-                            Вратите на този шкаф не влизат в разкроя — вместо тях е едната обща. Вратите на другия шкаф си остават в неговия списък.
+                            {spanDoorCountOf(row) === 1 ? 'Една врата' : `${spanDoorCountOf(row)} врати`} покриват двата шкафа отгоре до долу и се делят по широчина. Вратите на този шкаф не влизат в разкроя. Вратите на другия шкаф си остават в неговия списък.
                           </p>
                         )}
                       </div>
@@ -6547,7 +6611,7 @@ function CabinetDialogForm({
                       setAttached((rows) =>
                         rows.some((row) => row.cabinetId === cabinetId)
                           ? rows
-                          : [...rows, { cabinetId, place: 'right', joinScrews: false, spanDoor: false }],
+                          : [...rows, { cabinetId, place: 'right', joinScrews: false, spanDoor: false, spanDoorCount: 0 }],
                       )
                     }}
                   >
@@ -6573,7 +6637,7 @@ function CabinetDialogForm({
               const live = groupRole === 'guest' && editing?.id === cabinet.id
               const peer = peerDrafts?.[cabinet.id]
               const source = live ? { typeId, params } : peer ?? { typeId: cabinet.typeId, params: cabinet.params }
-              return { typeId: source.typeId, params: source.params, place: row.place, spanDoor: row.spanDoor }
+              return { typeId: source.typeId, params: source.params, place: row.place, spanDoor: row.spanDoor, spanDoorCount: row.spanDoorCount }
             })}
             showDimLines={showDimLines}
             showOpeningDims={showOpeningDims}
@@ -6590,31 +6654,54 @@ function CabinetDialogForm({
             }
             backColor={settings.hardware.boardFinishes.find((finish) => finish.id === backFinishId)?.color}
             backImage={settings.hardware.boardFinishes.find((finish) => finish.id === backFinishId)?.image}
+            finishes={settings.hardware.boardFinishes}
           />
         ) : (
-        <BoardPickContext.Provider value={{ selected: pickedPart, onSelect: setPickedPart }}>
+        <BoardPickContext.Provider
+          value={
+            drawStyle === 'line'
+              ? null
+              : {
+                  selected: pickedPiece,
+                  onSelect: (id) => setPickedPiece(id),
+                }
+          }
+        >
+        {drawStyle !== 'line' && (
         <div className="flex flex-wrap items-center gap-3">
           <p className="text-xs text-[var(--color-muted-foreground)]">
-            Кликни детайл на чертежа. Цветът се сменя за всички от същия вид.
+            Кликни детайл на цветния изглед. Плочата се сменя само на него.
           </p>
-          {pickedPart && (
+          {pickedPiece && (
             <label className="flex items-center gap-2 text-sm">
-              <input
-                type="color"
-                value={colors[pickedPart]}
-                aria-label={`Цвят ${pickedPart}`}
-                onChange={(e) => setColors((current) => ({ ...current, [pickedPart]: e.target.value }))}
-                className="h-8 w-10 cursor-pointer rounded border border-[var(--color-border)] bg-transparent"
-              />
-              {pickedPart === 'rail' &&
-              (typeId === 'nightstand' || typeId === 'section' || typeId === 'wardrobe' || typeId === 'kitchen-wall' || typeId === 'bed')
-                ? 'Плот'
-                : pickedPart === 'shelf' && typeId === 'bed'
-                  ? 'Вътрешни плоскости'
-                  : PART_COLOR_FIELDS.find((field) => field.key === pickedPart)?.label}
+              {pieceColorLabel(pickedPiece)}
+              <select
+                aria-label={`Плоча ${pieceColorLabel(pickedPiece)}`}
+                value={pieceFinishes[pickedPiece] ?? ''}
+                onChange={(e) => {
+                  const id = e.target.value
+                  setPieceFinishes((current) => {
+                    if (!id) {
+                      const next = { ...current }
+                      delete next[pickedPiece]
+                      return next
+                    }
+                    return { ...current, [pickedPiece]: id }
+                  })
+                }}
+                className="h-8 rounded-md border border-[var(--color-border)] bg-transparent px-2"
+              >
+                <option value="">Както останалите</option>
+                {settings.hardware.boardFinishes.map((finish) => (
+                  <option key={finish.id} value={finish.id}>
+                    {finish.name}
+                  </option>
+                ))}
+              </select>
             </label>
           )}
         </div>
+        )}
         <CabinetPreview
           typeId={typeId}
           params={{ ...params }}
@@ -6634,6 +6721,7 @@ function CabinetDialogForm({
           }
           backColor={settings.hardware.boardFinishes.find((finish) => finish.id === backFinishId)?.color}
           backImage={settings.hardware.boardFinishes.find((finish) => finish.id === backFinishId)?.image}
+          finishes={settings.hardware.boardFinishes}
         />
         </BoardPickContext.Provider>
         )}
@@ -6681,6 +6769,9 @@ function CabinetDialogForm({
                     >
                       <td className={cn('px-3 py-2 font-medium', groupEdge('first'))}>
                         {panel.name}
+                        {panel.finishId
+                          ? ` · ${settings.hardware.boardFinishes.find((finish) => finish.id === panel.finishId)?.name ?? ''}`
+                          : ''}
                       </td>
                       <td className={cn('px-3 py-2 tabular-nums', groupEdge('mid'))}>
                         {formatMm(panel.width)} × {formatMm(panel.height)} мм
@@ -6813,9 +6904,17 @@ export function CabinetDialog(props: CabinetDialogProps) {
             place: member.place === 'host' ? 'right' : member.place,
             joinScrews: member.joinScrews,
             spanDoor: member.spanDoor,
+            spanDoorCount: member.spanDoorCount,
           }))
-      : [],
+      : (props.startAttached ?? []),
   )
+  useEffect(() => {
+    if (!props.startAttached?.length) return
+    const timer = window.setTimeout(() => {
+      document.getElementById('cabinet-join')?.scrollIntoView({ block: 'center' })
+    }, 60)
+    return () => window.clearTimeout(timer)
+  }, [])
   const changeAttached = (rows: AttachedCabinet[]) => {
     setAttached((prev) => {
       if (prev.length === 0 && rows.length > 0) {
@@ -6897,6 +6996,7 @@ export function CabinetDialog(props: CabinetDialogProps) {
           place: row.place,
           joinScrews: row.joinScrews,
           spanDoor: row.spanDoor,
+          spanDoorCount: row.spanDoorCount,
         }]
       }),
       combinationId: combination ? props.editing?.id ?? null : null,

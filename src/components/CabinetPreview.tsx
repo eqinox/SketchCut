@@ -58,6 +58,8 @@ import {
   BETWEEN_FACES,
   Board,
   BOX_FACES,
+  PieceColorContext,
+  usePiecePaint,
   ClothesRailBar,
   DimLine,
   DimText,
@@ -77,6 +79,7 @@ import {
 import type { DrawFrame } from '@/lib/cabinets/compose'
 import { cn } from '@/lib/utils'
 import { DrawPlaceContext, useCaptureSolid, type SceneSolid } from '@/lib/cabinets/scene-solids'
+import { paintForPieceFinishes, type BoardFinish } from '@/lib/board-finishes'
 import { CapturedModel } from '@/components/CabinetModel'
 
 interface CabinetPreviewProps {
@@ -119,6 +122,8 @@ interface CabinetPreviewProps {
   captureSolids?: boolean
   /** main = the front picture only. extras = the small drawings under it. */
   part?: PreviewPart
+  /** Workshop boards. A clicked piece takes its colour and photo from one of these. */
+  finishes?: BoardFinish[]
 }
 
 const SLIDE_STROKE_COLOR = DRAW_STROKE
@@ -252,7 +257,7 @@ function depthMark(ox: number, edgeY: number, dx: number, dy: number, gap: numbe
 const SLIDE_PROFILE_H = 18
 const SLIDE_FRONT_INSET = 28
 const SLIDE_STROKE = 10
-const FRONT_FILL = '#c4a06a'
+export const FRONT_FILL = '#c4a06a'
 
 /** The cabinet itself has a door or a drawer front. Sliding leaves count too. */
 function layoutHasFronts(layout: InteriorLayout, slidingDoors = false): boolean {
@@ -260,9 +265,6 @@ function layoutHasFronts(layout: InteriorLayout, slidingDoors = false): boolean 
   if (layout.fullDoorCount > 0 || layout.fullDrawerFrontHeights.length > 0) return true
   return layout.zones.some((z) => z.doorCount > 0 || z.drawerFrontHeights.some((h) => h > 0))
 }
-
-const LOOK_DOOR_NOTE =
-  'Тази врата е само на чертежа, за да се види цветът. За да влезе в сметката, сложи я от „Врати“.'
 
 function mm(n: number) {
   return formatMm(n)
@@ -527,12 +529,16 @@ function WithDecor({
 
 /** Single 3D front view with depth extending to the right. */
 export function CabinetPreview(props: CabinetPreviewProps) {
+  const pictured = props.drawStyle === 'color' || props.drawStyle === 'model' || props.captureSolids === true
+  const piecePaint = paintForPieceFinishes(props.params.pieceFinishes, props.finishes ?? [])
   return (
+    <PieceColorContext.Provider value={pictured ? piecePaint.colors : {}}>
     <PullChoiceContext.Provider value={pullChoiceFrom(props.params, props.onPullChange)}>
       <CaptureSolidsOnly.Provider value={props.captureSolids === true}>
         <CabinetPreviewView {...props} />
       </CaptureSolidsOnly.Provider>
     </PullChoiceContext.Provider>
+    </PieceColorContext.Provider>
   )
 }
 
@@ -551,6 +557,7 @@ function CabinetPreviewView({
   frontImage,
   backColor,
   backImage,
+  finishes = [],
   hideDoors = false,
   hideFeet = false,
   part = 'all',
@@ -576,14 +583,16 @@ function CabinetPreviewView({
         }
       : params
   const doorColor = pictured ? frontColor : undefined
-  const textureEntries =
-    pictured
+  const textureEntries = [
+    ...(pictured
       ? [
           ...(carcassColor && carcassImage ? [{ color: carcassColor, image: carcassImage }] : []),
           ...(doorColor && frontImage ? [{ color: doorColor, image: frontImage }] : []),
           ...(backImage ? [{ color: backFill, image: backImage }] : []),
+          ...paintForPieceFinishes(params.pieceFinishes, finishes).images,
         ]
-      : []
+      : []),
+  ]
   const showMarks = drawStyle === 'line'
   const model = drawStyle === 'model' || captureSolids
   const suppressOuter = { height: suppressOuterHeight, width: suppressOuterWidth }
@@ -712,13 +721,13 @@ function CabinetPreviewView({
           />
       </FrontDrawing>
       <ExtraDrawings>
-      {drawerViews.map((view) => (
+      {drawerViews.map((view, index) => (
         <ViewCard
           key={`${view.frontHeight}-${Math.round(view.box.drawerOuterW)}-${view.label}`}
           title={drawerViewTitle(view, drawerViews.length)}
         >
           <ZoomableView>
-            <Drawer3DView p={p} box={view.box} />
+            <Drawer3DView p={p} box={view.box} boxKey={`${view.label}-${index}`} />
           </ZoomableView>
         </ViewCard>
       ))}
@@ -744,12 +753,11 @@ function CabinetPreviewView({
           <span className="mr-3" style={{ color: SLIDE_STROKE_COLOR }}>■ Водачи</span>
         )}
         <span style={{ color: colors.leg }}>■ Крачета</span>
-        {showFronts && (
+        {showFronts && layoutHasFronts(layout) && (
           <span className="mr-3" style={{ color: doorColor || FRONT_FILL }}>
             {' '}■ Врати и чела
           </span>
         )}
-        {showFronts && !layoutHasFronts(layout) && <> {' · '}{LOOK_DOOR_NOTE}</>}
         {!showFronts && layoutCounts(layout).doorCount > 0 && (
           <>
             {' · '}
@@ -1838,7 +1846,7 @@ function BayShelvesAndPartials({
             w={box.x1 - box.x0}
             h={T}
             d={fixedD}
-            color={shelfColor} pick="shelf"
+            color={shelfColor} pick={`shelf-${shelf.specIndex}`}
             cam={cam}
             faces={BETWEEN_FACES}
           />
@@ -1872,7 +1880,7 @@ function BayShelvesAndPartials({
               w={zone.innerW}
               h={T}
               d={shelfD}
-              color={shelfColor} pick="shelf"
+              color={shelfColor} pick={`shelf-${zone.id}-${index}`}
               cam={cam}
               faces={BETWEEN_FACES}
             />
@@ -1938,7 +1946,7 @@ function BayShelvesAndPartials({
               w={T}
               h={part.height}
               d={fixedD}
-              color={sideColor} pick="side"
+              color={sideColor} pick={`divider-${part.specIndex}`}
               cam={cam}
               faces={SIDE_LEFT_BODY}
             />
@@ -1970,7 +1978,7 @@ function BayShelvesAndPartials({
             w={T}
             h={part.height}
             d={fixedD}
-            color={sideColor} pick="side"
+            color={sideColor} pick={`divider-${part.specIndex}`}
             cam={cam}
             faces={SIDE_LEFT_BODY}
           />
@@ -2001,6 +2009,7 @@ function DrawerFront({
   openingX,
   openingW,
   thickness,
+  pick,
 }: {
   slideId: string
   x: number
@@ -2016,6 +2025,7 @@ function DrawerFront({
   openingX: number
   openingW: number
   thickness: number
+  pick?: string
 }) {
   const hardware = React.useContext(DrawerHardwareContext)
   const pulls = React.useContext(PullChoiceContext)
@@ -2058,6 +2068,7 @@ function DrawerFront({
         opacity={opacity}
         slide={slide}
         pull={sku === 'none' ? undefined : { key: slideId, sku }}
+        pick={pick}
       />
       {parts.map((part, index) => (
         <CaptureOnly key={`${slideId}-rail-${index}`} solid={part} />
@@ -2215,6 +2226,7 @@ function FrontsOnCabinet({
             color={fill}
             cam={cam}
             inset={innerDoors}
+            pick={leaves.length === 1 ? key : `${key}-${i}`}
           />,
         )
       })
@@ -2235,6 +2247,7 @@ function FrontsOnCabinet({
           cam={cam}
           faces={faces}
           opacity={0.92}
+          pick={id}
         />,
       )
       if (label) pushHeightLabel(`${id}-h`, leaf.x, y, leaf.w, h)
@@ -2291,6 +2304,7 @@ function FrontsOnCabinet({
             openingX={openingBox.x}
             openingW={openingBox.w}
             thickness={T}
+            pick={`drawer-front-${key}-${s.index}`}
           />,
         )
         if (label) pushHeightLabel(`df-${key}-${s.index}-h`, box.x, y, box.w, s.height)
@@ -2625,6 +2639,8 @@ function Front3DView({
   const marks = useCabinetMarks()
   const suppressOuter = useSuppressOuter()
   const coveredTop = useCoveredTop()
+  const legLeftPaint = usePiecePaint('leg-left', p.colors.leg)
+  const legRightPaint = usePiecePaint('leg-right', p.colors.leg)
   const T = m.thickness
   const W = m.outerW
   const H = m.outerH
@@ -2729,12 +2745,12 @@ function Front3DView({
   const legZFront = Math.min(48, Math.max(18, D * 0.08))
   const legZBack = Math.max(legZFront, D - legZFront - legD)
   const drawFeet = !hideFeet && L > 0
-  const legBox = (x: number, z: number): SceneSolid | null =>
-    drawFeet ? { kind: 'box', x, y: floor - L, z, w: legW, h: L, d: legD, color: wood.leg } : null
-  useCaptureSolid(legBox(legInset, legZFront))
-  useCaptureSolid(legBox(W - legInset - legW, legZFront))
-  useCaptureSolid(legBox(legInset, legZBack))
-  useCaptureSolid(legBox(W - legInset - legW, legZBack))
+  const legBox = (x: number, z: number, color: string): SceneSolid | null =>
+    drawFeet ? { kind: 'box', x, y: floor - L, z, w: legW, h: L, d: legD, color } : null
+  useCaptureSolid(legBox(legInset, legZFront, legLeftPaint.color))
+  useCaptureSolid(legBox(W - legInset - legW, legZFront, legRightPaint.color))
+  useCaptureSolid(legBox(legInset, legZBack, wood.leg))
+  useCaptureSolid(legBox(W - legInset - legW, legZBack, wood.leg))
 
   const frame = { ox, top: topY, w: W, h: H, feet: drawFeet ? L : 0, vbW, vbH }
   return (
@@ -2748,20 +2764,28 @@ function Front3DView({
 
       {drawFeet && (
         <>
-          <g filter="url(#shadow)">
+          <g
+            filter="url(#shadow)"
+            style={legLeftPaint.onClick ? { cursor: 'pointer' } : undefined}
+            onClick={legLeftPaint.onClick}
+          >
             <polygon
               points={`${ox + legInset},${floor - L} ${ox + legInset + legW},${floor - L} ${ox + legInset + legW},${floor} ${ox + legInset},${floor}`}
-              fill={wood.leg}
-              stroke="#1e293b"
-              strokeWidth={1}
+              fill={legLeftPaint.color}
+              stroke={legLeftPaint.chosen ? '#1d4ed8' : '#1e293b'}
+              strokeWidth={legLeftPaint.chosen ? 2.8 : 1}
             />
           </g>
-          <g filter="url(#shadow)">
+          <g
+            filter="url(#shadow)"
+            style={legRightPaint.onClick ? { cursor: 'pointer' } : undefined}
+            onClick={legRightPaint.onClick}
+          >
             <polygon
               points={`${ox + W - legInset - legW},${floor - L} ${ox + W - legInset},${floor - L} ${ox + W - legInset},${floor} ${ox + W - legInset - legW},${floor}`}
-              fill={wood.leg}
-              stroke="#1e293b"
-              strokeWidth={1}
+              fill={legRightPaint.color}
+              stroke={legRightPaint.chosen ? '#1d4ed8' : '#1e293b'}
+              strokeWidth={legRightPaint.chosen ? 2.8 : 1}
             />
           </g>
         </>
@@ -2782,10 +2806,11 @@ function Front3DView({
           cam={view}
           faces={{ front: true }}
           strokeWidth={2.4}
+          pick="back"
         />
       )}
 
-      <Board x={0} y={sideY} w={T} h={sideH} d={D} color={wood.side} pick="side" cam={view} faces={SIDE_LEFT_BODY} />
+      <Board x={0} y={sideY} w={T} h={sideH} d={D} color={wood.side} pick="side-left" cam={view} faces={SIDE_LEFT_BODY} />
 
       {layout.columns.map((col, i) => (
         <g key={`bay-${i}`}>
@@ -2862,7 +2887,7 @@ function Front3DView({
                 w={col.innerW}
                 h={T}
                 d={R}
-                color={wood.rail} pick="rail"
+                color={wood.rail} pick={`rail-back-${i}`}
                 cam={view}
                 faces={BETWEEN_FACES}
               />
@@ -2873,7 +2898,7 @@ function Front3DView({
                 w={col.innerW}
                 h={T}
                 d={R}
-                color={wood.rail} pick="rail"
+                color={wood.rail} pick={`rail-front-${i}`}
                 cam={view}
                 faces={BETWEEN_FACES}
               />
@@ -2886,7 +2911,7 @@ function Front3DView({
               w={T}
               h={sideH}
               d={D}
-              color={wood.side} pick="side"
+              color={wood.side} pick={`divider-${layout.partitions[i].specIndex}`}
               cam={view}
               faces={SIDE_LEFT_BODY}
             />
@@ -2894,9 +2919,9 @@ function Front3DView({
         </g>
       ))}
 
-      <Board x={0} y={sideY} w={T} h={sideH} d={D} color={wood.side} pick="side" cam={view} faces={SIDE_LEFT_TOP} />
+      <Board x={0} y={sideY} w={T} h={sideH} d={D} color={wood.side} pick="side-left" cam={view} faces={SIDE_LEFT_TOP} />
 
-      <Board x={W - T} y={sideY} w={T} h={sideH} d={D} color={wood.side} pick="side" cam={view} faces={SIDE_RIGHT} />
+      <Board x={W - T} y={sideY} w={T} h={sideH} d={D} color={wood.side} pick="side-right" cam={view} faces={SIDE_RIGHT} />
 
       {p.topStyle === 'fascia' &&
         layout.columns.map((col, i) => (
@@ -2908,7 +2933,7 @@ function Front3DView({
             w={col.innerW}
             h={R}
             d={T}
-            color={wood.rail} pick="rail"
+            color={wood.rail} pick={`fascia-${i}`}
             cam={view}
             faces={BETWEEN_FACES}
           />
@@ -2935,7 +2960,6 @@ function Front3DView({
           layer="overlay"
           openDoors={openDoors}
           frontColor={frontColor}
-          visualDoor={!layoutHasFronts(layout)}
         />
       )}
 
@@ -3088,13 +3112,13 @@ function KitchenWallPreview({
           />
       </FrontDrawing>
       <ExtraDrawings>
-      {drawerViews.map((view) => (
+      {drawerViews.map((view, index) => (
         <ViewCard
           key={`${view.frontHeight}-${Math.round(view.box.drawerOuterW)}-${view.label}`}
           title={drawerViewTitle(view, drawerViews.length)}
         >
           <ZoomableView>
-            <Drawer3DView p={p} box={view.box} />
+            <Drawer3DView p={p} box={view.box} boxKey={`${view.label}-${index}`} />
           </ZoomableView>
         </ViewCard>
       ))}
@@ -3110,12 +3134,11 @@ function KitchenWallPreview({
           <span className="mr-3" style={{ color: backFill }}>■ Фазер</span>
         )}
         {p.hasHood && <span className="mr-3">○ Абсорбатор</span>}
-        {showFronts && (
+        {showFronts && layoutHasFronts(layout) && (
           <span className="mr-3" style={{ color: frontColor || FRONT_FILL }}>
             {' '}■ Врати и чела
           </span>
         )}
-        {showFronts && !layoutHasFronts(layout) && <> {' · '}{LOOK_DOOR_NOTE}</>}
         {' · '}
         страниците захлупват плота и дъното
       </p>
@@ -3237,6 +3260,7 @@ function WallFront3DView({
           cam={view}
           faces={{ front: true }}
           strokeWidth={2.4}
+          pick="back"
         />
       )}
 
@@ -3246,12 +3270,12 @@ function WallFront3DView({
         w={T}
         h={leftInnerH}
         d={D}
-        color={wood.side} pick="side"
+        color={wood.side} pick="side-left"
         cam={view}
         faces={{ right: true }}
       />
-      <Board x={0} y={topY} w={T} h={sideH} d={D} color={wood.side} pick="side" cam={view} faces={{ front: true }} />
-      <Board x={0} y={topY} w={T} h={T} d={D} color={wood.side} pick="side" cam={view} faces={SIDE_LEFT_TOP} />
+      <Board x={0} y={topY} w={T} h={sideH} d={D} color={wood.side} pick="side-left" cam={view} faces={{ front: true }} />
+      <Board x={0} y={topY} w={T} h={T} d={D} color={wood.side} pick="side-left" cam={view} faces={SIDE_LEFT_TOP} />
 
       <Board x={T} y={innerFloorY} w={m.bottomW} h={T} d={D} color={wood.bottom} pick="bottom" cam={view} faces={BETWEEN_FACES} />
       {bottomHole && (
@@ -3310,7 +3334,7 @@ function WallFront3DView({
               w={T}
               h={partitionH}
               d={D}
-              color={wood.side} pick="side"
+              color={wood.side} pick={`divider-${layout.partitions[i].specIndex}`}
               cam={view}
               faces={SIDE_LEFT_BODY}
             />
@@ -3318,7 +3342,7 @@ function WallFront3DView({
         </g>
       ))}
 
-      <Board x={W - T} y={topY} w={T} h={sideH} d={D} color={wood.side} pick="side" cam={view} faces={SIDE_RIGHT} />
+      <Board x={W - T} y={topY} w={T} h={sideH} d={D} color={wood.side} pick="side-right" cam={view} faces={SIDE_RIGHT} />
 
       <Board
         x={T}
@@ -3326,7 +3350,7 @@ function WallFront3DView({
         w={m.railLength}
         h={T}
         d={D}
-        color={wood.rail} pick="rail"
+        color={wood.rail} pick="top"
         cam={view}
         faces={BETWEEN_FACES}
       />
@@ -3352,7 +3376,6 @@ function WallFront3DView({
           layer="overlay"
           openDoors={openDoors}
           frontColor={frontColor}
-          visualDoor={!layoutHasFronts(layout)}
         />
       )}
 
@@ -3429,9 +3452,11 @@ function WallFront3DView({
 function Drawer3DView({
   p,
   box,
+  boxKey,
 }: {
   p: { thickness: number; colors: { side: string }; dimFontScale?: number }
   box: DrawerBoxRails
+  boxKey: string
 }) {
   const marks = useCabinetMarks()
   const T = p.thickness
@@ -3466,7 +3491,7 @@ function Drawer3DView({
   return (
     <SketchSvg vbW={vbW} vbH={vbH} height={400} label="Чекмедже с царги">
       {/* Same order as the cabinet: left body → back between → left top → right → front between. */}
-      <Board x={0} y={0} w={T} h={Hd} d={Dd} color={wood} pick="side" cam={cam} faces={SIDE_LEFT_BODY} />
+      <Board x={0} y={0} w={T} h={Hd} d={Dd} color={wood} pick={`box-${boxKey}-left`} cam={cam} faces={SIDE_LEFT_BODY} />
       <Board
         x={T}
         y={innerY}
@@ -3474,13 +3499,13 @@ function Drawer3DView({
         w={Wi}
         h={Hi}
         d={T}
-        color={wood} pick="side"
+        color={wood} pick={`box-${boxKey}-back`}
         cam={cam}
         faces={BETWEEN_FACES}
       />
-      <Board x={0} y={0} w={T} h={Hd} d={Dd} color={wood} pick="side" cam={cam} faces={SIDE_LEFT_TOP} />
-      <Board x={Wd - T} y={0} w={T} h={Hd} d={Dd} color={wood} pick="side" cam={cam} faces={SIDE_RIGHT} />
-      <Board x={T} y={innerY} z={0} w={Wi} h={Hi} d={T} color={wood} pick="side" cam={cam} faces={BETWEEN_FACES} />
+      <Board x={0} y={0} w={T} h={Hd} d={Dd} color={wood} pick={`box-${boxKey}-left`} cam={cam} faces={SIDE_LEFT_TOP} />
+      <Board x={Wd - T} y={0} w={T} h={Hd} d={Dd} color={wood} pick={`box-${boxKey}-right`} cam={cam} faces={SIDE_RIGHT} />
+      <Board x={T} y={innerY} z={0} w={Wi} h={Hi} d={T} color={wood} pick={`box-${boxKey}-front`} cam={cam} faces={BETWEEN_FACES} />
 
       {marks && (
         <>
@@ -3597,13 +3622,13 @@ function PlinthBoxPreview({
           />
       </FrontDrawing>
       <ExtraDrawings>
-      {drawerViews.map((view) => (
+      {drawerViews.map((view, index) => (
         <ViewCard
           key={`${view.frontHeight}-${Math.round(view.box.drawerOuterW)}-${view.label}`}
           title={drawerViewTitle(view, drawerViews.length)}
         >
           <ZoomableView>
-            <Drawer3DView p={p} box={view.box} />
+            <Drawer3DView p={p} box={view.box} boxKey={`${view.label}-${index}`} />
           </ZoomableView>
         </ViewCard>
       ))}
@@ -3634,11 +3659,8 @@ function PlinthBoxPreview({
         ) : (
           <span style={{ color: colors.bottom }}>■ Цокъл</span>
         )}
-        {showFronts && (
+        {showFronts && layoutHasFronts(layout, sliding && p.doorCount === 2) && (
           <span className="mr-3" style={{ color: frontColor || FRONT_FILL }}> ■ Врати и чела</span>
-        )}
-        {showFronts && !layoutHasFronts(layout, sliding && p.doorCount === 2) && (
-          <> {' · '}{LOOK_DOOR_NOTE}</>
         )}
         {!showFronts && (counts.doorCount > 0 || (sliding && p.doorCount === 2)) && (
           <>
@@ -3907,7 +3929,7 @@ function PlinthBoxFront3DView({
             w={legW}
             h={supportH}
             d={legD}
-            color={wood.leg} pick="leg"
+            color={wood.leg} pick="leg-left"
             cam={view}
             faces={{ front: true, right: true, top: true }}
           />
@@ -3918,7 +3940,7 @@ function PlinthBoxFront3DView({
             w={legW}
             h={supportH}
             d={legD}
-            color={wood.leg} pick="leg"
+            color={wood.leg} pick="leg-right"
             cam={view}
             faces={{ front: true, right: true, top: true }}
           />
@@ -3954,6 +3976,7 @@ function PlinthBoxFront3DView({
             cam={view}
             faces={{ front: true }}
             strokeWidth={2.4}
+            pick={`back-${Math.round(span.x)}`}
           />
         ))}
 
@@ -3964,7 +3987,7 @@ function PlinthBoxFront3DView({
         w={T}
         h={leftInnerH}
         d={m.sideD}
-        color={wood.side} pick="side"
+        color={wood.side} pick="side-left"
         cam={view}
         faces={{ right: true }}
       />
@@ -3978,7 +4001,7 @@ function PlinthBoxFront3DView({
               w={T}
               h={p.plinthHeight}
               d={m.plinthInset}
-              color={wood.side} pick="side"
+              color={wood.side} pick="side-left"
               cam={view}
               faces={{ right: true }}
               strokeWidth={0}
@@ -3992,7 +4015,7 @@ function PlinthBoxFront3DView({
               w={m.plinthLength}
               h={p.plinthHeight}
               d={T}
-              color={wood.bottom} pick="bottom"
+              color={wood.bottom} pick="plinth"
               cam={view}
               faces={{ front: true, top: true }}
             />
@@ -4006,7 +4029,7 @@ function PlinthBoxFront3DView({
         w={T}
         h={m.sideH}
         d={m.sideD}
-        color={wood.side} pick="side"
+        color={wood.side} pick="side-left"
         cam={view}
         faces={{ front: true }}
       />
@@ -4018,7 +4041,7 @@ function PlinthBoxFront3DView({
           w={T}
           h={T}
           d={m.sideD}
-          color={wood.side} pick="side"
+          color={wood.side} pick="side-left"
           cam={view}
           faces={SIDE_LEFT_TOP}
         />
@@ -4071,7 +4094,7 @@ function PlinthBoxFront3DView({
               w={fascia.w}
               h={Math.min(fascia.h, Math.max(T, m.sideH))}
               d={T}
-              color={wood.rail} pick="rail"
+              color={wood.rail} pick="fascia-knee"
               cam={view}
               faces={{ front: true }}
             />
@@ -4090,7 +4113,7 @@ function PlinthBoxFront3DView({
                     w={span.w}
                     h={p.plinthHeight}
                     d={T}
-                    color={wood.bottom} pick="bottom"
+                    color={wood.bottom} pick={`plinth-${Math.round(span.x)}`}
                     cam={view}
                     faces={{
                       front: true,
@@ -4106,7 +4129,7 @@ function PlinthBoxFront3DView({
                     w={span.w}
                     h={T}
                     d={m.bottomD}
-                    color={wood.bottom} pick="bottom"
+                    color={wood.bottom} pick={`bottom-${Math.round(span.x)}`}
                     cam={view}
                     faces={{ top: true }}
                     strokeWidth={0}
@@ -4118,7 +4141,7 @@ function PlinthBoxFront3DView({
                     w={span.w}
                     h={T}
                     d={1}
-                    color={wood.bottom} pick="bottom"
+                    color={wood.bottom} pick={`bottom-${Math.round(span.x)}`}
                     cam={view}
                     faces={{ front: true }}
                   />
@@ -4211,7 +4234,7 @@ function PlinthBoxFront3DView({
               w={T}
               h={dividersToFloor ? m.sideH : leftInnerH}
               d={m.partitionD}
-              color={wood.side} pick="side"
+              color={wood.side} pick={`divider-${layout.partitions[i].specIndex}`}
               cam={view}
               faces={SIDE_LEFT_BODY}
             />
@@ -4276,7 +4299,7 @@ function PlinthBoxFront3DView({
         w={T}
         h={m.sideH}
         d={m.sideD}
-        color={wood.side} pick="side"
+        color={wood.side} pick="side-right"
         cam={view}
         faces={topInner ? SIDE_RIGHT : SIDE_LEFT_BODY}
       />
@@ -4290,7 +4313,7 @@ function PlinthBoxFront3DView({
             w={col.innerW}
             h={p.railWidth}
             d={T}
-            color={wood.rail} pick="rail"
+            color={wood.rail} pick={`fascia-${i}`}
             cam={view}
             faces={BETWEEN_FACES}
           />
@@ -4304,7 +4327,7 @@ function PlinthBoxFront3DView({
           w={m.topW}
           h={T}
           d={m.topD}
-          color={wood.rail} pick="rail"
+          color={wood.rail} pick="top"
           cam={view}
           faces={BETWEEN_FACES}
         />
@@ -4316,7 +4339,7 @@ function PlinthBoxFront3DView({
           w={m.topW}
           h={T}
           d={m.topD}
-          color={wood.rail} pick="rail"
+          color={wood.rail} pick="top"
           cam={view}
           faces={BOX_FACES}
         />
@@ -4404,6 +4427,7 @@ function PlinthBoxFront3DView({
                 cam={view}
                 faces={{ front: true, top: true, right: true }}
                 opacity={0.88}
+                pick={`door-slide-${leaf.index}`}
               />
             </g>
           )
@@ -4433,7 +4457,6 @@ function PlinthBoxFront3DView({
           openDoors={openDoors}
           frontColor={frontColor}
           fontScale={fontScale}
-          visualDoor={slidingLeaves.length === 0 && !layoutHasFronts(layout)}
         />
       )}
 

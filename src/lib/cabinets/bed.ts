@@ -222,7 +222,7 @@ export function generateBed(raw: Record<string, unknown>, settings?: unknown): C
       1,
       band({ top: true, bottom: true, left: true, right: true }, 'mm2', { right: 'mm05' }),
       `Кант 2 мм: двете дълги страни и горният къс край. Кант 0.5 мм: долният къс край. Цялото легло ${formatMm(m.length)} × ${formatMm(m.width)} мм. Страниците влизат в него и се хващат с винтове отдолу.`,
-      { role: 'bottom' },
+      { role: 'bottom', pieceKeys: ['bottom'] },
     ),
     panel(
       'Страница',
@@ -231,8 +231,11 @@ export function generateBed(raw: Record<string, unknown>, settings?: unknown): C
       2,
       band({ top: true, bottom: true }, 'mm2', { bottom: 'mm05' }),
       `Кант 2 мм: горна. Кант 0.5 мм: долна. ${formatMm(m.sideLength)} × ${formatMm(m.sideHeight)} мм. С ${T} мм по-къси от дъното във всеки край.`,
+      { pieceKeys: ['side-left', 'side-right'] },
     ),
-    panel('Вътрешна страница', m.sideLength, m.innerHeight, 2, band({ top: true }, 'mm05'), innerNote),
+    panel('Вътрешна страница', m.sideLength, m.innerHeight, 2, band({ top: true }, 'mm05'), innerNote, {
+      pieceKeys: ['inner-left', 'inner-right'],
+    }),
     panel(
       'Средна страница',
       m.sideLength,
@@ -240,6 +243,7 @@ export function generateBed(raw: Record<string, unknown>, settings?: unknown): C
       1,
       band({ top: true }, 'mm05'),
       `Кант 0.5 мм: само горната. По средата, дели леглото на лява и дясна част. ${formatMm(m.sideLength)} × ${formatMm(m.innerHeight)} мм.`,
+      { pieceKeys: ['middle'] },
     ),
     panel(
       'Плоскост под рамката',
@@ -248,6 +252,7 @@ export function generateBed(raw: Record<string, unknown>, settings?: unknown): C
       2,
       band({ top: true }, 'mm05'),
       `Кант 0.5 мм: само горната. ${formatMm(supportEach)} × ${formatMm(m.innerHeight)} мм. Между вътрешната страница и средната. По 4 ъгълчета.`,
+      { pieceKeys: ['support-left', 'support-right'] },
     ),
     panel(
       'Плот',
@@ -256,7 +261,7 @@ export function generateBed(raw: Record<string, unknown>, settings?: unknown): C
       1,
       band({ top: true, bottom: true }, 'mm05'),
       `Кант 0.5 мм: горе и долу. ${formatMm(m.topWidth)} × ${formatMm(m.sideHeight)} мм. Влиза между страниците в края на леглото.`,
-      { role: 'top' },
+      { role: 'top', pieceKeys: ['top'] },
     ),
   ]
 
@@ -269,6 +274,7 @@ export function generateBed(raw: Record<string, unknown>, settings?: unknown): C
         2,
         band({ top: true }, 'mm05'),
         `Кант 0.5 мм: само горната. ${formatMm(m.liftLength)} × ${formatMm(m.innerHeight)} мм. От страната на плота, хваната с винтове за вътрешната страница. Лява и дясна.`,
+        { pieceKeys: ['lift-left', 'lift-right'] },
       ),
     )
   }
@@ -282,6 +288,7 @@ export function generateBed(raw: Record<string, unknown>, settings?: unknown): C
         1,
         band({ top: true, bottom: true, left: true, right: true }, 'mm2', { bottom: 'mm05' }),
         `Кант 2 мм: горе и двата края. Кант 0.5 мм: долу. ${formatMm(m.width)} × ${formatMm(m.headboardHeight)} мм, в горния край на леглото.`,
+        { pieceKeys: ['headboard'] },
       ),
     )
   }

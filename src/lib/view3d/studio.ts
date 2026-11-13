@@ -113,6 +113,7 @@ export function mountCabinetStudio(
   const controls = new OrbitControls(camera, renderer.domElement)
   controls.enableDamping = true
   controls.dampingFactor = 0.08
+  controls.panSpeed = 4
   controls.maxPolarAngle = Math.PI * 0.92
   controls.minDistance = 180
   controls.maxDistance = 14000

@@ -207,6 +207,7 @@ export function generateKitchenWall(
       canRotate: false,
       edges: edges({ top: true, bottom: true, left: true }),
       note: 'Кант: предна, горна и долна. Страницата захлупва плота и дъното.',
+      pieceKeys: ['side-left', 'side-right'],
     },
     {
       role: 'bottom',
@@ -220,6 +221,7 @@ export function generateKitchenWall(
         ? `Кант: предна. Влиза между страниците (${m.bottomW} мм). ${panelHoleNote(bottomHole)}`
         : `Кант: предна. Влиза между страниците (${m.bottomW} мм).`,
       hole: bottomHole,
+      pieceKeys: ['bottom'],
     },
     {
       role: 'top',
@@ -230,6 +232,7 @@ export function generateKitchenWall(
       canRotate: false,
       edges: edges({ top: true }),
       note: `Кант: предна. Влиза между страниците (${m.railLength} мм). Хваща се с 5×60 през страниците.`,
+      pieceKeys: ['top'],
     },
   ]
 

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Box, ChevronDown, ChevronUp, Copy, Pencil, Plus, Trash2 } from 'lucide-react'
+import { Box, ChevronDown, ChevronUp, Copy, Link2, Pencil, Plus, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -23,7 +23,7 @@ import {
   scaleCabinetResult,
   type CabinetInstance,
 } from '@/lib/cabinets'
-import { isCombinationType, parseCombination } from '@/lib/cabinets/compose'
+import { isCombinationType, parseCombination, type AttachedCabinet } from '@/lib/cabinets/compose'
 import type { SavedCabinetGroup } from '@/lib/cabinets/apply'
 import type { HardwareSettings } from '@/lib/settings'
 import { DEFAULT_HARDWARE_SETTINGS } from '@/lib/settings'
@@ -64,6 +64,10 @@ export function CabinetsPanel({
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<CabinetInstance | null>(null)
   const [formKey, setFormKey] = useState(0)
+  const [startAttached, setStartAttached] = useState<AttachedCabinet[]>([])
+  const [joinOpen, setJoinOpen] = useState(false)
+  const [joinHost, setJoinHost] = useState('')
+  const [joinGuest, setJoinGuest] = useState('')
   const [openCabinetId, setOpenCabinetId] = useState<string | null>(null)
   const hourly = hourlyRateEur(dailyRateEur)
   const priced = cabinets.flatMap((c) => {
@@ -127,14 +131,36 @@ export function CabinetsPanel({
   )
   const buyoutOrderQty = buyoutOrder.reduce((s, r) => s + r.quantity, 0)
 
+  const joinable = cabinets.filter((cabinet) => !isCombinationType(cabinet.typeId))
+
   const openAdd = () => {
     setEditing(null)
+    setStartAttached([])
     setFormKey((k) => k + 1)
     setOpen(true)
   }
 
   const openEdit = (cabinet: CabinetInstance) => {
     setEditing(cabinet)
+    setStartAttached([])
+    setFormKey((k) => k + 1)
+    setOpen(true)
+  }
+
+  const openJoin = () => {
+    const first = joinable[0]?.id ?? ''
+    const second = joinable.find((cabinet) => cabinet.id !== first)?.id ?? ''
+    setJoinHost(first)
+    setJoinGuest(second)
+    setJoinOpen(true)
+  }
+
+  const startJoin = () => {
+    const host = joinable.find((cabinet) => cabinet.id === joinHost)
+    if (!host || !joinGuest || joinHost === joinGuest) return
+    setJoinOpen(false)
+    setEditing(host)
+    setStartAttached([{ cabinetId: joinGuest, place: 'right', joinScrews: false, spanDoor: false, spanDoorCount: 0 }])
     setFormKey((k) => k + 1)
     setOpen(true)
   }
@@ -297,7 +323,64 @@ export function CabinetsPanel({
           <Trash2 className="h-4 w-4" />
           Изчисти шкафовете
         </Button>
+        <Button
+          type="button"
+          variant="outline"
+          className="w-full sm:w-auto"
+          disabled={joinable.length < 2}
+          onClick={openJoin}
+        >
+          <Link2 className="h-4 w-4" />
+          Съедини шкафове
+        </Button>
       </div>
+
+      {joinOpen && (
+        <div className="flex flex-wrap items-end gap-2 rounded-md border border-[var(--color-border)] bg-[var(--color-background)] p-3">
+          <label className="text-xs">
+            Първи шкаф
+            <select
+              className="mt-1 flex h-8 w-44 rounded-md border border-[var(--color-input)] bg-[var(--color-background)] px-2 text-sm"
+              value={joinHost}
+              onChange={(event) => {
+                const next = event.target.value
+                setJoinHost(next)
+                if (next === joinGuest) {
+                  setJoinGuest(joinable.find((cabinet) => cabinet.id !== next)?.id ?? '')
+                }
+              }}
+            >
+              {joinable.map((cabinet) => (
+                <option key={cabinet.id} value={cabinet.id}>
+                  Ш{cabinets.findIndex((item) => item.id === cabinet.id) + 1} · {cabinet.name || 'Шкаф'}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="text-xs">
+            Втори шкаф
+            <select
+              className="mt-1 flex h-8 w-44 rounded-md border border-[var(--color-input)] bg-[var(--color-background)] px-2 text-sm"
+              value={joinGuest}
+              onChange={(event) => setJoinGuest(event.target.value)}
+            >
+              {joinable
+                .filter((cabinet) => cabinet.id !== joinHost)
+                .map((cabinet) => (
+                  <option key={cabinet.id} value={cabinet.id}>
+                    Ш{cabinets.findIndex((item) => item.id === cabinet.id) + 1} · {cabinet.name || 'Шкаф'}
+                  </option>
+                ))}
+            </select>
+          </label>
+          <Button type="button" size="sm" disabled={!joinHost || !joinGuest || joinHost === joinGuest} onClick={startJoin}>
+            Съедини
+          </Button>
+          <Button type="button" size="sm" variant="outline" onClick={() => setJoinOpen(false)}>
+            Откажи
+          </Button>
+        </div>
+      )}
 
       {cabinets.length === 0 ? (
         <p className="text-sm text-[var(--color-muted-foreground)]">
@@ -518,8 +601,12 @@ export function CabinetsPanel({
       <CabinetDialog
         key={formKey}
         open={open}
-        onOpenChange={setOpen}
+        onOpenChange={(next) => {
+          setOpen(next)
+          if (!next) setStartAttached([])
+        }}
         editing={editing}
+        startAttached={startAttached}
         projectCabinets={cabinets}
         sheets={sheets}
         dailyRateEur={dailyRateEur}

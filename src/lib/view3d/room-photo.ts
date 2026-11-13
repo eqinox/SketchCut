@@ -6,10 +6,14 @@ import {
   DirectionalLight,
   Group,
   HemisphereLight,
+  MOUSE,
   Mesh,
   MeshPhysicalMaterial,
   MeshStandardMaterial,
   Object3D,
+  Path,
+  Shape,
+  ShapeGeometry,
   PCFSoftShadowMap,
   PMREMGenerator,
   PerspectiveCamera,
@@ -28,6 +32,12 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
 import type { DecorSheet } from '@/lib/finish-photo'
 import type { SceneSolid } from '@/lib/cabinets/scene-solids'
 import type { RoomPlan } from '@/lib/room'
+import {
+  openingsIn,
+  wallLength,
+  type RoomOpening,
+  type RoomWall,
+} from '@/lib/room-openings'
 import { buildCabinet } from '@/lib/view3d/assemble'
 import type { Disposable } from '@/lib/view3d/materials'
 
@@ -49,11 +59,23 @@ export type RoomFront = {
   open: boolean
 }
 
+export type RoomHit =
+  | { kind: 'opening'; id: string; wall: RoomWall; along: number; up: number }
+  | { kind: 'wall'; wall: RoomWall; along: number; up: number }
+  | { kind: 'busy' }
+
 export type RoomStudio = {
   setRoom(room: RoomPlan, placements: RoomPlacement[], sheets: ReadonlyMap<string, DecorSheet>): void
   /** Opens a shut door or drawer, and shuts an open one. */
   toggle(id: string): void
   fronts(): RoomFront[]
+  /** What the cursor is on: an opening, a clear wall, or a cabinet in front of the wall. */
+  hit(clientX: number, clientY: number): RoomHit | null
+  /** Draw a temporary opening list without rebuilding the furniture. */
+  preview(openings: RoomOpening[]): void
+  setSelected(id: string | null): void
+  /** Left button orbits while navigating. A drawing tool takes that button. */
+  setNavigate(on: boolean): void
   subscribe(listener: () => void): () => void
   dispose(): void
 }
@@ -161,6 +183,7 @@ export function mountRoomStudio(host: HTMLElement): RoomStudio {
   const controls = new OrbitControls(camera, renderer.domElement)
   controls.enableDamping = true
   controls.dampingFactor = 0.08
+  controls.panSpeed = 4
   controls.minDistance = 500
   controls.maxDistance = 12000
   controls.maxPolarAngle = Math.PI * 0.58
@@ -243,6 +266,25 @@ export function mountRoomStudio(host: HTMLElement): RoomStudio {
   const glass = new Mesh(new PlaneGeometry(1, 1), glassMat)
   glass.rotation.y = Math.PI / 2
   shell.add(glass)
+  glass.visible = false
+  for (const mesh of frames) mesh.visible = false
+  for (const mesh of trims) mesh.visible = false
+
+  const wallOf: Record<RoomWall, Mesh> = {
+    front: frontWall,
+    back: backWall,
+    left: leftWall,
+    right: rightWall,
+  }
+  for (const name of Object.keys(wallOf) as RoomWall[]) wallOf[name].userData.roomWall = name
+  const features = new Group()
+  shell.add(features)
+  const doorMat = new MeshStandardMaterial({ color: '#f7f3ec', roughness: 0.58, metalness: 0 })
+  const nicheMat = new MeshStandardMaterial({ color: '#e4ddd2', roughness: 0.94, metalness: 0 })
+  let featureBin: Disposable[] = []
+  let selectedOpening: string | null = null
+  let paintedRoom: RoomPlan | null = null
+  let paintedList: RoomOpening[] = []
 
   let bin: Disposable[] = []
   let userMoved = false
@@ -425,6 +467,211 @@ export function mountRoomStudio(host: HTMLElement): RoomStudio {
     furniture.add(stand)
   }
 
+  function addSolid(
+    size: [number, number, number],
+    at: [number, number, number],
+    material: MeshStandardMaterial,
+    openingId?: string,
+  ) {
+    const geo = new BoxGeometry(size[0], size[1], size[2])
+    const mesh = new Mesh(geo, material)
+    mesh.position.set(at[0], at[1], at[2])
+    mesh.castShadow = true
+    mesh.receiveShadow = true
+    if (openingId) mesh.userData.openingId = openingId
+    features.add(mesh)
+    featureBin.push(geo)
+  }
+
+  function paintOpenings(room: RoomPlan, openings = openingsIn(room)) {
+    paintedRoom = room
+    paintedList = openings
+    for (const item of featureBin) item.dispose()
+    featureBin = []
+    features.clear()
+    const { width, depth, height } = room
+    nicheMat.color.copy(walls.color).multiplyScalar(0.93)
+
+    const laid = {
+      front: { at: new Vector3(0, 0, 0), rot: 0, localX: (along: number) => along, out: new Vector3(0, 0, -1) },
+      back: {
+        at: new Vector3(width, 0, depth),
+        rot: Math.PI,
+        localX: (along: number, span: number) => width - along - span,
+        out: new Vector3(0, 0, 1),
+      },
+      left: {
+        at: new Vector3(0, 0, depth),
+        rot: Math.PI / 2,
+        localX: (along: number, span: number) => depth - along - span,
+        out: new Vector3(-1, 0, 0),
+      },
+      right: {
+        at: new Vector3(width, 0, 0),
+        rot: -Math.PI / 2,
+        localX: (along: number) => along,
+        out: new Vector3(1, 0, 0),
+      },
+    } satisfies Record<RoomWall, { at: Vector3; rot: number; localX: (along: number, span: number) => number; out: Vector3 }>
+
+    for (const name of Object.keys(laid) as RoomWall[]) {
+      const lay = laid[name]
+      const length = wallLength(room, name)
+      const shape = new Shape()
+      shape.moveTo(0, 0)
+      shape.lineTo(length, 0)
+      shape.lineTo(length, height)
+      shape.lineTo(0, height)
+      for (const opening of openings) {
+        if (opening.wall !== name) continue
+        const x = lay.localX(opening.along, opening.span)
+        const hole = new Path()
+        hole.moveTo(x, opening.sill)
+        hole.lineTo(x, opening.sill + opening.height)
+        hole.lineTo(x + opening.span, opening.sill + opening.height)
+        hole.lineTo(x + opening.span, opening.sill)
+        shape.holes.push(hole)
+      }
+      const geo = new ShapeGeometry(shape)
+      const mesh = wallOf[name]
+      mesh.geometry.dispose()
+      mesh.geometry = geo
+      mesh.scale.set(1, 1, 1)
+      mesh.position.copy(lay.at)
+      mesh.rotation.set(0, lay.rot, 0)
+    }
+
+    const skirt = 78
+    const skirtT = 16
+    for (const name of Object.keys(laid) as RoomWall[]) {
+      const length = wallLength(room, name)
+      const cuts = openings
+        .filter((opening) => opening.wall === name && opening.sill < skirt)
+        .map((opening) => [opening.along, opening.along + opening.span] as [number, number])
+        .sort((a, b) => a[0] - b[0])
+      let cursor = 0
+      const spans: [number, number][] = []
+      for (const [start, end] of cuts) {
+        const a = Math.max(0, start)
+        const b = Math.min(length, end)
+        if (a > cursor + 30) spans.push([cursor, a])
+        cursor = Math.max(cursor, b)
+      }
+      if (length > cursor + 30) spans.push([cursor, length])
+      for (const [a, b] of spans) {
+        const mid = (a + b) / 2
+        const len = b - a
+        if (name === 'front') addSolid([len, skirt, skirtT], [mid, skirt / 2, skirtT / 2], trimMat)
+        else if (name === 'back') addSolid([len, skirt, skirtT], [mid, skirt / 2, depth - skirtT / 2], trimMat)
+        else if (name === 'left') addSolid([skirtT, skirt, len], [skirtT / 2, skirt / 2, mid], trimMat)
+        else addSolid([skirtT, skirt, len], [width - skirtT / 2, skirt / 2, mid], trimMat)
+      }
+    }
+
+    const tone = (base: MeshStandardMaterial, id: string) => {
+      if (id !== selectedOpening) return base
+      const mat = base.clone()
+      mat.emissive.set('#1d4ed8')
+      mat.emissiveIntensity = 0.4
+      featureBin.push(mat)
+      return mat
+    }
+
+    const side = (wall: RoomWall) => wall === 'left' || wall === 'right'
+    const place = (opening: RoomOpening, along: number, y: number, alongSize: number, upSize: number, outSize: number, outDist: number, material: MeshStandardMaterial) => {
+      const out = laid[opening.wall].out
+      const onWall = side(opening.wall)
+        ? new Vector3(opening.wall === 'left' ? 0 : width, y, along)
+        : new Vector3(along, y, opening.wall === 'front' ? 0 : depth)
+      onWall.addScaledVector(out, outDist)
+      const size: [number, number, number] = onWall && side(opening.wall) ? [outSize, upSize, alongSize] : [alongSize, upSize, outSize]
+      addSolid(size, [onWall.x, onWall.y, onWall.z], material, opening.id)
+    }
+
+    for (const opening of openings) {
+      const frame = tone(frameMat, opening.id)
+      const midA = opening.along + opening.span / 2
+      const midY = opening.sill + opening.height / 2
+      if (opening.kind === 'niche') {
+        const face = tone(nicheMat, opening.id)
+        const depthOut = opening.depth
+        place(opening, midA, midY, opening.span, opening.height, 18, depthOut, face)
+        place(opening, opening.along, midY, 18, opening.height, depthOut, depthOut / 2 + 2, face)
+        place(opening, opening.along + opening.span, midY, 18, opening.height, depthOut, depthOut / 2 + 2, face)
+        place(opening, midA, opening.sill + opening.height, opening.span, 18, depthOut, depthOut / 2 + 2, face)
+        place(opening, midA, opening.sill, opening.span, 18, depthOut, depthOut / 2 + 2, face)
+        continue
+      }
+      const bar = 55
+      const deep = 70
+      place(opening, opening.along, midY, bar, opening.height + bar, deep, 0, frame)
+      place(opening, opening.along + opening.span, midY, bar, opening.height + bar, deep, 0, frame)
+      place(opening, midA, opening.sill, opening.span, bar, deep, 0, frame)
+      place(opening, midA, opening.sill + opening.height, opening.span, bar, deep, 0, frame)
+      if (opening.kind === 'door') {
+        place(opening, midA, opening.height / 2, opening.span - 36, opening.height - 24, 40, 0, tone(doorMat, opening.id))
+        continue
+      }
+      const pane = new Mesh(new PlaneGeometry(Math.max(20, opening.span - 20), Math.max(20, opening.height - 20)), glassMat)
+      const inset = laid[opening.wall].out.clone().multiplyScalar(-12)
+      const at = side(opening.wall)
+        ? new Vector3(opening.wall === 'left' ? 0 : width, midY, midA)
+        : new Vector3(midA, midY, opening.wall === 'front' ? 0 : depth)
+      at.add(inset)
+      pane.position.copy(at)
+      pane.rotation.y = opening.wall === 'left' ? Math.PI / 2 : opening.wall === 'right' ? -Math.PI / 2 : opening.wall === 'back' ? Math.PI : 0
+      pane.userData.openingId = opening.id
+      features.add(pane)
+      featureBin.push(pane.geometry)
+    }
+
+    const win = openings.find((opening) => opening.kind === 'window')
+    if (win) {
+      const out = laid[win.wall].out
+      const at = side(win.wall)
+        ? new Vector3(win.wall === 'left' ? 0 : width, win.sill + win.height / 2, win.along + win.span / 2)
+        : new Vector3(win.along + win.span / 2, win.sill + win.height / 2, win.wall === 'front' ? 0 : depth)
+      sun.position.set(at.x + out.x * 1600, Math.max(at.y + 400, height * 0.75), at.z + out.z * 1600)
+    } else {
+      sun.position.set(-width * 0.15, height * 1.35, depth * 0.55)
+    }
+    sun.target.position.set(width * 0.55, 400, depth * 0.5)
+    sun.target.updateMatrixWorld()
+  }
+
+  function hitPoint(clientX: number, clientY: number): RoomHit | null {
+    if (!paintedRoom) return null
+    const rect = renderer.domElement.getBoundingClientRect()
+    if (rect.width < 1 || rect.height < 1) return null
+    pointer.x = ((clientX - rect.left) / rect.width) * 2 - 1
+    pointer.y = -((clientY - rect.top) / rect.height) * 2 + 1
+    raycaster.setFromCamera(pointer, camera)
+    const hits = raycaster.intersectObjects([features, furniture, ...Object.values(wallOf)], true)
+    for (const found of hits) {
+      let openingId = ''
+      let wall = ''
+      let blocked = false
+      let current: Object3D | null = found.object
+      while (current) {
+        if (typeof current.userData.openingId === 'string') openingId = current.userData.openingId
+        if (typeof current.userData.roomWall === 'string') wall = current.userData.roomWall
+        if (current === furniture) blocked = true
+        current = current.parent
+      }
+      const alongOf = (name: RoomWall) => (name === 'front' || name === 'back' ? found.point.x : found.point.z)
+      if (openingId) {
+        const opening = paintedList.find((item) => item.id === openingId)
+        if (!opening) continue
+        return { kind: 'opening', id: openingId, wall: opening.wall, along: alongOf(opening.wall), up: found.point.y }
+      }
+      if (blocked) return { kind: 'busy' }
+      if (wall === 'front' || wall === 'back' || wall === 'left' || wall === 'right') {
+        return { kind: 'wall', wall, along: alongOf(wall), up: found.point.y }
+      }
+    }
+    return null
+  }
+
   return {
     setRoom(room, placements, sheets) {
       const { width, depth, height } = room
@@ -439,57 +686,9 @@ export function mountRoomStudio(host: HTMLElement): RoomStudio {
       ceiling.scale.set(width, depth, 1)
       ceiling.rotation.x = Math.PI / 2
       ceiling.position.set(width / 2, height, depth / 2)
-      backWall.scale.set(width, height, 1)
-      backWall.rotation.y = Math.PI
-      backWall.position.set(width / 2, height / 2, depth)
-      frontWall.scale.set(width, height, 1)
-      frontWall.rotation.y = 0
-      frontWall.position.set(width / 2, height / 2, 0)
-      leftWall.scale.set(depth, height, 1)
-      leftWall.rotation.y = Math.PI / 2
-      leftWall.position.set(0, height / 2, depth / 2)
-      rightWall.scale.set(depth, height, 1)
-      rightWall.rotation.y = -Math.PI / 2
-      rightWall.position.set(width, height / 2, depth / 2)
-
-      const skirt = 78
-      const skirtT = 16
-      const trimBox = [
-        { s: [width, skirt, skirtT], p: [width / 2, skirt / 2, skirtT / 2] },
-        { s: [width, skirt, skirtT], p: [width / 2, skirt / 2, depth - skirtT / 2] },
-        { s: [skirtT, skirt, depth], p: [skirtT / 2, skirt / 2, depth / 2] },
-        { s: [skirtT, skirt, depth], p: [width - skirtT / 2, skirt / 2, depth / 2] },
-      ]
-      trims.forEach((mesh, index) => {
-        const box = trimBox[index]!
-        mesh.scale.set(box.s[0]!, box.s[1]!, box.s[2]!)
-        mesh.position.set(box.p[0]!, box.p[1]!, box.p[2]!)
-      })
-
-      const winW = Math.min(1500, Math.max(700, depth * 0.42))
-      const winH = Math.min(1300, Math.max(700, height * 0.42))
-      const sill = Math.min(900, height - winH - 200)
-      const winZ = depth * 0.55
-      const winY = sill + winH / 2
-      const bar = 55
-      glass.scale.set(winW - 16, winH - 16, 1)
-      glass.position.set(18, winY, winZ)
-      const frameBox = [
-        { s: [70, winH + bar, bar], p: [24, winY, winZ - winW / 2] },
-        { s: [70, winH + bar, bar], p: [24, winY, winZ + winW / 2] },
-        { s: [70, bar, winW], p: [24, winY + winH / 2, winZ] },
-        { s: [70, bar, winW], p: [24, winY - winH / 2, winZ] },
-      ]
-      frames.forEach((mesh, index) => {
-        const box = frameBox[index]!
-        mesh.scale.set(box.s[0]!, box.s[1]!, box.s[2]!)
-        mesh.position.set(box.p[0]!, box.p[1]!, box.p[2]!)
-      })
+      paintOpenings(room)
 
       const span = Math.max(width, depth, height)
-      sun.position.set(-span * 0.15, height * 1.35, winZ)
-      sun.target.position.set(width * 0.62, 400, depth * 0.55)
-      sun.target.updateMatrixWorld()
       const shadow = sun.shadow.camera
       shadow.left = -span
       shadow.right = span
@@ -540,6 +739,20 @@ export function mountRoomStudio(host: HTMLElement): RoomStudio {
     fronts() {
       return movers.map((mover) => ({ id: mover.id, kind: mover.kind, open: isOpen(mover.id) }))
     },
+    hit(clientX, clientY) {
+      return hitPoint(clientX, clientY)
+    },
+    preview(openings) {
+      if (!paintedRoom) return
+      paintOpenings(paintedRoom, openings)
+    },
+    setSelected(id) {
+      selectedOpening = id
+      if (paintedRoom) paintOpenings(paintedRoom, paintedList)
+    },
+    setNavigate(on) {
+      ;(controls.mouseButtons as { LEFT: number }).LEFT = on ? MOUSE.ROTATE : -1
+    },
     subscribe(listener) {
       listeners.add(listener)
       return () => listeners.delete(listener)
@@ -561,6 +774,9 @@ export function mountRoomStudio(host: HTMLElement): RoomStudio {
       trimMat.dispose()
       frameMat.dispose()
       glassMat.dispose()
+      doorMat.dispose()
+      nicheMat.dispose()
+      for (const item of featureBin) item.dispose()
       trimGeo.dispose()
       frameGeo.dispose()
       glass.geometry.dispose()

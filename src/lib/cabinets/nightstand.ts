@@ -485,6 +485,7 @@ export function generatePlinthCabinet(
       canRotate: false,
       edges: sideEdges,
       note: sideNote,
+      pieceKeys: ['side-left', 'side-right'],
     },
     {
       role: 'bottom' as const,
@@ -499,6 +500,7 @@ export function generatePlinthCabinet(
       note: p.useLegs
         ? `Кант 2 мм: предна и две странични. Външно ${m.bottomW} × ${m.bottomD} мм, страниците сядат в него, винтове отдолу.`
         : `Кант 0.5 мм: предна. Влиза между страниците (${m.bottomW} мм). Хваща се първо за цокъла, после за страниците.`,
+      pieceKeys: ['bottom'],
     },
     ...(hasTopPanel
       ? [
@@ -515,6 +517,7 @@ export function generatePlinthCabinet(
             note: innerTop
               ? `Кант 2 мм: предна. Влиза между страниците (${m.topW} × ${m.topD} мм). Хваща се с 5×60 през страниците.`
               : 'Кант 2 мм: предна и две странични. Седи отгоре върху страниците. Хваща се с ъгълчета отвътре.',
+            pieceKeys: ['top'],
           } satisfies GeneratedPanel,
         ]
       : []),
@@ -530,6 +533,7 @@ export function generatePlinthCabinet(
       canRotate: false,
       edges: edges({ bottom: true, top: false, left: false, right: false }),
       note: `Кант 2 мм: само долната дълга страна (кантът е надолу към земята). ${PLINTH_INSET} мм навътре от канта на дъното.`,
+      pieceKeys: Array.from({ length: p.plinthCount }, () => 'plinth'),
     })
   }
 

@@ -547,6 +547,7 @@ export function appendSlidingDoors(
       role: 'sliding-door',
       name: leaf.name,
       width: leaf.cutW,
+      pieceKeys: [`door-slide-${leaf.index}`],
       height: leaf.cutH,
       quantity: 1,
       canRotate: false,

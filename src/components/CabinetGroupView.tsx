@@ -1,22 +1,22 @@
 import { useCallback, useState, type CSSProperties, type ReactNode } from 'react'
-import { CabinetPreview, DrawFrameContext, GroupedPreviewContext } from '@/components/CabinetPreview'
+import { CabinetPreview, DrawFrameContext, FRONT_FILL, GroupedPreviewContext } from '@/components/CabinetPreview'
 import { CapturedModel } from '@/components/CabinetModel'
 import {
   arrangeMany,
   attachmentTouchesHost,
   cabinetOuterSize,
-  EDGE_MEET_MM,
-  isStacked,
+  spanDoorCountOf,
+  spanFrontBox,
   stageBoxes,
   type CabinetPlace,
   type DrawFrame,
   type GroupSpot,
 } from '@/lib/cabinets/compose'
-import { Board, createDrawCam, DimLine, DimText, DRAW_DIM, DRAW_PAPER, HingedDoor, SketchGroupContext } from '@/lib/cabinets/draw-3d'
+import { Board, createDrawCam, DecorTextureProvider, DimLine, DimText, DRAW_DIM, DRAW_PAPER, HingedDoor, SketchGroupContext } from '@/lib/cabinets/draw-3d'
+import { parsePartColors } from '@/lib/cabinets/colors'
 import { formatMm } from '@/lib/utils'
+import type { BoardFinish } from '@/lib/board-finishes'
 import { DrawPlaceContext } from '@/lib/cabinets/scene-solids'
-
-const DOOR_FILL = '#c4a06a'
 
 interface PieceProps {
   typeId: string
@@ -26,6 +26,7 @@ interface PieceProps {
 interface GroupGuest extends PieceProps {
   place: CabinetPlace
   spanDoor: boolean
+  spanDoorCount?: number
 }
 
 interface CabinetGroupViewProps {
@@ -42,6 +43,7 @@ interface CabinetGroupViewProps {
   frontImage?: string
   backColor?: string
   backImage?: string
+  finishes?: BoardFinish[]
 }
 
 interface SpanDoor {
@@ -141,6 +143,7 @@ export function CabinetGroupView({
   frontImage,
   backColor,
   backImage,
+  finishes,
 }: CabinetGroupViewProps) {
   const [hostFrame, setHostFrame] = useState<DrawFrame | null>(null)
   const [guestFrames, setGuestFrames] = useState<(DrawFrame | null)[]>([])
@@ -175,22 +178,26 @@ export function CabinetGroupView({
     frontImage,
     backColor,
     backImage,
+    finishes,
     part: 'main' as const,
   }
-  const doorColor = frontColor || DOOR_FILL
+  const pictured = drawStyle === 'color' || drawStyle === 'model'
+  const doorColor = pictured ? frontColor || parsePartColors(host.params.colors).side : FRONT_FILL
+  const doorDecor =
+    (drawStyle === 'color' || drawStyle === 'model') && frontColor && frontImage
+      ? [{ color: frontColor, image: frontImage }]
+      : []
   const spans: SpanDoor[] = []
   guests.forEach((guest, index) => {
     const spot = laid.guests[index]!
     const size = guestSizes[index]!
-    if (!guest.spanDoor || !isStacked(guest.place) || !attachmentTouchesHost(guests, index) || !showFronts) return
-    const width = Math.min(hostSize.w, size.w)
-    const between = (guest.place === 'above' ? size.feet : hostSize.feet) + EDGE_MEET_MM
-    const height = hostSize.h + size.h + between
-    spans.push(
-      guest.place === 'above'
-        ? { x: laid.host.x, y: spot.y, w: width, h: height }
-        : { x: laid.host.x, y: laid.host.y, w: width, h: height },
-    )
+    const leaves = spanDoorCountOf(guest)
+    if (leaves < 1 || !attachmentTouchesHost(guests, index) || !showFronts) return
+    const box = spanFrontBox(hostSize, size, guest.place, laid.host, spot)
+    const leafW = box.w / leaves
+    for (let leaf = 0; leaf < leaves; leaf++) {
+      spans.push({ x: box.x + leaf * leafW, y: box.y, w: leafW, h: box.h })
+    }
   })
   const hostHidesDoors = spans.length > 0
 
@@ -199,7 +206,7 @@ export function CabinetGroupView({
       key: `g${index}`,
       piece: guest,
       at: laid.guests[index]!,
-      hideDoors: guest.spanDoor && isStacked(guest.place) && attachmentTouchesHost(guests, index) && showFronts,
+      hideDoors: spanDoorCountOf(guest) > 0 && attachmentTouchesHost(guests, index) && showFronts,
       frame: guestFrames[index] ?? null,
       report: (frame: DrawFrame) => onGuest(index, frame),
     })),
@@ -251,20 +258,23 @@ export function CabinetGroupView({
       {members.map((member) => (
         <span key={member.key}>{preview(member)}</span>
       ))}
-      {model &&
-        spans.map((door) => (
-          <SpanLeaf
-            key={`${door.x}-${door.y}-${door.h}`}
-            x={door.x}
-            y={door.y}
-            w={door.w}
-            h={door.h}
-            open={doorView === 'open'}
-            color={doorColor}
-            ox={0}
-            oy={0}
-          />
-        ))}
+      {model && (
+        <DecorTextureProvider entries={doorDecor}>
+          {spans.map((door) => (
+            <SpanLeaf
+              key={`${door.x}-${door.y}-${door.h}`}
+              x={door.x}
+              y={door.y}
+              w={door.w}
+              h={door.h}
+              open={doorView === 'open'}
+              color={doorColor}
+              ox={0}
+              oy={0}
+            />
+          ))}
+        </DecorTextureProvider>
+      )}
     </>
   )
 
@@ -305,19 +315,21 @@ export function CabinetGroupView({
                     viewBox={`0 0 ${stage.width + padL} ${stage.height + padB}`}
                     className="pointer-events-none absolute inset-0 h-full w-full"
                   >
-                    {spans.map((door) => (
-                      <SpanLeaf
-                        key={`${door.x}-${door.y}-${door.h}`}
-                        x={door.x}
-                        y={door.y}
-                        w={door.w}
-                        h={door.h}
-                        open={doorView === 'open'}
-                        color={doorColor}
-                        ox={stage.originX + padL}
-                        oy={stage.originY}
-                      />
-                    ))}
+                    <DecorTextureProvider entries={doorDecor}>
+                      {spans.map((door) => (
+                        <SpanLeaf
+                          key={`${door.x}-${door.y}-${door.h}`}
+                          x={door.x}
+                          y={door.y}
+                          w={door.w}
+                          h={door.h}
+                          open={doorView === 'open'}
+                          color={doorColor}
+                          ox={stage.originX + padL}
+                          oy={stage.originY}
+                        />
+                      ))}
+                    </DecorTextureProvider>
                     <GroupDimChain
                       heights={heights}
                       widths={widths}

@@ -127,8 +127,11 @@ export function RoomPlanView({
   const [selected, setSelected] = useState<string | null>(null)
   const [pick, setPick] = useState('')
   const [note, setNote] = useState('')
+  const [showPhoto, setShowPhoto] = useState(false)
   const svgRef = useRef<SVGSVGElement | null>(null)
+  const planRef = useRef<HTMLDivElement | null>(null)
   const drag = useRef<{ id: string; ox: number; oy: number } | null>(null)
+  const stopDrag = useRef<(() => void) | null>(null)
 
   const byId = useMemo(() => new Map(cabinets.map((cabinet) => [cabinet.id, cabinet])), [cabinets])
 
@@ -236,7 +239,27 @@ export function RoomPlanView({
   const elevW = PAD_L + ROOM_WALL_MM * 2 + room.width + PAD_R
   const elevH = PAD_T + room.height + PAD_B
 
-  const svgPoint = (event: PointerEvent) => {
+  const placedRef = useRef(placed)
+  const roomRef = useRef(room)
+  const patchRef = useRef(patchPiece)
+  placedRef.current = placed
+  roomRef.current = room
+  patchRef.current = patchPiece
+
+  useEffect(() => {
+    const plan = planRef.current
+    if (!plan) return
+    const keepFinger = (event: TouchEvent) => {
+      if (drag.current) event.preventDefault()
+    }
+    plan.addEventListener('touchmove', keepFinger, { passive: false })
+    return () => {
+      plan.removeEventListener('touchmove', keepFinger)
+      stopDrag.current?.()
+    }
+  }, [])
+
+  const svgPoint = (event: { clientX: number; clientY: number }) => {
     const svg = svgRef.current
     if (!svg) return { x: 0, y: 0 }
     const pt = svg.createSVGPoint()
@@ -248,28 +271,60 @@ export function RoomPlanView({
     return { x: local.x, y: local.y }
   }
 
-  const onPointerDown = (event: PointerEvent, row: Placed) => {
+  const onPlanPointerDown = (event: PointerEvent) => {
+    if (event.pointerType === 'mouse' && event.button !== 0) return
     const local = svgPoint(event)
+    const depth = roomRef.current.depth
+    const row = [...placedRef.current].reverse().find((item) => {
+      const sx = innerX + item.piece.x
+      const sy = innerY + (depth - item.piece.y - item.d)
+      return local.x >= sx && local.x <= sx + item.w && local.y >= sy && local.y <= sy + item.d
+    })
+    if (!row) return
+    event.preventDefault()
+    stopDrag.current?.()
     const sx = innerX + row.piece.x
-    const sy = innerY + (room.depth - row.piece.y - row.d)
+    const sy = innerY + (depth - row.piece.y - row.d)
     drag.current = { id: row.piece.id, ox: local.x - sx, oy: local.y - sy }
     setSelected(row.piece.id)
-    ;(event.currentTarget as Element).setPointerCapture(event.pointerId)
-  }
-
-  const onPointerMove = (event: PointerEvent) => {
-    const held = drag.current
-    if (!held) return
-    const row = placed.find((item) => item.piece.id === held.id)
-    if (!row) return
-    const local = svgPoint(event)
-    const x = local.x - held.ox - innerX
-    const y = room.depth - (local.y - held.oy - innerY) - row.d
-    patchPiece(held.id, { x, y })
-  }
-
-  const onPointerUp = () => {
-    drag.current = null
+    const pointerId = event.pointerId
+    const plan = event.currentTarget as Element
+    try {
+      plan.setPointerCapture(pointerId)
+    } catch {
+      // iPhone follows the finger through the window listeners below.
+    }
+    const move = (ev: globalThis.PointerEvent) => {
+      if (ev.pointerId !== pointerId) return
+      const held = drag.current
+      if (!held) return
+      const current = placedRef.current.find((item) => item.piece.id === held.id)
+      if (!current) return
+      const point = svgPoint(ev)
+      const x = point.x - held.ox - innerX
+      const y = roomRef.current.depth - (point.y - held.oy - innerY) - current.d
+      patchRef.current(held.id, { x, y })
+    }
+    const up = (ev: globalThis.PointerEvent) => {
+      if (ev.pointerId !== pointerId) return
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+      window.removeEventListener('pointercancel', up)
+      drag.current = null
+      stopDrag.current = null
+      const plan = planRef.current
+      if (plan?.hasPointerCapture(pointerId)) {
+        try {
+          plan.releasePointerCapture(pointerId)
+        } catch {
+          // The phone already dropped the pointer.
+        }
+      }
+    }
+    stopDrag.current = () => up(new PointerEvent('pointerup', { pointerId }))
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+    window.addEventListener('pointercancel', up)
   }
 
   const xStations = chainStations(
@@ -285,9 +340,9 @@ export function RoomPlanView({
     <section className="rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] p-4">
       <h2 className="text-lg font-semibold">Стая</h2>
       <p className="mt-1 text-sm text-[var(--color-muted-foreground)]">
-        Светлият размер. Мебелите се нареждат по настилката. Оранжевата черта е челото — избери мебела и
-        натисни «Завърти», за да сочи към друга стена. Отдолу е чертежът: изглед отгоре и отпред, с вериги,
-        които събират размера.
+        Светлият размер. Хвани мебела на плана и го плъзни — с мишката или с пръст. Оранжевата черта е
+        челото — избери мебела и натисни «Завърти», за да сочи към друга стена. Отдолу е чертежът: изглед
+        отгоре и отпред, с вериги, които събират размера.
       </p>
 
       <div className="mt-3 flex flex-wrap items-end gap-3">
@@ -331,16 +386,19 @@ export function RoomPlanView({
       </div>
       {note && <p className="mt-2 text-sm text-[var(--color-destructive)]">{note}</p>}
 
-      <div className="mt-4 overflow-x-auto rounded-md border border-neutral-300 bg-white">
+      <div
+        ref={planRef}
+        className="mt-4 overflow-hidden rounded-md border border-neutral-300 bg-white"
+        style={{ touchAction: 'none' }}
+        onPointerDown={onPlanPointerDown}
+      >
         <svg
           ref={svgRef}
           viewBox={`0 0 ${planW} ${planH}`}
-          className="h-auto w-full touch-none"
+          className="h-auto w-full select-none"
           role="img"
           aria-label="Нареждане в стаята, изглед отгоре"
-          onPointerMove={onPointerMove}
-          onPointerUp={onPointerUp}
-          onPointerLeave={onPointerUp}
+          style={{ touchAction: 'none', WebkitUserSelect: 'none', WebkitTouchCallout: 'none' }}
         >
           <rect x={PAD_L} y={PAD_T} width={room.width + ROOM_WALL_MM * 2} height={room.depth + ROOM_WALL_MM * 2} fill={room.wallColor} stroke="#1e293b" strokeWidth={2} />
           <rect x={innerX} y={innerY} width={room.width} height={room.depth} fill={room.floorColor} stroke="#1e293b" strokeWidth={2} />
@@ -352,7 +410,7 @@ export function RoomPlanView({
             const sy = innerY + (room.depth - row.piece.y - row.d)
             const on = row.piece.id === selected
             return (
-              <g key={row.piece.id} onPointerDown={(event) => onPointerDown(event, row)} style={{ cursor: 'grab' }}>
+              <g key={row.piece.id} style={{ cursor: 'grab' }}>
                 <rect
                   x={sx}
                   y={sy}
@@ -363,10 +421,10 @@ export function RoomPlanView({
                   stroke={on ? '#c2410c' : '#1e293b'}
                   strokeWidth={on ? 8 : 3}
                 />
-                <text x={sx + row.w / 2} y={sy + row.d / 2 - 16} fill="#1e293b" fontSize={fitted(row.name, row.w - 20)} textAnchor="middle">
+                <text pointerEvents="none" x={sx + row.w / 2} y={sy + row.d / 2 - 16} fill="#1e293b" fontSize={fitted(row.name, row.w - 20)} textAnchor="middle">
                   {row.name}
                 </text>
-                <text x={sx + row.w / 2} y={sy + row.d / 2 + 56} fill="#1e293b" fontSize={fitted(`${formatMm(row.w)} × ${formatMm(row.d)}`, row.w - 20)} textAnchor="middle">
+                <text pointerEvents="none" x={sx + row.w / 2} y={sy + row.d / 2 + 56} fill="#1e293b" fontSize={fitted(`${formatMm(row.w)} × ${formatMm(row.d)}`, row.w - 20)} textAnchor="middle">
                   {formatMm(row.w)} × {formatMm(row.d)}
                 </text>
                 <FrontMark turn={row.piece.turn} x={sx} y={sy} w={row.w} h={row.d} />
@@ -388,7 +446,23 @@ export function RoomPlanView({
       )}
 
       <div className="mt-6">
-        <RoomPhoto room={room} cabinets={cabinets} finishes={finishes} />
+        {showPhoto ? (
+          <div className="mb-2">
+            <Button type="button" variant="outline" onClick={() => setShowPhoto(false)}>
+              Скрий 3D стаята
+            </Button>
+          </div>
+        ) : (
+          <div className="mb-3">
+            <Button type="button" onClick={() => setShowPhoto(true)}>
+              Покажи 3D стаята
+            </Button>
+            <p className="mt-1 text-sm text-[var(--color-muted-foreground)]">
+              Картината се пуска само оттук, за да не бави останалата работа.
+            </p>
+          </div>
+        )}
+        {showPhoto && <RoomPhoto room={room} cabinets={cabinets} finishes={finishes} onChange={onChange} />}
         <RoomLink room={room} cabinets={cabinets} finishes={finishes} userId={userId} />
       </div>
 
@@ -611,7 +685,7 @@ function FrontMark({ turn, x, y, w, h }: { turn: 0 | 1 | 2 | 3; x: number; y: nu
   const midX = (edge.x1 + edge.x2) / 2
   const midY = (edge.y1 + edge.y2) / 2
   return (
-    <g aria-hidden>
+    <g aria-hidden pointerEvents="none">
       <line x1={edge.x1} y1={edge.y1} x2={edge.x2} y2={edge.y2} stroke="#c2410c" strokeWidth={18} strokeLinecap="butt" />
       <line
         x1={midX}

@@ -372,7 +372,7 @@ function doorEdgeDeduction(opts?: DoorCutOpts): number {
 }
 
 /** Finished/cut width of one door from the opening it sits in. */
-export function doorCutWidth(openingWidth: number, doorCount: DoorLeafCount, opts?: DoorCutOpts): number {
+export function doorCutWidth(openingWidth: number, doorCount: number, opts?: DoorCutOpts): number {
   const edge = doorEdgeDeduction(opts)
   if (opts?.inset) {
     const between = Math.max(0, doorCount - 1) * DRAWER_DOOR_GAP
@@ -385,7 +385,7 @@ export function doorCutWidth(openingWidth: number, doorCount: DoorLeafCount, opt
 export function doorCutSize(
   openingWidth: number,
   cabinetHeight: number,
-  doorCount: DoorLeafCount,
+  doorCount: number,
   opts?: DoorCutOpts,
 ): { width: number; height: number } {
   const edge = doorEdgeDeduction(opts)

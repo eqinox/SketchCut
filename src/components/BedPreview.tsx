@@ -1,16 +1,15 @@
-import { useContext } from 'react'
 import { partFaces } from '@/lib/cabinets/colors'
 import {
   BETWEEN_FACES,
   Board,
   BOX_FACES,
-  BoardPickContext,
   DRAW_STROKE,
   DimText,
   SIDE_LEFT_BODY,
   SIDE_RIGHT,
   SketchSvg,
   createDrawCam,
+  usePiecePaint,
   type DrawCam,
 } from '@/lib/cabinets/draw-3d'
 import { measureBed, type BedParams } from '@/lib/cabinets/bed'
@@ -59,9 +58,9 @@ function MiddleToBottom({
   color: string
   coverY: number
 }) {
-  const tone = partFaces(color)
-  const pickState = useContext(BoardPickContext)
-  const chosen = pickState?.selected === 'side'
+  const paint = usePiecePaint('middle', color)
+  const tone = partFaces(paint.color)
+  const chosen = paint.chosen
   const yb = y + h
   const x2 = x + w
   const z2 = z + d
@@ -79,15 +78,8 @@ function MiddleToBottom({
   }
   return (
     <g
-      style={pickState ? { cursor: 'pointer' } : undefined}
-      onClick={
-        pickState
-          ? (event) => {
-              event.stopPropagation()
-              pickState.onSelect('side')
-            }
-          : undefined
-      }
+      style={paint.onClick ? { cursor: 'pointer' } : undefined}
+      onClick={paint.onClick}
     >
       {face([[x, y, z], [x2, y, z], [x2, y, z2], [x, y, z2]], tone.top)}
       {face([[x2, y, z], [x2, y, z2], [x2, yb, z2], [x2, yb, z]], tone.side)}
@@ -146,7 +138,7 @@ export function BedPreview({ params, showDims }: { params: BedParams; showDims: 
           w={m.width}
           h={m.headboardHeight}
           d={T}
-          color={wood.side} pick="side"
+          color={wood.side} pick="headboard"
           cam={view}
           faces={{ front: true, right: true }}
         />
@@ -158,11 +150,11 @@ export function BedPreview({ params, showDims }: { params: BedParams; showDims: 
         w={T}
         h={m.sideHeight}
         d={sideD}
-        color={wood.side} pick="side"
+        color={wood.side} pick="side-left"
         cam={view}
         faces={SIDE_LEFT_BODY}
       />
-      <Board x={leftRailX} y={innerY} z={zSide} w={T} h={m.innerHeight} d={sideD} color={wood.shelf} pick="shelf" cam={view} faces={{ front: true, top: true, right: true }} />
+      <Board x={leftRailX} y={innerY} z={zSide} w={T} h={m.innerHeight} d={sideD} color={wood.shelf} pick="inner-left" cam={view} faces={{ front: true, top: true, right: true }} />
       {params.liftMechanism && liftD > 40 && (
         <Board
           x={leftSupportX}
@@ -171,12 +163,12 @@ export function BedPreview({ params, showDims }: { params: BedParams; showDims: 
           w={T}
           h={m.innerHeight}
           d={liftD}
-          color={wood.rail} pick="rail"
+          color={wood.rail} pick="lift-left"
           cam={view}
           faces={SIDE_LEFT_BODY}
         />
       )}
-      <Board x={rightRailX} y={innerY} z={zSide} w={T} h={m.innerHeight} d={sideD} color={wood.shelf} pick="shelf" cam={view} faces={{ front: true, top: true }} />
+      <Board x={rightRailX} y={innerY} z={zSide} w={T} h={m.innerHeight} d={sideD} color={wood.shelf} pick="inner-right" cam={view} faces={{ front: true, top: true }} />
       {params.liftMechanism && liftD > 40 && (
         <Board
           x={m.width - 3 * T}
@@ -185,7 +177,7 @@ export function BedPreview({ params, showDims }: { params: BedParams; showDims: 
           w={T}
           h={m.innerHeight}
           d={liftD}
-          color={wood.rail} pick="rail"
+          color={wood.rail} pick="lift-right"
           cam={view}
           faces={{ front: true, left: true }}
         />
@@ -198,7 +190,7 @@ export function BedPreview({ params, showDims }: { params: BedParams; showDims: 
         w={m.topWidth}
         h={m.sideHeight}
         d={T}
-        color={wood.rail} pick="rail"
+        color={wood.rail} pick="top"
         cam={view}
         faces={{ front: true }}
       />
@@ -209,12 +201,12 @@ export function BedPreview({ params, showDims }: { params: BedParams; showDims: 
         w={T}
         h={m.innerHeight}
         d={sideD}
-        color={wood.side} pick="side"
+        color={wood.side} pick="middle"
         cam={view}
         faces={{ front: true, top: true, right: true }}
       />
-      <Board x={leftSupportX} y={innerY} z={zCross} w={half} h={m.innerHeight} d={T} color={wood.shelf} pick="shelf" cam={view} faces={BETWEEN_FACES} />
-      <Board x={rightSupportX} y={innerY} z={zCross} w={half} h={m.innerHeight} d={T} color={wood.shelf} pick="shelf" cam={view} faces={BETWEEN_FACES} />
+      <Board x={leftSupportX} y={innerY} z={zCross} w={half} h={m.innerHeight} d={T} color={wood.shelf} pick="support-left" cam={view} faces={BETWEEN_FACES} />
+      <Board x={rightSupportX} y={innerY} z={zCross} w={half} h={m.innerHeight} d={T} color={wood.shelf} pick="support-right" cam={view} faces={BETWEEN_FACES} />
       <Board
         x={m.width - T}
         y={bottomTop - m.sideHeight}
@@ -222,7 +214,7 @@ export function BedPreview({ params, showDims }: { params: BedParams; showDims: 
         w={T}
         h={m.sideHeight}
         d={sideD}
-        color={wood.side} pick="side"
+        color={wood.side} pick="side-right"
         cam={view}
         faces={SIDE_RIGHT}
       />

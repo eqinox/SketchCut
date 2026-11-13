@@ -1,3 +1,5 @@
+import { parseOpenings, type RoomOpening } from '@/lib/room-openings'
+
 /** A room the project cabinets are arranged in. Sizes are the clear opening, in mm. */
 
 export interface RoomPiece {
@@ -20,6 +22,11 @@ export interface RoomPlan {
   floorColor: string
   wallColor: string
   pieces: RoomPiece[]
+  /**
+   * Windows, doors and niches. Missing means the original left-wall window.
+   * An empty list means the walls are plain.
+   */
+  openings?: RoomOpening[]
 }
 
 export const DEFAULT_ROOM: RoomPlan = {
@@ -66,13 +73,18 @@ export function parseRoomPlan(raw: unknown): RoomPlan {
         ]
       })
     : []
+  const width = whole(rec.width, DEFAULT_ROOM.width, 1000, 20000)
+  const depth = whole(rec.depth, DEFAULT_ROOM.depth, 1000, 20000)
+  const height = whole(rec.height, DEFAULT_ROOM.height, 1800, 5000)
+  const openings = Object.prototype.hasOwnProperty.call(rec, 'openings') ? parseOpenings(rec.openings) : undefined
   return {
-    width: whole(rec.width, DEFAULT_ROOM.width, 1000, 20000),
-    depth: whole(rec.depth, DEFAULT_ROOM.depth, 1000, 20000),
-    height: whole(rec.height, DEFAULT_ROOM.height, 1800, 5000),
+    width,
+    depth,
+    height,
     floorColor: colorOf(rec.floorColor, DEFAULT_ROOM.floorColor),
     wallColor: colorOf(rec.wallColor, DEFAULT_ROOM.wallColor),
     pieces,
+    ...(openings !== undefined ? { openings } : {}),
   }
 }
 

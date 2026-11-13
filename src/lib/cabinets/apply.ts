@@ -160,6 +160,7 @@ export interface SavedCabinetGroup {
     place: AttachedCabinet['place']
     joinScrews: boolean
     spanDoor: boolean
+    spanDoorCount: number
   }[]
   combinationId: string | null
 }
@@ -171,6 +172,7 @@ export function saveCabinetGroup(state: CabinetState, group: SavedCabinetGroup, 
     place: guest.place,
     joinScrews: guest.joinScrews,
     spanDoor: guest.spanDoor,
+    spanDoorCount: guest.spanDoorCount,
   }))
   const hostParams = { ...group.host.params }
   delete hostParams.attached
@@ -207,7 +209,7 @@ export function saveCabinetGroup(state: CabinetState, group: SavedCabinetGroup, 
   const combinationParams = {
     hostId,
     members: [
-      { cabinetId: hostId, place: 'host', joinScrews: false, spanDoor: false },
+      { cabinetId: hostId, place: 'host', joinScrews: false, spanDoor: false, spanDoorCount: 0 },
       ...attached,
     ],
   }

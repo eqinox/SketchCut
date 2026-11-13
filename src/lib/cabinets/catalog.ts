@@ -45,7 +45,12 @@ export function generateCabinet(
   const result = type.generate({ ...type.defaultParams, ...params }, settings)
   return {
     ...result,
-    panels: stampPanelFinishes(result.panels, params.carcassFinishId, params.frontFinishId),
+    panels: stampPanelFinishes(
+      result.panels,
+      params.carcassFinishId,
+      params.frontFinishId,
+      params.pieceFinishes,
+    ),
   }
 }
 
@@ -68,7 +73,11 @@ export function scaleCabinetResult(
   })
   return {
     ...result,
-    panels: result.panels.map((p) => ({ ...p, quantity: p.quantity * q })),
+    panels: result.panels.map((p) => ({
+      ...p,
+      quantity: p.quantity * q,
+      ...(p.pieceKeys ? { pieceKeys: Array.from({ length: q }, () => p.pieceKeys!).flat() } : {}),
+    })),
     hardware: result.hardware.map((h) => ({ ...h, quantity: h.quantity * q })),
     labor: {
       ...result.labor,

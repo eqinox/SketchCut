@@ -39,6 +39,12 @@ export function buildRoomShare(room: RoomPlan, cabinets: CabinetInstance[], fini
       const id = cabinet.params[key]
       if (typeof id === 'string') finishIds.add(id)
     }
+    const pieces = cabinet.params.pieceFinishes
+    if (pieces && typeof pieces === 'object' && !Array.isArray(pieces)) {
+      for (const id of Object.values(pieces as Record<string, unknown>)) {
+        if (typeof id === 'string') finishIds.add(id)
+      }
+    }
   }
   return {
     room: parseRoomPlan(room),

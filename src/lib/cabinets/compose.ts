@@ -23,14 +23,20 @@ export interface AttachedCabinet {
   joinScrews: boolean
   /** One door across both, when one sits above the other. */
   spanDoor: boolean
+  /** How many full-height doors cover both cabinets. Zero means each cabinet keeps its own. */
+  spanDoorCount: number
 }
 
 export interface CabinetSize {
   w: number
-  /** Carcass height, without the legs. */
+  /** Carcass height, without the legs. The plinth, when there is one, is inside this height. */
   h: number
   d: number
   feet: number
+  /** Door starts this far below the top, so a covering top stays visible. */
+  doorTop: number
+  /** Door stops this far above the floor. That is the plinth. */
+  doorPlinth: number
 }
 
 export interface DrawFrame {
@@ -54,6 +60,7 @@ export interface CombinationMember {
   place: CabinetPlace | 'host'
   joinScrews: boolean
   spanDoor: boolean
+  spanDoorCount: number
 }
 
 export function isCombinationType(typeId: string): boolean {
@@ -78,7 +85,8 @@ export function parseCombination(raw: unknown): { hostId: string; members: Combi
       cabinetId: row.cabinetId,
       place,
       joinScrews: row.joinScrews === true,
-      spanDoor: row.spanDoor === true,
+      spanDoor: row.spanDoor === true || spanDoorCountOf(row) > 0,
+      spanDoorCount: spanDoorCountOf(row),
     })
   }
   if (members.length === 0) return null
@@ -111,8 +119,29 @@ export function parseAttached(raw: unknown): AttachedCabinet | null {
     cabinetId: row.cabinetId,
     place,
     joinScrews: row.joinScrews === true,
-    spanDoor: row.spanDoor === true,
+    spanDoor: row.spanDoor === true || spanDoorCountOf(row) > 0,
+    spanDoorCount: spanDoorCountOf(row),
   }
+}
+
+/** Full-height doors across both cabinets. Older saves stored only the on/off flag. */
+export function spanDoorCountOf(row: { spanDoor?: unknown; spanDoorCount?: unknown }): number {
+  const raw = typeof row.spanDoorCount === 'number' ? row.spanDoorCount : Number(row.spanDoorCount)
+  if (Number.isFinite(raw) && raw > 0) return Math.max(1, Math.min(12, Math.round(raw)))
+  return row.spanDoor === true ? 1 : 0
+}
+
+/** Where an overlay door sits on one cabinet: under a covering top, and on top of the plinth. */
+function doorClearanceMm(typeId: string, params: Record<string, unknown>): { top: number; plinth: number } {
+  if (typeId === 'kitchen-base' || typeId === 'kitchen-wall' || typeId === 'bed' || typeId === 'combination') {
+    return { top: 0, plinth: 0 }
+  }
+  const thickness = num(params.thickness, 18)
+  const rawPlinth = typeof params.plinthHeight === 'number' ? params.plinthHeight : Number(params.plinthHeight)
+  const plinth = params.useLegs === true || !Number.isFinite(rawPlinth) || rawPlinth <= 0 ? 0 : rawPlinth
+  const innerTop = typeId === 'section' || typeId === 'wardrobe'
+  const coveringTop = !innerTop && params.topStyle !== 'none' && params.topStyle !== 'fascia'
+  return { top: coveringTop ? thickness : 0, plinth }
 }
 
 /** One saved cabinet, or a list. Older projects stored a single object. */
@@ -148,10 +177,46 @@ export function cabinetOuterSize(typeId: string, params: Record<string, unknown>
   const w = num(params.width, 600)
   const h = num(params.height, 720)
   const d = num(params.depth, 560)
+  const door = doorClearanceMm(typeId, params)
   if (typeId === 'kitchen-base') {
-    return { w, h, d, feet: num(params.legHeight, 100) }
+    return { w, h, d, feet: num(params.legHeight, 100), doorTop: door.top, doorPlinth: door.plinth }
   }
-  return { w, h, d, feet: 0 }
+  return { w, h, d, feet: 0, doorTop: door.top, doorPlinth: door.plinth }
+}
+
+function doorFace(size: CabinetSize, spot: GroupSpot): { top: number; bot: number } {
+  const top = spot.y + size.doorTop
+  return { top, bot: Math.max(top + 1, spot.y + size.h - size.doorPlinth) }
+}
+
+/** The front the two cabinets share, as if they were one cabinet. The plinth stays below the door. */
+export function spanFrontBox(
+  host: CabinetSize,
+  guest: CabinetSize,
+  place: CabinetPlace,
+  hostSpot: GroupSpot,
+  guestSpot: GroupSpot,
+): { x: number; y: number; w: number; h: number } {
+  const hostFace = doorFace(host, hostSpot)
+  const guestFace = doorFace(guest, guestSpot)
+  if (place === 'above' || place === 'below') {
+    const upper = place === 'above' ? guestFace : hostFace
+    const lower = place === 'above' ? hostFace : guestFace
+    return {
+      x: hostSpot.x,
+      y: upper.top,
+      w: Math.min(host.w, guest.w),
+      h: Math.max(1, lower.bot - upper.top),
+    }
+  }
+  const top = Math.min(hostFace.top, guestFace.top)
+  const bot = Math.max(hostFace.bot, guestFace.bot)
+  return {
+    x: Math.min(hostSpot.x, guestSpot.x),
+    y: top,
+    w: host.w + guest.w,
+    h: Math.max(1, bot - top),
+  }
 }
 
 export interface GroupSpot {
@@ -234,21 +299,25 @@ export function joinScrewCount(place: CabinetPlace, host: CabinetSize, guest: Ca
   return Math.max(2, confirmatCount(span))
 }
 
-/** One overlay door covering both boxes. Width follows the narrower one. */
-export function spanDoorPanel(host: CabinetSize, guest: CabinetSize, place: CabinetPlace = 'below'): GeneratedPanel {
-  const openingW = Math.min(host.w, guest.w)
-  const between = place === 'above' ? guest.feet + EDGE_MEET_MM : place === 'below' ? host.feet + EDGE_MEET_MM : 0
-  const openingH = host.h + guest.h + between
-  const cut = doorCutSize(openingW, openingH, 1)
+/** Equal doors covering both boxes, the same way one cabinet gets its doors. */
+export function spanDoorPanel(
+  openingW: number,
+  openingH: number,
+  count: number,
+  finishId = '',
+): GeneratedPanel {
+  const leaves = Math.max(1, Math.min(12, Math.round(count)))
+  const cut = doorCutSize(openingW, openingH, leaves)
   return {
     role: 'door',
     name: 'Врата на двата шкафа',
     width: Math.round(cut.width * 10) / 10,
     height: Math.round(cut.height * 10) / 10,
-    quantity: 1,
+    quantity: leaves,
     canRotate: false,
     edges: { top: true, bottom: true, left: true, right: true, thickness: 'mm2' },
-    note: `Една врата върху двата шкафа. Отвор ${formatMm(openingW)} × ${formatMm(openingH)} мм. Кант 2 мм от четирите страни.`,
+    ...(finishId ? { finishId } : {}),
+    note: `${leaves === 1 ? 'Една врата' : `${leaves} врати`} върху двата шкафа като върху един. Отвор ${formatMm(openingW)} × ${formatMm(openingH)} мм. Кант 2 мм от четирите страни.`,
   }
 }
 
@@ -258,10 +327,15 @@ export function withAttachments(
   host: CabinetSize,
   guests: CabinetSize[],
   hardwareSettings: HardwareSettings,
+  frontFinishId = '',
 ): CabinetGeneratorResult {
   const hardware = [...result.hardware]
   const panels = [...result.panels]
   const notes = [...result.notes]
+  const laid = arrangeMany(
+    host,
+    attached.map((row, index) => ({ size: guests[index] ?? host, place: row.place })),
+  )
   let screws = 0
   attached.forEach((row, index) => {
     const guest = guests[index]
@@ -271,26 +345,28 @@ export function withAttachments(
       screws += count
       notes.push(`Винтчета 4×30: ${count} бр. — хващат този шкаф с добавения до него.`)
     }
-    if (row.spanDoor && isStacked(row.place) && attachmentTouchesHost(attached, index)) {
-      const door = spanDoorPanel(host, guest, row.place)
+    const leaves = spanDoorCountOf(row)
+    if (leaves > 0 && attachmentTouchesHost(attached, index)) {
+      const opening = spanFrontBox(host, guest, row.place, laid.host, laid.guests[index]!)
+      const door = spanDoorPanel(opening.w, opening.h, leaves, frontFinishId)
       panels.push(door)
-      const hinges = hingesForDoorHeight(door.height)
+      const hinges = hingesForDoorHeight(door.height) * leaves
       hardware.push(
         fastenerLine(
           { ...SCREW_4X16, packPriceEur: hardwareSettings.smallScrew1000PackEur },
           hinges * SCREWS_4X16_PER_HINGE,
-          'Панти на общата врата',
+          'Панти на общите врати',
         ),
       )
       hardware.push(
         fastenerLine(
           { ...SCREW_4X20, packPriceEur: hardwareSettings.smallScrew1000PackEur },
           hinges * SCREWS_4X20_PER_HINGE,
-          'Панти на общата врата',
+          'Панти на общите врати',
         ),
       )
       notes.push(
-        `Една врата на двата шкафа: рязане ${formatMm(door.height)} × ${formatMm(door.width)} мм. Панти: ${hinges} бр.`,
+        `${leaves === 1 ? 'Една врата' : `${leaves} врати`} отгоре до долу на двата шкафа: рязане ${formatMm(door.height)} × ${formatMm(door.width)} мм. Панти: ${hinges} бр.`,
       )
     }
   })

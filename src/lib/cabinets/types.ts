@@ -180,6 +180,11 @@ export interface GeneratedPanel {
   material?: BoardKind
   /** Workshop decor. Doors can differ from the carcass. */
   finishId?: string
+  /**
+   * One drawing piece per copy, in quantity order.
+   * A board chosen on that piece replaces the carcass or front decor for that copy only.
+   */
+  pieceKeys?: string[]
   /** Group ID for visually related panels (e.g., combined cutting) */
   groupId?: string
   /** If true, this panel is for reference only and should not be included in cutting layout */

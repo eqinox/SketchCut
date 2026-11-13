@@ -185,17 +185,21 @@ export function mergeKneePartitions(
 }
 
 function groupedPanels(
-  spans: { w: number; name: string }[],
+  spans: { w: number; name: string; key?: string }[],
   make: (width: number, quantity: number, names: string) => GeneratedPanel,
 ): GeneratedPanel[] {
-  const groups = new Map<number, { quantity: number; names: string[] }>()
+  const groups = new Map<number, { quantity: number; names: string[]; keys: string[] }>()
   for (const span of spans) {
-    const row = groups.get(span.w) ?? { quantity: 0, names: [] }
+    const row = groups.get(span.w) ?? { quantity: 0, names: [], keys: [] }
     row.quantity += 1
-    row.names.push(span.name)
+    if (!row.names.includes(span.name)) row.names.push(span.name)
+    if (span.key) row.keys.push(span.key)
     groups.set(span.w, row)
   }
-  return [...groups.entries()].map(([width, row]) => make(width, row.quantity, row.names.join(' и ')))
+  return [...groups.entries()].map(([width, row]) => {
+    const panel = make(width, row.quantity, row.names.join(' и '))
+    return row.keys.length > 0 ? { ...panel, pieceKeys: row.keys } : panel
+  })
 }
 
 export function vanityKneeError(p: VanityParams, layout: InteriorLayout): string | null {
@@ -253,7 +257,13 @@ export function generateVanity(raw: Record<string, unknown>, settings?: unknown)
   const measured = measureNightstand({ ...parsed, useLegs: false }, false)
   const oldBottom = built.panels.find((panel) => panel.role === 'bottom')
   const oldPlinth = built.panels.find((panel) => panel.role === 'plinth')
-  const bottoms = groupedPanels(opening.pedestals, (width, quantity, names) => ({
+  const bottoms = groupedPanels(
+    opening.pedestals.map((pedestal) => ({
+      w: pedestal.w,
+      name: pedestal.name,
+      key: `bottom-${Math.round(pedestal.x)}`,
+    })),
+    (width, quantity, names) => ({
     role: 'bottom',
     name: 'Дъно',
     width,
@@ -263,12 +273,20 @@ export function generateVanity(raw: Record<string, unknown>, settings?: unknown)
     edges: oldBottom?.edges ?? edges({ top: true }, 'mm05'),
     note: `Кант 0.5 мм: предна. Влиза между страницата и разделителя (${formatMm(width)} мм). ${names}.`,
   }))
-  const plinths = groupedPanels(opening.pedestals, (width, quantity, names) => ({
+  const plinths = groupedPanels(
+    opening.pedestals.flatMap((pedestal) =>
+      Array.from({ length: parsed.plinthCount }, () => ({
+        w: pedestal.w,
+        name: pedestal.name,
+        key: `plinth-${Math.round(pedestal.x)}`,
+      })),
+    ),
+    (width, quantity, names) => ({
     role: 'plinth',
     name: 'Цокъл',
     width,
     height: parsed.plinthHeight,
-    quantity: quantity * parsed.plinthCount,
+    quantity,
     canRotate: false,
     edges: oldPlinth?.edges ?? edges({ bottom: true }, 'mm2'),
     note: `Кант 2 мм: само долната дълга страна. ${formatMm(width)} мм, само под ${names}.`,
@@ -304,6 +322,7 @@ export function generateVanity(raw: Record<string, unknown>, settings?: unknown)
     canRotate: false,
     edges: edges({ bottom: true }, 'mm05'),
     note: `Кант 0.5 мм: долна. Отзад на отвора, от лявата част до дясната, ${formatMm(opening.knee)} × ${formatMm(railH)} мм. Вместо гръб.`,
+    pieceKeys: ['fascia-knee'],
   }
   const panels = built.panels
     .filter((panel) => panel.role !== 'back')

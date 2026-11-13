@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useId, useState, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useId, useState, type MouseEvent, type ReactNode } from 'react'
 import { decorSheetFor, type DecorSheet } from '@/lib/finish-photo'
 import { useCaptureSolid } from '@/lib/cabinets/scene-solids'
 import { PullChoiceContext, type PullSku } from '@/lib/cabinets/pulls'
@@ -231,6 +231,7 @@ function GrainFace({
   uV,
   vV,
   sheet,
+  fill,
   veil,
   strokeWidth,
   stroke = DRAW_STROKE,
@@ -246,28 +247,29 @@ function GrainFace({
   uV: number
   vV: number
   sheet: DecorSheet
+  fill: string
   veil?: string
   strokeWidth: number
   stroke?: string
 }) {
-  const id = useId().replace(/:/g, '')
+  const id = `grain-${useId().replace(/:/g, '')}`
   const matrix = textureMatrix(p0, u0, v0, pU, uU, vU, pV, uV, vV, sheet.acrossMm, sheet.alongMm)
-  if (!matrix) return <Face pts={pts} fill={veil ?? '#c4a574'} strokeWidth={strokeWidth} stroke={stroke} />
+  if (!matrix) return <Face pts={pts} fill={fill} strokeWidth={strokeWidth} stroke={stroke} />
   const points = polyPts(...pts)
   return (
     <>
-      <clipPath id={id}>
-        <polygon points={points} />
-      </clipPath>
-      <g clipPath={`url(#${id})`}>
-        <image
-          href={sheet.url}
-          width={sheet.acrossMm}
-          height={sheet.alongMm}
-          preserveAspectRatio="none"
-          transform={matrix}
-        />
-      </g>
+      <pattern
+        id={id}
+        patternUnits="userSpaceOnUse"
+        patternContentUnits="userSpaceOnUse"
+        width={sheet.acrossMm}
+        height={sheet.alongMm}
+        patternTransform={matrix}
+      >
+        <image href={sheet.url} width={sheet.acrossMm} height={sheet.alongMm} preserveAspectRatio="none" />
+      </pattern>
+      <polygon points={points} fill={fill} stroke="none" />
+      <polygon points={points} fill={`url(#${id})`} stroke="none" />
       <polygon
         points={points}
         fill={veil ?? 'none'}
@@ -301,13 +303,29 @@ function Face({
   )
 }
 
-/** Click a drawn board to choose that kind of part (all sides, all shelves, …). */
-export type BoardPick = 'bottom' | 'side' | 'rail' | 'shelf' | 'leg'
+/** Colours of single pieces. Absent keys keep the part's usual colour. */
+export const PieceColorContext = createContext<Record<string, string>>({})
 
+/** Click one drawn piece. Only that piece is selected. */
 export const BoardPickContext = createContext<{
-  selected: BoardPick | null
-  onSelect: (pick: BoardPick) => void
+  selected: string | null
+  onSelect: (id: string, color: string) => void
 } | null>(null)
+
+export function usePiecePaint(piece: string | undefined, fallback: string) {
+  const colors = useContext(PieceColorContext)
+  const pick = useContext(BoardPickContext)
+  const color = piece && colors[piece] ? colors[piece] : fallback
+  const chosen = Boolean(piece && pick && pick.selected === piece)
+  const onClick =
+    piece && pick
+      ? (event: MouseEvent) => {
+          event.stopPropagation()
+          pick.onSelect(piece, color)
+        }
+      : undefined
+  return { color, chosen, onClick }
+}
 
 /**
  * One rectangular board in the same cavalier view as the kitchen-base drawing.
@@ -347,16 +365,16 @@ export function Board({
   slide?: { id: string; travel: number }
   /** Handle on a drawer front. Rails leave this empty. */
   pull?: { key: string; sku: PullSku }
-  /** Which colour group this board belongs to, so a click can select it. */
-  pick?: BoardPick
+  /** This one piece. Boards of the same panel share the id. */
+  pick?: string
 }) {
-  const pickState = useContext(BoardPickContext)
-  const chosen = Boolean(pick && pickState?.selected === pick)
+  const piece = usePiecePaint(pick, color)
+  const chosen = piece.chosen
   useCaptureSolid(
-    w > 0.4 && h > 0.4 && d > 0.2 ? { kind: 'box', x, y, z, w, h, d, color, rearColor, slide, pull } : null,
+    w > 0.4 && h > 0.4 && d > 0.2 ? { kind: 'box', x, y, z, w, h, d, color: piece.color, rearColor, slide, pull } : null,
   )
-  const c = partFaces(color)
-  const sheet = useContext(DecorSheetContext).get(color.toLowerCase())
+  const c = partFaces(piece.color)
+  const sheet = useContext(DecorSheetContext).get(piece.color.toLowerCase())
   const { proj } = cam
   const yb = y + h
   const x2 = x + w
@@ -392,6 +410,7 @@ export function Board({
         uV={v.u}
         vV={v.v}
         sheet={sheet}
+        fill={fill}
         veil={fill === c.front ? FACE_VEIL.front : face === 'top' ? FACE_VEIL.top : FACE_VEIL[face]}
         strokeWidth={chosen ? Math.max(line, 2.8) : line}
         stroke={chosen ? '#1d4ed8' : DRAW_STROKE}
@@ -401,15 +420,8 @@ export function Board({
   return (
     <g
       opacity={opacity}
-      style={pick && pickState ? { cursor: 'pointer' } : undefined}
-      onClick={
-        pick && pickState
-          ? (event) => {
-              event.stopPropagation()
-              pickState.onSelect(pick)
-            }
-          : undefined
-      }
+      style={piece.onClick ? { cursor: 'pointer' } : undefined}
+      onClick={piece.onClick}
     >
       {faces.back &&
         paint('back', [[x, y, z2], [x2, y, z2], [x2, yb, z2], [x, yb, z2]], c.side, sw)}
@@ -457,6 +469,8 @@ function DoorFace({
   along,
   veil,
   show,
+  stroke = DRAW_STROKE,
+  strokeWidth = 1.1,
 }: {
   corners: XYZ[]
   cam: DrawCam
@@ -466,10 +480,12 @@ function DoorFace({
   along: number
   veil?: string
   show: boolean
+  stroke?: string
+  strokeWidth?: number
 }) {
   const pts = corners.map(([x, y, z]) => cam.proj(x, y, z))
   if (!show) return null
-  if (!sheet) return <Face pts={pts} fill={fill} strokeWidth={1.1} />
+  if (!sheet) return <Face pts={pts} fill={fill} strokeWidth={strokeWidth} stroke={stroke} />
   return (
     <GrainFace
       pts={pts}
@@ -483,8 +499,10 @@ function DoorFace({
       uV={0}
       vV={along}
       sheet={sheet}
+      fill={fill}
       veil={veil}
-      strokeWidth={1.1}
+      strokeWidth={strokeWidth}
+      stroke={stroke}
     />
   )
 }
@@ -504,6 +522,7 @@ export function HingedDoor({
   color,
   cam,
   inset = false,
+  pick,
 }: {
   hingeX: number
   y: number
@@ -515,7 +534,13 @@ export function HingedDoor({
   color: string
   cam: DrawCam
   inset?: boolean
+  /** This one door. */
+  pick?: string
 }) {
+  const paint = usePiecePaint(pick, color)
+  const tone = paint.color
+  const ink = paint.chosen ? '#1d4ed8' : DRAW_STROKE
+  const line = paint.chosen ? 2.8 : 1.1
   const hingeFromTop = hingeOffsetsFromTop(height)
   const pulls = useContext(PullChoiceContext)
   const pullKey = doorKey({ hingeX, y, z, width, height, side })
@@ -530,7 +555,7 @@ export function HingedDoor({
     thickness,
     side,
     openDeg: HINGE_OPEN_DEG,
-    color,
+    color: tone,
     hingeFromTop,
     inset,
     pull: sku === 'none' ? undefined : { key: pullKey, sku },
@@ -538,7 +563,7 @@ export function HingedDoor({
   const rad = (HINGE_OPEN_DEG * Math.PI) / 180
   const c = Math.cos(rad)
   const s = Math.sin(rad)
-  const sheet = useContext(DecorSheetContext).get(color.toLowerCase())
+  const sheet = useContext(DecorSheetContext).get(tone.toLowerCase())
   const yb = y + height
   const map = (along: number, thick: number, yy: number): XYZ =>
     side === 'left'
@@ -552,11 +577,13 @@ export function HingedDoor({
   const top: XYZ[] = [map(0, 0, y), map(width, 0, y), map(width, thickness, y), map(0, thickness, y)]
   const free: XYZ[] = [map(width, thickness, y), map(width, 0, y), map(width, 0, yb), map(width, thickness, yb)]
   return (
-    <g>
+    <g style={paint.onClick ? { cursor: 'pointer' } : undefined} onClick={paint.onClick}>
       <DoorFace
         corners={outer}
         cam={cam}
-        fill={shade(color, 0.97)}
+        fill={shade(tone, 0.97)}
+        stroke={ink}
+        strokeWidth={line}
         sheet={sheet}
         across={width}
         along={height}
@@ -566,7 +593,9 @@ export function HingedDoor({
       <DoorFace
         corners={inner}
         cam={cam}
-        fill={shade(color, 0.88)}
+        fill={shade(tone, 0.88)}
+        stroke={ink}
+        strokeWidth={line}
         sheet={sheet}
         across={width}
         along={height}
@@ -576,7 +605,9 @@ export function HingedDoor({
       <DoorFace
         corners={top}
         cam={cam}
-        fill={shade(color, 1.1)}
+        fill={shade(tone, 1.1)}
+        stroke={ink}
+        strokeWidth={line}
         across={width}
         along={thickness}
         show={seesFrontRight([0, -1, 0])}
@@ -584,7 +615,9 @@ export function HingedDoor({
       <DoorFace
         corners={free}
         cam={cam}
-        fill={shade(color, 0.74)}
+        fill={shade(tone, 0.74)}
+        stroke={ink}
+        strokeWidth={line}
         across={thickness}
         along={height}
         show={seesFrontRight(widthDir)}

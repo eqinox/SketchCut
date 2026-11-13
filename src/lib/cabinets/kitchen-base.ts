@@ -165,6 +165,7 @@ export function generateKitchenBase(
       canRotate: false,
       edges: edges({ top: true, left: true, right: true }),
       note: 'Кант: предна + двете страни. Задната не се кантира.',
+      pieceKeys: ['bottom'],
     },
     {
       role: 'side' as const,
@@ -174,23 +175,27 @@ export function generateKitchenBase(
       quantity: 2,
       canRotate: false,
       edges: edges({ top: true, left: true }),
+      pieceKeys: ['side-left', 'side-right'],
       note: 'Кант: предна и горна. Долната сяда в дъното, задната не се вижда.',
     },
   ]
 
-  const railsByWidth = new Map<number, number>()
+  const railsByWidth = new Map<number, string[]>()
   if (p.topStyle === 'rails') {
-    for (const col of columns) {
+    columns.forEach((col, i) => {
       const w = exactMm(col.innerW > 0 ? col.innerW : m.railLength)
-      railsByWidth.set(w, (railsByWidth.get(w) ?? 0) + 2)
-    }
-    for (const [w, qty] of railsByWidth) {
+      const keys = railsByWidth.get(w) ?? []
+      keys.push(`rail-back-${i}`, `rail-front-${i}`)
+      railsByWidth.set(w, keys)
+    })
+    for (const [w, keys] of railsByWidth) {
       panels.push({
         role: 'rail' as const,
         name: bayCount > 1 ? 'Бленда (част)' : 'Бленда',
         width: w,
         height: p.railWidth,
-        quantity: qty,
+        quantity: keys.length,
+        pieceKeys: keys,
         canRotate: false,
         edges: edges({ top: true }),
         note:
