@@ -1,4 +1,4 @@
-import { useCallback, useState, type CSSProperties, type ReactNode } from 'react'
+import { useCallback, useContext, useState, type CSSProperties, type ReactNode } from 'react'
 import { CabinetPreview, DrawFrameContext, FRONT_FILL, GroupedPreviewContext } from '@/components/CabinetPreview'
 import { CapturedModel } from '@/components/CabinetModel'
 import {
@@ -13,6 +13,7 @@ import {
   type GroupSpot,
 } from '@/lib/cabinets/compose'
 import { Board, createDrawCam, DecorTextureProvider, DimLine, DimText, DRAW_DIM, DRAW_PAPER, HingedDoor, SketchGroupContext } from '@/lib/cabinets/draw-3d'
+import { PullChoiceContext, pullChoiceFrom } from '@/lib/cabinets/pulls'
 import { parsePartColors } from '@/lib/cabinets/colors'
 import { formatMm } from '@/lib/utils'
 import type { BoardFinish } from '@/lib/board-finishes'
@@ -51,6 +52,7 @@ interface SpanDoor {
   y: number
   w: number
   h: number
+  at: 'left' | 'right' | 'center'
 }
 
 interface Member {
@@ -100,6 +102,7 @@ function SpanLeaf({
   color,
   ox,
   oy,
+  at,
 }: {
   x: number
   y: number
@@ -109,24 +112,41 @@ function SpanLeaf({
   color: string
   ox: number
   oy: number
+  at: 'left' | 'right' | 'center'
 }) {
   const cam = createDrawCam({ ox, oy })
+  const pulls = useContext(PullChoiceContext)
+  const pullKey = `span:${Math.round(x)}:${Math.round(y)}`
+  const sku = pulls?.skuFor(pullKey) ?? 'none'
   if (open) {
     return (
       <HingedDoor
-        hingeX={x}
+        hingeX={at === 'left' ? x + w : x}
         y={y}
         z={0}
         width={w}
         height={h}
         thickness={18}
-        side="left"
+        side={at === 'left' ? 'right' : 'left'}
         color={color}
         cam={cam}
       />
     )
   }
-  return <Board x={x} y={y} z={0} w={w} h={h} d={18} color={color} cam={cam} faces={{ front: true, top: true, right: true }} />
+  return (
+    <Board
+      x={x}
+      y={y}
+      z={0}
+      w={w}
+      h={h}
+      d={18}
+      color={color}
+      cam={cam}
+      faces={{ front: true, top: true, right: true }}
+      pull={sku === 'none' ? undefined : { key: pullKey, sku, at }}
+    />
+  )
 }
 
 export function CabinetGroupView({
@@ -196,7 +216,8 @@ export function CabinetGroupView({
     const box = spanFrontBox(hostSize, size, guest.place, laid.host, spot)
     const leafW = box.w / leaves
     for (let leaf = 0; leaf < leaves; leaf++) {
-      spans.push({ x: box.x + leaf * leafW, y: box.y, w: leafW, h: box.h })
+      const at = leaf === 0 ? 'right' : leaf === leaves - 1 ? 'left' : 'center'
+      spans.push({ x: box.x + leaf * leafW, y: box.y, w: leafW, h: box.h, at })
     }
   })
   const hostHidesDoors = spans.length > 0
@@ -259,21 +280,24 @@ export function CabinetGroupView({
         <span key={member.key}>{preview(member)}</span>
       ))}
       {model && (
-        <DecorTextureProvider entries={doorDecor}>
-          {spans.map((door) => (
-            <SpanLeaf
-              key={`${door.x}-${door.y}-${door.h}`}
-              x={door.x}
-              y={door.y}
-              w={door.w}
-              h={door.h}
-              open={doorView === 'open'}
-              color={doorColor}
-              ox={0}
-              oy={0}
-            />
-          ))}
-        </DecorTextureProvider>
+        <PullChoiceContext.Provider value={pullChoiceFrom(host.params)}>
+          <DecorTextureProvider entries={doorDecor}>
+            {spans.map((door) => (
+              <SpanLeaf
+                key={`${door.x}-${door.y}-${door.h}`}
+                x={door.x}
+                y={door.y}
+                w={door.w}
+                h={door.h}
+                at={door.at}
+                open={doorView === 'open'}
+                color={doorColor}
+                ox={0}
+                oy={0}
+              />
+            ))}
+          </DecorTextureProvider>
+        </PullChoiceContext.Provider>
       )}
     </>
   )
@@ -323,6 +347,7 @@ export function CabinetGroupView({
                           y={door.y}
                           w={door.w}
                           h={door.h}
+                          at={door.at}
                           open={doorView === 'open'}
                           color={doorColor}
                           ox={stage.originX + padL}

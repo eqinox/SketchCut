@@ -19,12 +19,19 @@ export interface BoardFinish {
   name: string
   color: string
   sheetPriceEur: number
-  /** Cropped swatch (JPEG data URL). The drawing builds a whole sheet from it. */
+  /**
+   * Swatch the drawing turns into a whole sheet.
+   * Either a JPEG data URL, or a built-in Kronospan file such as `/kronospan/K8681.jpg`.
+   */
   image?: string
 }
 
+const KRONOSPAN_SWATCH = /^\/kronospan\/[A-Za-z0-9]+\.jpg$/
+
 function parseFinishImage(raw: unknown): string | undefined {
-  if (typeof raw !== 'string' || !raw.startsWith('data:image/')) return undefined
+  if (typeof raw !== 'string') return undefined
+  if (KRONOSPAN_SWATCH.test(raw)) return raw
+  if (!raw.startsWith('data:image/')) return undefined
   if (raw.length < 32 || raw.length > 500_000) return undefined
   return raw
 }

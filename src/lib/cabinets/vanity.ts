@@ -170,6 +170,16 @@ export function vanityOpening(
   }
 }
 
+/** A compartment whose middle sits in the knee opening. Drawers there hang from the top. */
+export function zoneInVanityKnee(
+  zone: { x0: number; x1: number },
+  opening: { x0: number; x1: number; error?: string | null } | null | undefined,
+): boolean {
+  if (!opening || opening.error) return false
+  const mid = (zone.x0 + zone.x1) / 2
+  return mid >= opening.x0 - 0.5 && mid <= opening.x1 + 0.5
+}
+
 /** Knee pages replace other full-height pages. A page inside one side is kept. */
 export function mergeKneePartitions(
   existing: PartitionSpec[] | undefined,
@@ -384,7 +394,7 @@ export function generateVanity(raw: Record<string, unknown>, settings?: unknown)
         : 'Двете половини са шкафчета с дъно, цокъл и фазер.',
     `Отзад на отвора има бленда ${formatMm(opening.knee)} × ${formatMm(railH)} мм, от лявата част до дясната. Там няма фазер.`,
     `Разделителите са ${formatMm(measured.sideH)} мм и стигат до пода. Дъното на шкафчето влиза между страницата и разделителя.`,
-    'Плотът минава над целия отвор. Чекмедже може и в отвора. Огледалото не се реже от плочата.',
+    'Плотът минава над целия отвор. Чекмедже в отвора почва отгоре, 3 мм под плота, и празното остава отдолу. Огледалото не се реже от плочата.',
     `Сглобяване: цокъл към дъното на всяко шкафче, после дъното между страницата и разделителя. Плотът се хваща с ${brackets} ъгълчета.`,
     ...kept.slice(1),
   ]
@@ -426,7 +436,7 @@ export function vanityRuleBlock(): RuleBlock {
       `Отвор за краката ${formatMm(opening?.knee ?? sample.kneeWidth)} мм по средата. Шкафчетата са ${pedText} мм.`,
       'Под отвора няма дъно и цокъл. Отзад там има бленда, висока около 250–300 мм, широка колкото отвора. Фазер имат само шкафчетата.',
       'Лявата или дясната половина може да е една плоскост-крак, без дъно, цокъл и гръб.',
-      'Чекмедже може и в отвора. Огледалото не се реже от плочата.',
+      'Чекмедже в отвора почва отгоре, под плота. Празното остава отдолу. Огледалото не се реже от плочата.',
     ],
   }
 }

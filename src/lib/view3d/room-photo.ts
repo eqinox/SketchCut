@@ -33,6 +33,7 @@ import type { DecorSheet } from '@/lib/finish-photo'
 import type { SceneSolid } from '@/lib/cabinets/scene-solids'
 import type { RoomPlan } from '@/lib/room'
 import {
+  openingColor,
   openingsIn,
   wallLength,
   type RoomOpening,
@@ -71,6 +72,10 @@ export type RoomStudio = {
   fronts(): RoomFront[]
   /** What the cursor is on: an opening, a clear wall, or a cabinet in front of the wall. */
   hit(clientX: number, clientY: number): RoomHit | null
+  /** The wall the cursor points at, including through a window hole. */
+  aimWall(clientX: number, clientY: number): { wall: RoomWall; along: number; up: number } | null
+  /** Where the cursor falls on one wall, so a new opening can be drawn from here to there. */
+  aimOn(clientX: number, clientY: number, wall: RoomWall): { along: number; up: number } | null
   /** Draw a temporary opening list without rebuilding the furniture. */
   preview(openings: RoomOpening[]): void
   setSelected(id: string | null): void
@@ -188,7 +193,7 @@ export function mountRoomStudio(host: HTMLElement): RoomStudio {
   controls.maxDistance = 12000
   controls.maxPolarAngle = Math.PI * 0.58
   controls.minPolarAngle = 0.55
-  controls.target.set(2000, 900, 2200)
+  controls.target.set(-2000, 900, 2200)
   controls.addEventListener('start', () => {
     userMoved = true
   })
@@ -199,15 +204,21 @@ export function mountRoomStudio(host: HTMLElement): RoomStudio {
   sun.shadow.mapSize.set(2048, 2048)
   sun.shadow.bias = -0.00025
   sun.shadow.normalBias = 6
-  scene.add(sun)
-  scene.add(sun.target)
   const fill = new DirectionalLight(0xd7e4f4, 0.55)
-  scene.add(fill)
+  // Mirror in X so the right wall stays on the right of the picture, the same
+  // way as the plan. A negative scale keeps the wall faces one-sided: from
+  // outside a wall you still see into the room, not the back of the wall.
+  const view = new Group()
+  view.scale.x = -1
+  scene.add(view)
+  view.add(sun)
+  view.add(sun.target)
+  view.add(fill)
 
   const shell = new Group()
-  scene.add(shell)
+  view.add(shell)
   const furniture = new Group()
-  scene.add(furniture)
+  view.add(furniture)
 
   const floorMat = new MeshPhysicalMaterial({
     color: '#ffffff',
@@ -279,8 +290,6 @@ export function mountRoomStudio(host: HTMLElement): RoomStudio {
   for (const name of Object.keys(wallOf) as RoomWall[]) wallOf[name].userData.roomWall = name
   const features = new Group()
   shell.add(features)
-  const doorMat = new MeshStandardMaterial({ color: '#f7f3ec', roughness: 0.58, metalness: 0 })
-  const nicheMat = new MeshStandardMaterial({ color: '#e4ddd2', roughness: 0.94, metalness: 0 })
   let featureBin: Disposable[] = []
   let selectedOpening: string | null = null
   let paintedRoom: RoomPlan | null = null
@@ -446,9 +455,9 @@ export function mountRoomStudio(host: HTMLElement): RoomStudio {
     const stand = new Group()
     stand.add(root)
     stand.scale.z = -1
-    // Quarter turns clockwise from above. Scale Z is mirrored, so the
-    // clockwise turn is a negative rotation about Y: front, left, back, right.
-    stand.rotation.y = -piece.turn * (Math.PI / 2)
+    // Scale Z turns the door face toward the front wall. A positive quarter
+    // turn then matches the plan: front, left, back, right.
+    stand.rotation.y = piece.turn * (Math.PI / 2)
     stand.updateMatrixWorld(true)
     const bounds = new Box3().setFromObject(stand)
     stand.position.set(piece.x - bounds.min.x, piece.lift + 1 - bounds.min.y, piece.y - bounds.min.z)
@@ -490,7 +499,27 @@ export function mountRoomStudio(host: HTMLElement): RoomStudio {
     featureBin = []
     features.clear()
     const { width, depth, height } = room
-    nicheMat.color.copy(walls.color).multiplyScalar(0.93)
+
+    const faceMaterial = (opening: RoomOpening) => {
+      const color = openingColor(opening)
+      const mat =
+        opening.kind === 'window'
+          ? new MeshStandardMaterial({
+              color,
+              emissive: color,
+              emissiveIntensity: 0.45,
+              roughness: 0.12,
+              metalness: 0,
+              envMapIntensity: 0.35,
+            })
+          : new MeshStandardMaterial({
+              color,
+              roughness: opening.kind === 'niche' ? 0.94 : 0.58,
+              metalness: 0,
+            })
+      featureBin.push(mat)
+      return mat
+    }
 
     const laid = {
       front: { at: new Vector3(0, 0, 0), rot: 0, localX: (along: number) => along, out: new Vector3(0, 0, -1) },
@@ -593,7 +622,7 @@ export function mountRoomStudio(host: HTMLElement): RoomStudio {
       const midA = opening.along + opening.span / 2
       const midY = opening.sill + opening.height / 2
       if (opening.kind === 'niche') {
-        const face = tone(nicheMat, opening.id)
+        const face = tone(faceMaterial(opening), opening.id)
         const depthOut = opening.depth
         place(opening, midA, midY, opening.span, opening.height, 18, depthOut, face)
         place(opening, opening.along, midY, 18, opening.height, depthOut, depthOut / 2 + 2, face)
@@ -609,10 +638,10 @@ export function mountRoomStudio(host: HTMLElement): RoomStudio {
       place(opening, midA, opening.sill, opening.span, bar, deep, 0, frame)
       place(opening, midA, opening.sill + opening.height, opening.span, bar, deep, 0, frame)
       if (opening.kind === 'door') {
-        place(opening, midA, opening.height / 2, opening.span - 36, opening.height - 24, 40, 0, tone(doorMat, opening.id))
+        place(opening, midA, opening.height / 2, opening.span - 36, opening.height - 24, 40, 0, tone(faceMaterial(opening), opening.id))
         continue
       }
-      const pane = new Mesh(new PlaneGeometry(Math.max(20, opening.span - 20), Math.max(20, opening.height - 20)), glassMat)
+      const pane = new Mesh(new PlaneGeometry(Math.max(20, opening.span - 20), Math.max(20, opening.height - 20)), tone(faceMaterial(opening), opening.id))
       const inset = laid[opening.wall].out.clone().multiplyScalar(-12)
       const at = side(opening.wall)
         ? new Vector3(opening.wall === 'left' ? 0 : width, midY, midA)
@@ -639,13 +668,74 @@ export function mountRoomStudio(host: HTMLElement): RoomStudio {
     sun.target.updateMatrixWorld()
   }
 
-  function hitPoint(clientX: number, clientY: number): RoomHit | null {
-    if (!paintedRoom) return null
+  function aimFrom(clientX: number, clientY: number): boolean {
+    if (!paintedRoom) return false
     const rect = renderer.domElement.getBoundingClientRect()
-    if (rect.width < 1 || rect.height < 1) return null
+    if (rect.width < 1 || rect.height < 1) return false
     pointer.x = ((clientX - rect.left) / rect.width) * 2 - 1
     pointer.y = -((clientY - rect.top) / rect.height) * 2 + 1
     raycaster.setFromCamera(pointer, camera)
+    return true
+  }
+
+  /** Nearest wall plane in front of the camera. Holes in the mesh do not hide the wall. */
+  /** The picture is mirrored in X. Rays for the walls are turned back into room coordinates. */
+  function roomRay(): { origin: Vector3; dir: Vector3 } {
+    const origin = raycaster.ray.origin.clone()
+    const dir = raycaster.ray.direction.clone()
+    origin.x = -origin.x
+    dir.x = -dir.x
+    return { origin, dir }
+  }
+
+  function aimedWall(): { wall: RoomWall; along: number; up: number } | null {
+    if (!paintedRoom) return null
+    const { width, depth, height } = paintedRoom
+    const { origin, dir } = roomRay()
+    const found: { wall: RoomWall; t: number; along: number; up: number }[] = []
+    const keep = (wall: RoomWall, t: number, along: number, up: number, onWall: boolean) => {
+      if (t < 1 || !onWall || up < -20 || up > height + 20) return
+      found.push({ wall, t, along, up })
+    }
+    if (Math.abs(dir.z) > 1e-8) {
+      const frontT = (0 - origin.z) / dir.z
+      const front = origin.clone().addScaledVector(dir, frontT)
+      keep('front', frontT, front.x, front.y, front.x >= -20 && front.x <= width + 20)
+      const backT = (depth - origin.z) / dir.z
+      const back = origin.clone().addScaledVector(dir, backT)
+      keep('back', backT, back.x, back.y, back.x >= -20 && back.x <= width + 20)
+    }
+    if (Math.abs(dir.x) > 1e-8) {
+      const leftT = (0 - origin.x) / dir.x
+      const left = origin.clone().addScaledVector(dir, leftT)
+      keep('left', leftT, left.z, left.y, left.z >= -20 && left.z <= depth + 20)
+      const rightT = (width - origin.x) / dir.x
+      const right = origin.clone().addScaledVector(dir, rightT)
+      keep('right', rightT, right.z, right.y, right.z >= -20 && right.z <= depth + 20)
+    }
+    found.sort((a, b) => a.t - b.t)
+    const best = found[0]
+    return best ? { wall: best.wall, along: best.along, up: best.up } : null
+  }
+
+  function pointOnWall(wall: RoomWall): { along: number; up: number } | null {
+    if (!paintedRoom) return null
+    const { width, depth, height } = paintedRoom
+    const { origin, dir } = roomRay()
+    let t = Number.NaN
+    if (wall === 'front') t = Math.abs(dir.z) > 1e-8 ? (0 - origin.z) / dir.z : Number.NaN
+    else if (wall === 'back') t = Math.abs(dir.z) > 1e-8 ? (depth - origin.z) / dir.z : Number.NaN
+    else if (wall === 'left') t = Math.abs(dir.x) > 1e-8 ? (0 - origin.x) / dir.x : Number.NaN
+    else t = Math.abs(dir.x) > 1e-8 ? (width - origin.x) / dir.x : Number.NaN
+    if (!Number.isFinite(t) || t < 1) return null
+    const point = origin.clone().addScaledVector(dir, t)
+    if (point.y < -400 || point.y > height + 400) return null
+    const along = wall === 'front' || wall === 'back' ? point.x : point.z
+    return { along, up: point.y }
+  }
+
+  function hitPoint(clientX: number, clientY: number): RoomHit | null {
+    if (!aimFrom(clientX, clientY)) return null
     const hits = raycaster.intersectObjects([features, furniture, ...Object.values(wallOf)], true)
     for (const found of hits) {
       let openingId = ''
@@ -658,7 +748,7 @@ export function mountRoomStudio(host: HTMLElement): RoomStudio {
         if (current === furniture) blocked = true
         current = current.parent
       }
-      const alongOf = (name: RoomWall) => (name === 'front' || name === 'back' ? found.point.x : found.point.z)
+      const alongOf = (name: RoomWall) => (name === 'front' || name === 'back' ? -found.point.x : found.point.z)
       if (openingId) {
         const opening = paintedList.find((item) => item.id === openingId)
         if (!opening) continue
@@ -723,14 +813,12 @@ export function mountRoomStudio(host: HTMLElement): RoomStudio {
           atX = placements.reduce((sum, piece) => sum + piece.x + piece.w / 2, 0) / n
           atZ = placements.reduce((sum, piece) => sum + piece.y + piece.d / 2, 0) / n
           eye.x = Math.min(width - 400, Math.max(400, atX + 420))
-          eye.z = Math.max(180, frontZ - 2100)
-          if (eye.z > frontZ - 900) {
-            eye.z = Math.min(depth - 300, frontZ + 1200)
-            eye.x = Math.min(width - 400, atX + 1900)
-          }
+          // Stay in front of the doors. Outside the front wall is fine: that
+          // wall is open from the outside, so the back of the cabinet stays hidden.
+          eye.z = frontZ - 1800
         }
-        camera.position.copy(eye)
-        controls.target.set(atX, Math.min(720, height * 0.3), atZ)
+        camera.position.set(-eye.x, eye.y, eye.z)
+        controls.target.set(-atX, Math.min(720, height * 0.3), atZ)
         controls.update()
       }
       notify()
@@ -741,6 +829,14 @@ export function mountRoomStudio(host: HTMLElement): RoomStudio {
     },
     hit(clientX, clientY) {
       return hitPoint(clientX, clientY)
+    },
+    aimWall(clientX, clientY) {
+      if (!aimFrom(clientX, clientY)) return null
+      return aimedWall()
+    },
+    aimOn(clientX, clientY, wall) {
+      if (!aimFrom(clientX, clientY)) return null
+      return pointOnWall(wall)
     },
     preview(openings) {
       if (!paintedRoom) return
@@ -774,8 +870,6 @@ export function mountRoomStudio(host: HTMLElement): RoomStudio {
       trimMat.dispose()
       frameMat.dispose()
       glassMat.dispose()
-      doorMat.dispose()
-      nicheMat.dispose()
       for (const item of featureBin) item.dispose()
       trimGeo.dispose()
       frameGeo.dispose()

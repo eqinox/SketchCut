@@ -13,6 +13,8 @@ import {
 } from '@/components/ui/dialog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { newBoardFinish, type BoardFinish } from '@/lib/board-finishes'
+import { kronospanCodeFromFinish, withKronospanFinish } from '@/lib/kronospan-color'
+import { KronospanColorGrid, KronospanCombinationRow } from '@/components/KronospanColors'
 import { prepareDecorPhoto } from '@/lib/finish-photo'
 import {
   ALL_SLIDE_LENGTHS,
@@ -1019,11 +1021,17 @@ export function SettingsDialog({
                       цяла плоча. Без снимка се ползва избраният цвят.
                     </p>
                   </div>
+                  <KronospanColorGrid
+                    finishes={boardFinishes}
+                    note="После запази настройките за цени."
+                    onPick={(swatch) => setBoardFinishes((rows) => withKronospanFinish(rows, swatch))}
+                  />
                   {boardFinishes.length === 0 ? (
                     <p className="text-xs text-[var(--color-muted-foreground)]">Още няма добавени цветове.</p>
                   ) : (
                     boardFinishes.map((finish) => (
-                      <div key={finish.id} className="flex flex-wrap items-center gap-2">
+                      <div key={finish.id} className="space-y-1">
+                      <div className="flex flex-wrap items-center gap-2">
                         {finish.image ? (
                           <img
                             src={finish.image}
@@ -1114,6 +1122,11 @@ export function SettingsDialog({
                         >
                           Махни
                         </Button>
+                      </div>
+                      <KronospanCombinationRow
+                        code={kronospanCodeFromFinish(finish)}
+                        onPick={(swatch) => setBoardFinishes((rows) => withKronospanFinish(rows, swatch))}
+                      />
                       </div>
                     ))
                   )}

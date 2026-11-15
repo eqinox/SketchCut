@@ -363,8 +363,8 @@ export function Board({
   opacity?: number
   /** Groups this board with the drawer that slides out. */
   slide?: { id: string; travel: number }
-  /** Handle on a drawer front. Rails leave this empty. */
-  pull?: { key: string; sku: PullSku }
+  /** Handle on a drawer front or a door board. Rails leave this empty. */
+  pull?: { key: string; sku: PullSku; at?: 'left' | 'right' | 'center' }
   /** This one piece. Boards of the same panel share the id. */
   pick?: string
 }) {

@@ -25,9 +25,9 @@ export function addPull(parent: Group, sku: PullSku, bin: Disposable[]): Group |
 
 function addPlainBar(parent: Group, bin: Disposable[]) {
   const mat = metalMaterial('#c5c8ce', bin, 0.4)
-  const length = 120
-  const rise = 20
-  const radius = 4.5
+  const length = 128
+  const rise = 28
+  const radius = 6
   const span = 96
   const postGeo = new CylinderGeometry(radius * 0.7, radius * 0.7, rise, 12)
   const barGeo = new CylinderGeometry(radius, radius, length, 16)

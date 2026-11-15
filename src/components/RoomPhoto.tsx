@@ -1,35 +1,86 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { CabinetPreview } from '@/components/CabinetPreview'
-import { SceneCaptureContext, createCaptureStore, type CaptureStore, type SceneSolid } from '@/lib/cabinets/scene-solids'
-import { cabinetOuterSize, isCombinationType } from '@/lib/cabinets/compose'
+import { Board, createDrawCam } from '@/lib/cabinets/draw-3d'
+import { DrawPlaceContext, SceneCaptureContext, createCaptureStore, type CaptureStore, type SceneSolid } from '@/lib/cabinets/scene-solids'
+import {
+  arrangeMany,
+  attachmentTouchesHost,
+  cabinetOuterSize,
+  groupOuterSize,
+  isCombinationType,
+  parseCombination,
+  spanDoorCountOf,
+  spanFrontBox,
+} from '@/lib/cabinets/compose'
 import { decorSheetFor, type DecorSheet } from '@/lib/finish-photo'
 import type { BoardFinish } from '@/lib/board-finishes'
 import { mountRoomStudio, type RoomFront, type RoomStudio } from '@/lib/view3d/room-photo'
 import { pieceSpan, type RoomPlan } from '@/lib/room'
 import {
   OPENING_NAME,
+  OPENING_SWATCHES,
   WALL_NAME,
   clampOpening,
+  openingColor,
   openingsIn,
+  alongForFar,
+  openingFar,
   wallAlongLabel,
+  wallFarLabel,
   type RoomOpening,
   type RoomOpeningKind,
+  type RoomWall,
 } from '@/lib/room-openings'
+import { pullChoiceFrom, type PullSku } from '@/lib/cabinets/pulls'
 import { generateId } from '@/lib/utils'
+import { DraftNumber } from '@/components/DraftNumber'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import type { CabinetInstance } from '@/types'
 
 function finishOf(finishes: BoardFinish[], id: unknown): BoardFinish | undefined {
   return typeof id === 'string' ? finishes.find((finish) => finish.id === id) : undefined
 }
 
+function MemberPreview({
+  cabinet,
+  finishes,
+  hideDoors,
+}: {
+  cabinet: CabinetInstance
+  finishes: BoardFinish[]
+  hideDoors: boolean
+}) {
+  const carcass = finishOf(finishes, cabinet.params.carcassFinishId)
+  const front = finishOf(finishes, cabinet.params.frontFinishId) ?? carcass
+  const back = finishOf(finishes, cabinet.params.backFinishId)
+  return (
+    <CabinetPreview
+      typeId={cabinet.typeId}
+      params={cabinet.params}
+      part="main"
+      captureSolids
+      showFronts
+      hideDoors={hideDoors}
+      doorView="closed"
+      carcassColor={carcass?.color}
+      carcassImage={carcass?.image}
+      frontColor={front?.color}
+      frontImage={front?.image}
+      backColor={back?.color}
+      backImage={back?.image}
+      finishes={finishes}
+    />
+  )
+}
+
 function CabinetCapture({
   cabinet,
+  cabinets,
   finishes,
   onSolids,
 }: {
   cabinet: CabinetInstance
+  cabinets: CabinetInstance[]
   finishes: BoardFinish[]
   onSolids: (id: string, solids: SceneSolid[]) => void
 }) {
@@ -41,30 +92,87 @@ function CabinetCapture({
     onSolids(cabinet.id, solids)
   }, [cabinet.id, solids, onSolids])
 
-  const carcass = finishOf(finishes, cabinet.params.carcassFinishId)
-  const front = finishOf(finishes, cabinet.params.frontFinishId) ?? carcass
-  const back = finishOf(finishes, cabinet.params.backFinishId)
+  const group = isCombinationType(cabinet.typeId) ? combinationCapture(cabinet, cabinets, finishes) : null
   return (
     <SceneCaptureContext.Provider value={store}>
       <div className="hidden" aria-hidden>
-        <CabinetPreview
-          typeId={cabinet.typeId}
-          params={cabinet.params}
-          part="main"
-          captureSolids
-          showFronts
-          doorView="closed"
-          carcassColor={carcass?.color}
-          carcassImage={carcass?.image}
-          frontColor={front?.color}
-          frontImage={front?.image}
-          backColor={back?.color}
-          backImage={back?.image}
-          finishes={finishes}
-        />
+        {group ? (
+          <>
+            {group.guests.map((guest) => (
+              <DrawPlaceContext.Provider key={guest.key} value={{ x: guest.at.x, y: guest.at.y, localLeft: 0, localTop: 0 }}>
+                <MemberPreview cabinet={guest.cabinet} finishes={finishes} hideDoors={guest.hideDoors} />
+              </DrawPlaceContext.Provider>
+            ))}
+            <DrawPlaceContext.Provider value={{ x: group.host.at.x, y: group.host.at.y, localLeft: 0, localTop: 0 }}>
+              <MemberPreview cabinet={group.host.cabinet} finishes={finishes} hideDoors={group.host.hideDoors} />
+            </DrawPlaceContext.Provider>
+            {group.doors.map((door) => (
+              <Board
+                key={`${door.x}-${door.y}-${door.w}`}
+                x={door.x}
+                y={door.y}
+                z={0}
+                w={door.w}
+                h={door.h}
+                d={18}
+                color={group.doorColor}
+                cam={createDrawCam({ ox: 0, oy: 0 })}
+                faces={{ front: true, top: true, right: true }}
+                pull={door.sku === 'none' ? undefined : { key: `span:${Math.round(door.x)}:${Math.round(door.y)}`, sku: door.sku, at: door.at }}
+              />
+            ))}
+          </>
+        ) : (
+          <MemberPreview cabinet={cabinet} finishes={finishes} hideDoors={false} />
+        )}
       </div>
     </SceneCaptureContext.Provider>
   )
+}
+
+function combinationCapture(cabinet: CabinetInstance, cabinets: CabinetInstance[], finishes: BoardFinish[]) {
+  const parsed = parseCombination(cabinet.params)
+  if (!parsed) return null
+  const host = cabinets.find((item) => item.id === parsed.hostId)
+  if (!host || isCombinationType(host.typeId)) return null
+  const guests = parsed.members.flatMap((member, index) => {
+    if (member.place === 'host') return []
+    const item = cabinets.find((row) => row.id === member.cabinetId)
+    if (!item || isCombinationType(item.typeId)) return []
+    return [{ key: `${member.cabinetId}-${index}`, place: member.place, spanDoorCount: member.spanDoorCount, spanDoor: member.spanDoor, cabinet: item }]
+  })
+  const hostSize = cabinetOuterSize(host.typeId, host.params)
+  const guestSizes = guests.map((guest) => cabinetOuterSize(guest.cabinet.typeId, guest.cabinet.params))
+  const laid = arrangeMany(
+    hostSize,
+    guests.map((guest, index) => ({ size: guestSizes[index]!, place: guest.place })),
+  )
+  const rows = guests.map((guest) => ({ place: guest.place }))
+  const handles = pullChoiceFrom(host.params)
+  const doors: { x: number; y: number; w: number; h: number; at: 'left' | 'right' | 'center'; sku: PullSku }[] = []
+  guests.forEach((guest, index) => {
+    const leaves = spanDoorCountOf(guest)
+    if (leaves < 1 || !attachmentTouchesHost(rows, index)) return
+    const box = spanFrontBox(hostSize, guestSizes[index]!, guest.place, laid.host, laid.guests[index]!)
+    const leafW = box.w / leaves
+    for (let leaf = 0; leaf < leaves; leaf++) {
+      const at = leaf === 0 ? 'right' : leaf === leaves - 1 ? 'left' : 'center'
+      const x = box.x + leaf * leafW
+      doors.push({ x, y: box.y, w: leafW, h: box.h, at, sku: handles.skuFor(`span:${Math.round(x)}:${Math.round(box.y)}`) })
+    }
+  })
+  const front = finishOf(finishes, host.params.frontFinishId) ?? finishOf(finishes, host.params.carcassFinishId)
+  return {
+    host: { cabinet: host, at: laid.host, hideDoors: doors.length > 0 },
+    guests: guests.map((guest, index) => ({
+      key: guest.key,
+      cabinet: guest.cabinet,
+      at: laid.guests[index]!,
+      hideDoors: spanDoorCountOf(guest) > 0 && attachmentTouchesHost(rows, index),
+    })),
+    doors,
+    doorColor: front?.color || '#c4a06a',
+  }
 }
 
 type WallTool = 'look' | RoomOpeningKind
@@ -105,10 +213,10 @@ export function RoomPhoto({
     () =>
       room.pieces.flatMap((piece) => {
         const cabinet = byId.get(piece.cabinetId)
-        if (!cabinet || isCombinationType(cabinet.typeId)) return []
+        if (!cabinet || !groupOuterSize(cabinet, cabinets)) return []
         return [{ piece, cabinet }]
       }),
-    [room.pieces, byId],
+    [room.pieces, byId, cabinets],
   )
 
   const onSolids = useCallback((id: string, solids: SceneSolid[]) => {
@@ -174,7 +282,7 @@ export function RoomPhoto({
     studioRef.current?.setRoom(
       room,
       placed.map(({ piece, cabinet }) => {
-        const outer = cabinetOuterSize(cabinet.typeId, cabinet.params)
+        const outer = groupOuterSize(cabinet, cabinets) ?? cabinetOuterSize(cabinet.typeId, cabinet.params)
         const box = pieceSpan(piece.turn, outer.w, outer.d)
         return {
           id: piece.id,
@@ -249,40 +357,40 @@ export function RoomPhoto({
     }
 
     const move = (event: PointerEvent) => {
-      if (!drag) return
-      const hit = studioRef.current?.hit(event.clientX, event.clientY)
-      if (!hit || hit.kind === 'busy') return
+      const held = drag
+      if (!held) return
       const roomNow = roomRef.current
-      const kind = drag.opening.kind
-      let next: RoomOpening
-      if (drag.mode === 'move') {
-        next = clampOpening(roomNow, {
-          ...drag.opening,
-          wall: hit.wall,
-          along: hit.along - drag.grabAlong,
-          sill: kind === 'door' ? 0 : hit.up - drag.grabUp,
+      const kind = held.opening.kind
+      if (held.mode === 'move') {
+        const aim = studioRef.current?.aimWall(event.clientX, event.clientY)
+        if (!aim) return
+        held.opening = clampOpening(roomNow, {
+          ...held.opening,
+          wall: aim.wall,
+          span: held.rawSpan,
+          height: held.rawHeight,
+          along: aim.along - held.grabAlong,
+          sill: kind === 'door' ? 0 : aim.up - held.grabUp,
         })
-        drag.rawSpan = next.span
-        drag.rawHeight = next.height
       } else {
-        const along = Math.min(drag.grabAlong, hit.along)
-        const span = Math.abs(hit.along - drag.grabAlong)
-        const height = kind === 'door' ? Math.max(drag.grabUp, hit.up) : Math.abs(hit.up - drag.grabUp)
-        const sill = kind === 'door' ? 0 : Math.min(drag.grabUp, hit.up)
-        drag.rawSpan = span
-        drag.rawHeight = height
-        next = clampOpening(roomNow, {
-          ...drag.opening,
-          wall: hit.wall,
+        const spot = studioRef.current?.aimOn(event.clientX, event.clientY, held.opening.wall)
+        if (!spot) return
+        const along = Math.min(held.grabAlong, spot.along)
+        const span = Math.abs(spot.along - held.grabAlong)
+        const height = kind === 'door' ? Math.max(held.grabUp, spot.up) : Math.abs(spot.up - held.grabUp)
+        const sill = kind === 'door' ? 0 : Math.min(held.grabUp, spot.up)
+        held.rawSpan = span
+        held.rawHeight = height
+        held.opening = clampOpening(roomNow, {
+          ...held.opening,
           along,
           span,
           sill,
           height,
         })
       }
-      drag.opening = next
-      const others = openingsIn(roomNow).filter((item) => item.id !== next.id)
-      studioRef.current?.preview([...others, next])
+      const others = openingsIn(roomNow).filter((item) => item.id !== held.opening.id)
+      studioRef.current?.preview([...others, held.opening])
     }
 
     const up = () => {
@@ -372,20 +480,69 @@ export function RoomPhoto({
       <FrontButtons fronts={fronts} placed={placed} onToggle={(id) => studioRef.current?.toggle(id)} />
       <p className="mt-1 text-center text-[11px] text-neutral-500">
         {tool === 'look'
-          ? 'Лявото копче върти, дясното мести настрани, колелцето приближава. Кликни прозорец, врата или ниша, за да напишеш размера.'
-          : 'Дръпни по стената от тук до тук. После напиши точния размер или дръпни готовия отвор, за да го преместиш.'}
+          ? 'Лявото копче върти, дясното мести настрани, колелцето приближава. Кликни прозорец, врата или ниша, за да го преместиш на друга стена или да го изтриеш.'
+          : 'Дръпни по стената от тук до тук — така задаваш от къде до къде е отворът. Готовия го хвани и го занеси на друга стена, или го изтрий.'}
       </p>
       {onChange && selected && (
         <div className="mt-2 flex flex-wrap items-end gap-2">
           <p className="w-full text-xs font-medium text-neutral-700">
             {OPENING_NAME[selected.kind]} · {WALL_NAME[selected.wall]}
           </p>
+          <div className="flex w-full flex-wrap gap-1">
+            {(['front', 'back', 'left', 'right'] as RoomWall[]).map((wall) => (
+              <Button
+                key={wall}
+                type="button"
+                size="sm"
+                variant="outline"
+                className={
+                  selected.wall === wall
+                    ? 'border-neutral-900 bg-neutral-900 text-white hover:bg-neutral-800'
+                    : 'border-neutral-400 bg-white text-neutral-900 hover:bg-neutral-100'
+                }
+                onClick={() => patchOpening({ wall })}
+              >
+                {WALL_NAME[wall]}
+              </Button>
+            ))}
+          </div>
+          <label className="text-xs text-neutral-600">
+            Цвят
+            <span className="mt-1 flex items-center gap-1">
+              {OPENING_SWATCHES.map((swatch) => (
+                <button
+                  key={swatch.color}
+                  type="button"
+                  title={swatch.name}
+                  aria-label={swatch.name}
+                  className="h-8 w-8 rounded border border-neutral-400"
+                  style={{
+                    background: swatch.color,
+                    outline: openingColor(selected) === swatch.color ? '2px solid #c2410c' : undefined,
+                  }}
+                  onClick={() => patchOpening({ color: swatch.color })}
+                />
+              ))}
+              <input
+                type="color"
+                aria-label="Цвят — друг цвят"
+                value={openingColor(selected)}
+                onChange={(event) => patchOpening({ color: event.target.value })}
+                className="h-8 w-10 cursor-pointer bg-transparent"
+              />
+            </span>
+          </label>
           <MmField label="Широчина" value={selected.span} onChange={(span) => patchOpening({ span })} />
           <MmField label="Височина" value={selected.height} onChange={(height) => patchOpening({ height })} />
           {selected.kind !== 'door' && (
             <MmField label="От пода" value={selected.sill} onChange={(sill) => patchOpening({ sill })} />
           )}
           <MmField label={wallAlongLabel(selected.wall)} value={selected.along} onChange={(along) => patchOpening({ along })} />
+          <MmField
+            label={wallFarLabel(selected.wall)}
+            value={openingFar(room, selected)}
+            onChange={(far) => patchOpening({ along: alongForFar(room, selected, far) })}
+          />
           {selected.kind === 'niche' && (
             <MmField label="Дълбочина" value={selected.depth} onChange={(depth) => patchOpening({ depth })} />
           )}
@@ -399,12 +556,12 @@ export function RoomPhoto({
               setSelectedId(null)
             }}
           >
-            Махни
+            Изтрий
           </Button>
         </div>
       )}
       {placed.map(({ piece, cabinet }) => (
-        <CabinetCapture key={piece.id} cabinet={cabinet} finishes={finishes} onSolids={onSolids} />
+        <CabinetCapture key={piece.id} cabinet={cabinet} cabinets={cabinets} finishes={finishes} onSolids={onSolids} />
       ))}
     </figure>
   )
@@ -414,16 +571,7 @@ function MmField({ label, value, onChange }: { label: string; value: number; onC
   return (
     <label className="text-xs text-neutral-600">
       {label}
-      <Input
-        className="mt-1 h-8 w-28"
-        type="number"
-        inputMode="numeric"
-        value={value}
-        onChange={(event) => {
-          const next = Number(event.target.value)
-          if (Number.isFinite(next)) onChange(next)
-        }}
-      />
+      <DraftNumber className="mt-1 h-8 w-28" inputMode="numeric" value={value} onCommit={onChange} />
     </label>
   )
 }

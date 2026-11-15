@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react'
 import { GripVertical, Plus, RotateCw, Trash2 } from 'lucide-react'
+import { DraftNumber } from '@/components/DraftNumber'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -240,27 +241,27 @@ export function PartsPanel({ parts, onChange, onClear }: PartsPanelProps) {
                     {part.label !== `${part.width}×${part.height}` ? part.label : '—'}
                   </td>
                   <td className="py-2 pr-1">
-                    <Input
-                      type="number"
+                    <DraftNumber
                       className="h-7 w-[4.5rem]"
+                      inputMode="numeric"
                       value={part.width}
-                      onChange={(e) => updatePart(part.id, 'width', parseInt(e.target.value, 10))}
+                      onCommit={(n) => updatePart(part.id, 'width', Math.round(n))}
                     />
                   </td>
                   <td className="py-2 pr-1">
-                    <Input
-                      type="number"
+                    <DraftNumber
                       className="h-7 w-[4.5rem]"
+                      inputMode="numeric"
                       value={part.height}
-                      onChange={(e) => updatePart(part.id, 'height', parseInt(e.target.value, 10))}
+                      onCommit={(n) => updatePart(part.id, 'height', Math.round(n))}
                     />
                   </td>
                   <td className="py-2 pr-1">
-                    <Input
-                      type="number"
+                    <DraftNumber
                       className="h-7 w-14"
+                      inputMode="numeric"
                       value={part.quantity}
-                      onChange={(e) => updatePart(part.id, 'quantity', parseInt(e.target.value, 10))}
+                      onCommit={(n) => updatePart(part.id, 'quantity', Math.round(n))}
                     />
                   </td>
                   <td className="py-2 pr-1">

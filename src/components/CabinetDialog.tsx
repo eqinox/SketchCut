@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { PULL_CHOICES, parsePullSku, pullName, taraPull, type PullSku } from '@/lib/cabinets/pulls'
 import { Box, ChevronDown, ChevronRight, Plus, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
@@ -167,6 +166,15 @@ import {
   type HoodShape,
 } from '@/lib/cabinets'
 import { parsePieceFinishes } from '@/lib/board-finishes'
+import { KronospanColorGrid, KronospanCombinationRow, KronospanFinishOptions } from '@/components/KronospanColors'
+import {
+  kronospanCodeFromFinish,
+  kronospanFinishId,
+  kronospanSwatchByFinishId,
+  resolveBoardFinish,
+  withKronospanFinish,
+  type KronospanSwatch,
+} from '@/lib/kronospan-color'
 import type { HardwareSettings } from '@/lib/settings'
 import { DEFAULT_HARDWARE_SETTINGS } from '@/lib/settings'
 import type { AssemblyTimeSettings } from '@/lib/assembly-time'
@@ -179,16 +187,17 @@ import {
   type SlidingTrackColor,
 } from '@/lib/sliding-hardware'
 import { CabinetSizeBadge } from '@/components/CabinetSizeBadge'
+import { DraftNumber } from '@/components/DraftNumber'
 import type { Sheet } from '@/types'
 import { cn, exactMm, formatMeters, formatMm, parseMm } from '@/lib/utils'
 import {
   DEFAULT_VANITY_PARAMS,
-  VANITY_MIN_KNEE_MM,
   mergeKneePartitions,
   parseVanityParams,
   VANITY_BACK_RAIL_MM,
   vanityKneeError,
   vanityOpening,
+  zoneInVanityKnee,
   type VanityKnee,
   type VanityLegSide,
   type VanityParams,
@@ -1245,15 +1254,7 @@ function ShelfMeasureFields({
             <Label htmlFor={offsetId} className="w-28 shrink-0 text-xs">
               Размер (мм)
             </Label>
-            <Input
-              id={offsetId}
-              type="number"
-              inputMode="decimal"
-              step="any"
-              min={1}
-              value={offsetMm}
-              onChange={(e) => onOffset(e.target.value)}
-            />
+            <DraftNumber id={offsetId} inputMode="decimal" value={offsetMm} onCommit={(n) => onOffset(String(n))} />
           </div>
         </>
       )}
@@ -1275,6 +1276,7 @@ interface CabinetDialogProps {
   sheets: Sheet[]
   dailyRateEur: number
   settings?: { hardware: HardwareSettings; assemblyTime: AssemblyTimeSettings }
+  onHardwareSettingsChange?: (settings: HardwareSettings) => void
   projectCabinets?: CabinetInstance[]
   onSave: (input: { typeId: string; params: Record<string, unknown>; quantity: number }) => void
   onSaveGroup?: (group: SavedCabinetGroup) => void
@@ -1338,6 +1340,7 @@ function CabinetDialogForm({
   sheets,
   dailyRateEur,
   settings = { hardware: DEFAULT_HARDWARE_SETTINGS, assemblyTime: DEFAULT_ASSEMBLY_TIME_SETTINGS },
+  onHardwareSettingsChange,
   projectCabinets = [],
   onSave,
   bare = false,
@@ -1931,6 +1934,7 @@ function CabinetDialogForm({
         )
       : params.zones,
   })
+  const kneeOpening = typeId === 'vanity' ? vanityOpening(params as VanityParams) : null
   const threeDoorCheck =
     isSlidingCabinet && slidingDoorCount === 3 && depthMode !== 'no-doors'
       ? assessThreeSlidingDoors({
@@ -1960,6 +1964,27 @@ function CabinetDialogForm({
   })
   const counts = fittingsCountsFromParams(params)
   const projectExternalDoors = settings.hardware.externalDoors
+  const rememberKronospan = (id: string) => {
+    const swatch = kronospanSwatchByFinishId(id)
+    if (!swatch) return
+    const next = withKronospanFinish(settings.hardware.boardFinishes, swatch)
+    if (next !== settings.hardware.boardFinishes) {
+      onHardwareSettingsChange?.({ ...settings.hardware, boardFinishes: next })
+    }
+  }
+  const pickKronospan = (swatch: KronospanSwatch, target: 'carcass' | 'front') => {
+    rememberKronospan(kronospanFinishId(swatch.code))
+    const id = kronospanFinishId(swatch.code)
+    if (target === 'carcass') setCarcassFinishId(id)
+    else setFrontFinishId(id)
+  }
+  const chooseFinish = (id: string, target: 'carcass' | 'front' | 'back') => {
+    rememberKronospan(id)
+    if (target === 'carcass') setCarcassFinishId(id)
+    else if (target === 'front') setFrontFinishId(id)
+    else setBackFinishId(id)
+  }
+  const finishFor = (id: string | undefined) => resolveBoardFinish(settings.hardware.boardFinishes, id)
   const effectiveExternalDoors = projectExternalDoors || externalDoors
   const hasDoorsForSource = isSlidingCabinet ? doorCount === 2 : counts.doorCount > 0 || counts.drawerCount > 0
   const hasFixed = (params.fixedShelves?.length ?? 0) > 0
@@ -2668,7 +2693,8 @@ function CabinetDialogForm({
         const hasDoor = isSlidingCabinet ? false : doorSpan === 'zones' && cur.doorCount > 0
         const zone = layout.zones.find((z) => z.id === target)
         const n = cur.drawerFrontHeights.length + 1
-        if (zone && !hasDoor) {
+        const hang = zone != null && zoneInVanityKnee(zone, kneeOpening)
+        if (zone && !hasDoor && !hang) {
           patchZone(target, {
             drawerFrontHeights: filledDrawerRows(
               zoneStackOpeningHeight(zone, innerDrawerFronts, innerDoors),
@@ -3176,14 +3202,7 @@ function CabinetDialogForm({
           </div>
           <div>
             <Label htmlFor="cab-qty">Брой еднакви</Label>
-            <Input
-              id="cab-qty"
-              type="number"
-              inputMode="numeric"
-              min={1}
-              value={quantity}
-              onChange={(e) => setQuantity(e.target.value)}
-            />
+            <DraftNumber id="cab-qty" inputMode="numeric" value={quantity} onCommit={(n) => setQuantity(String(n))} />
             <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
               Един шкаф, повторен толкова пъти в разкроя и цената. Например 10.
             </p>
@@ -4124,16 +4143,13 @@ function CabinetDialogForm({
                     <Label htmlFor={`part-off-${i}`} className="w-28 shrink-0 text-xs">
                       Размер (мм)
                     </Label>
-                    <Input
+                    <DraftNumber
                       id={`part-off-${i}`}
-                      type="number"
                       inputMode="decimal"
-                      step="any"
-                      min={1}
                       value={part.offsetMm}
-                      onChange={(e) =>
+                      onCommit={(n) =>
                         setPartitions((rows) =>
-                          rows.map((r, j) => (j === i ? { ...r, offsetMm: e.target.value } : r)),
+                          rows.map((r, j) => (j === i ? { ...r, offsetMm: String(n) } : r)),
                         )
                       }
                     />
@@ -4302,14 +4318,11 @@ function CabinetDialogForm({
             >
               <div className="mt-1 max-w-[14rem]">
                 <Label htmlFor="shelf-front-inset">По-плитки от страниците (мм)</Label>
-                <Input
+                <DraftNumber
                   id="shelf-front-inset"
-                  type="number"
                   inputMode="numeric"
-                  min={0}
                   value={shelfFrontInset}
-                  onChange={(e) => setShelfFrontInset(e.target.value)}
-                  onFocus={(e) => e.currentTarget.select()}
+                  onCommit={(n) => setShelfFrontInset(String(n))}
                 />
               </div>
               <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
@@ -4778,15 +4791,12 @@ function CabinetDialogForm({
                     <Label htmlFor={`rail-off-${i}`} className="text-xs">
                       Размер (мм)
                     </Label>
-                    <Input
+                    <DraftNumber
                       id={`rail-off-${i}`}
-                      type="number"
-                      step="any"
-                      min={1}
                       value={rail.offsetMm}
-                      onChange={(e) =>
+                      onCommit={(n) =>
                         setClothesRails((rows) =>
-                          rows.map((r, j) => (j === i ? { ...r, offsetMm: e.target.value } : r)),
+                          rows.map((r, j) => (j === i ? { ...r, offsetMm: String(n) } : r)),
                         )
                       }
                     />
@@ -4893,16 +4903,13 @@ function CabinetDialogForm({
                       <Label htmlFor={`rail-off-${z.id}-${i}`} className="text-xs">
                         Размер (мм)
                       </Label>
-                      <Input
+                      <DraftNumber
                         id={`rail-off-${z.id}-${i}`}
-                        type="number"
-                        step="any"
-                        min={1}
                         value={rail.offsetMm}
-                        onChange={(e) =>
+                        onCommit={(n) =>
                           patchZone(z.id, {
                             clothesRails: rows.map((r, j) =>
-                              j === i ? { ...r, offsetMm: e.target.value } : r,
+                              j === i ? { ...r, offsetMm: String(n) } : r,
                             ),
                             hasClothesRail: true,
                           })
@@ -5419,24 +5426,20 @@ function CabinetDialogForm({
                     <div className="mt-2 grid gap-3 sm:grid-cols-2">
                       <div>
                         <Label htmlFor="soft-close-left">Отляво</Label>
-                        <Input
+                        <DraftNumber
                           id="soft-close-left"
-                          type="number"
-                          min="0"
-                          step="1"
+                          inputMode="numeric"
                           value={slidingSoftCloseLeft}
-                          onChange={(e) => setSlidingSoftCloseLeft(e.target.value)}
+                          onCommit={(n) => setSlidingSoftCloseLeft(String(n))}
                         />
                       </div>
                       <div>
                         <Label htmlFor="soft-close-right">Отдясно</Label>
-                        <Input
+                        <DraftNumber
                           id="soft-close-right"
-                          type="number"
-                          min="0"
-                          step="1"
+                          inputMode="numeric"
                           value={slidingSoftCloseRight}
-                          onChange={(e) => setSlidingSoftCloseRight(e.target.value)}
+                          onCommit={(n) => setSlidingSoftCloseRight(String(n))}
                         />
                       </div>
                     </div>
@@ -5695,8 +5698,14 @@ function CabinetDialogForm({
           )}
           <label className="mt-2 flex cursor-pointer items-center gap-2 text-sm">
             <Checkbox
-              checked={includeHandles}
-              onCheckedChange={(c) => setIncludeHandles(c === true)}
+              checked={includeHandles && handleSku !== 'none'}
+              onCheckedChange={(c) => {
+                const on = c === true
+                setIncludeHandles(on)
+                if (on && handleSku === 'none') setHandleSku('normal')
+                if (!on) setHandleSku('none')
+                setHandleOverrides({})
+              }}
             />
             Дръжки в цената
           </label>
@@ -5705,13 +5714,15 @@ function CabinetDialogForm({
             <select
               id="cab-handle"
               className="mt-1 w-full rounded-md border border-[var(--color-border)] bg-[var(--color-background)] px-2 py-1.5"
-              value={handleSku}
+              value={!includeHandles || handleSku === 'none' ? 'none' : handleSku}
               onChange={(event) => {
-                setHandleSku(parsePullSku(event.target.value))
+                const sku = parsePullSku(event.target.value)
+                setHandleSku(sku)
+                setIncludeHandles(sku !== 'none')
                 setHandleOverrides({})
               }}
             >
-              {PULL_CHOICES.filter((choice) => choice.sku !== 'none').map((choice) => (
+              {PULL_CHOICES.map((choice) => (
                 <option key={choice.sku} value={choice.sku}>
                   {choice.name}
                 </option>
@@ -5762,14 +5773,12 @@ function CabinetDialogForm({
                 <Label htmlFor={`drawer-h-full-${i}`} className="w-36 shrink-0 text-xs">
                   Чело {i + 1}{hasSplit ? ` · ${FULL_CABINET_LABEL}` : ''} (мм)
                 </Label>
-                <Input
+                <DraftNumber
                   id={`drawer-h-full-${i}`}
-                  type="number"
                   inputMode="numeric"
-                  min={0}
                   value={value}
-                  onChange={(e) =>
-                    setDrawerFrontHeights((rows) => rows.map((v, j) => (j === i ? e.target.value : v)))
+                  onCommit={(n) =>
+                    setDrawerFrontHeights((rows) => rows.map((v, j) => (j === i ? String(n) : v)))
                   }
                   placeholder={String(DEFAULT_DRAWER_FRONT_HEIGHT)}
                 />
@@ -5798,21 +5807,19 @@ function CabinetDialogForm({
                     <Label htmlFor={`drawer-h-${z.id}-${i}`} className="w-36 shrink-0 text-xs">
                       Чело {i + 1} · {z.label} (мм)
                     </Label>
-                    <Input
-                      id={`drawer-h-${z.id}-${i}`}
-                      type="number"
-                      inputMode="numeric"
-                      min={0}
-                      value={value}
-                      onChange={(e) =>
-                        patchZone(z.id, {
-                          drawerFrontHeights: zoneOf(zoneUi, z.id).drawerFrontHeights.map((v, j) =>
-                            j === i ? e.target.value : v,
-                          ),
-                        })
-                      }
-                      placeholder={String(DEFAULT_DRAWER_FRONT_HEIGHT)}
-                    />
+                      <DraftNumber
+                        id={`drawer-h-${z.id}-${i}`}
+                        inputMode="numeric"
+                        value={value}
+                        onCommit={(n) =>
+                          patchZone(z.id, {
+                            drawerFrontHeights: zoneOf(zoneUi, z.id).drawerFrontHeights.map((v, j) =>
+                              j === i ? String(n) : v,
+                            ),
+                          })
+                        }
+                        placeholder={String(DEFAULT_DRAWER_FRONT_HEIGHT)}
+                      />
                     <Button
                       type="button"
                       size="icon"
@@ -5821,8 +5828,9 @@ function CabinetDialogForm({
                       onClick={() => {
                         const nextRows = zoneOf(zoneUi, z.id).drawerFrontHeights.filter((_, j) => j !== i)
                         const hasDoor = isSlidingCabinet ? false : doorSpan === 'zones' && zoneOf(zoneUi, z.id).doorCount > 0
+                        const hang = zoneInVanityKnee(z, kneeOpening)
                         patchZone(z.id, {
-                          drawerFrontHeights: hasDoor
+                          drawerFrontHeights: hasDoor || hang
                             ? nextRows
                             : filledDrawerRows(
                                 zoneStackOpeningHeight(z, innerDrawerFronts, innerDoors),
@@ -5879,7 +5887,7 @@ function CabinetDialogForm({
                     const heights = parseDrawerRows(zoneOf(zoneUi, z.id).drawerFrontHeights)
                     if (heights.length === 0) return null
                     const hasDoor = isSlidingCabinet ? false : doorSpan === 'zones' && zoneOf(zoneUi, z.id).doorCount > 0
-                    return `${z.label}: ${drawerHint(zoneStackOpeningHeight(z, innerDrawerFronts, innerDoors), hasDoor ? zoneOf(zoneUi, z.id).doorCount : 0, heights, z.y0 <= 0.5 ? drawerBottomGap : 0)}`
+                    return `${z.label}: ${drawerHint(zoneStackOpeningHeight(z, innerDrawerFronts, innerDoors), hasDoor ? zoneOf(zoneUi, z.id).doorCount : 0, heights, z.y0 <= 0.5 ? drawerBottomGap : 0, zoneInVanityKnee(z, kneeOpening))}`
                   }),
                 ]
                   .filter(Boolean)
@@ -6092,13 +6100,11 @@ function CabinetDialogForm({
                       <label htmlFor="vanity-knee" className="text-xs">
                         Широчина на отвора (мм)
                       </label>
-                      <Input
+                      <DraftNumber
                         id="vanity-knee"
-                        type="number"
                         inputMode="numeric"
-                        min={VANITY_MIN_KNEE_MM}
                         value={kneeWidth}
-                        onChange={(e) => setKneeWidth(e.target.value)}
+                        onCommit={(n) => setKneeWidth(String(n))}
                         className="w-32"
                       />
                     </div>
@@ -6126,14 +6132,11 @@ function CabinetDialogForm({
                       <label htmlFor="vanity-rail" className="text-xs">
                         Бленда отзад (мм)
                       </label>
-                      <Input
+                      <DraftNumber
                         id="vanity-rail"
-                        type="number"
                         inputMode="numeric"
-                        min={40}
-                        max={600}
                         value={backRailHeight}
-                        onChange={(e) => setBackRailHeight(e.target.value)}
+                        onCommit={(n) => setBackRailHeight(String(n))}
                         className="w-32"
                       />
                     </div>
@@ -6240,14 +6243,11 @@ function CabinetDialogForm({
 
                 <FormSection defaultOpen={false} title="Височина на цокъл (мм)" summary={`${plinthHeight} мм`}>
                   <div className="mt-1 flex items-center gap-2">
-                    <Input
+                    <DraftNumber
                       id="plinth-height"
-                      type="number"
                       inputMode="numeric"
-                      min={40}
-                      max={150}
                       value={plinthHeight}
-                      onChange={(e) => setPlinthHeight(e.target.value)}
+                      onCommit={(n) => setPlinthHeight(String(n))}
                       className="w-32"
                     />
                     <div className="flex gap-1">
@@ -6290,14 +6290,10 @@ function CabinetDialogForm({
               <select
                 className="h-9 rounded-md border border-[var(--color-border)] bg-transparent px-2 text-sm"
                 value={carcassFinishId}
-                onChange={(e) => setCarcassFinishId(e.target.value)}
+                onChange={(e) => chooseFinish(e.target.value, 'carcass')}
               >
                 <option value="">Обикновена плоча</option>
-                {settings.hardware.boardFinishes.map((finish) => (
-                  <option key={finish.id} value={finish.id}>
-                    {finish.name} · {finish.sheetPriceEur} €
-                  </option>
-                ))}
+                <KronospanFinishOptions finishes={settings.hardware.boardFinishes} />
               </select>
             </label>
             <label className="flex flex-col gap-1 text-xs">
@@ -6305,14 +6301,10 @@ function CabinetDialogForm({
               <select
                 className="h-9 rounded-md border border-[var(--color-border)] bg-transparent px-2 text-sm"
                 value={frontFinishId}
-                onChange={(e) => setFrontFinishId(e.target.value)}
+                onChange={(e) => chooseFinish(e.target.value, 'front')}
               >
                 <option value="">Като корпуса</option>
-                {settings.hardware.boardFinishes.map((finish) => (
-                  <option key={finish.id} value={finish.id}>
-                    {finish.name} · {finish.sheetPriceEur} €
-                  </option>
-                ))}
+                <KronospanFinishOptions finishes={settings.hardware.boardFinishes} />
               </select>
             </label>
             <label className="flex flex-col gap-1 text-xs">
@@ -6320,22 +6312,27 @@ function CabinetDialogForm({
               <select
                 className="h-9 rounded-md border border-[var(--color-border)] bg-transparent px-2 text-sm"
                 value={backFinishId}
-                onChange={(e) => setBackFinishId(e.target.value)}
+                onChange={(e) => chooseFinish(e.target.value, 'back')}
               >
                 <option value="">Бял</option>
-                {settings.hardware.boardFinishes.map((finish) => (
-                  <option key={finish.id} value={finish.id}>
-                    {finish.name} · {finish.sheetPriceEur} €
-                  </option>
-                ))}
+                <KronospanFinishOptions finishes={settings.hardware.boardFinishes} />
               </select>
             </label>
           </div>
-          {settings.hardware.boardFinishes.length === 0 && (
-            <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
-              Цветовете се добавят от Настройки → Цени → Цветове на плочите.
-            </p>
-          )}
+          <div className="mt-3">
+            <KronospanColorGrid
+              finishes={settings.hardware.boardFinishes}
+              selectedCode={kronospanCodeFromFinish({ id: carcassFinishId })}
+              onPick={(swatch) => pickKronospan(swatch, 'carcass')}
+            />
+            <div className="mt-2">
+              <KronospanCombinationRow
+                code={kronospanCodeFromFinish({ id: carcassFinishId })}
+                hint="Натисни, за да стане цвят на вратите"
+                onPick={(swatch) => pickKronospan(swatch, 'front')}
+              />
+            </div>
+          </div>
           <p className="mt-2 text-xs text-[var(--color-muted-foreground)]">
             По подразбиране плоскостите на чертежа са еднакви. Смени само ако трябва да се отличават в сегашния изглед.
           </p>
@@ -6407,6 +6404,26 @@ function CabinetDialogForm({
               <option value="line">Чертеж</option>
               <option value="color">Цветен</option>
               <option value="model">3D</option>
+            </select>
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            Дръжка
+            <select
+              className="h-8 rounded-md border border-[var(--color-border)] bg-transparent px-2"
+              value={!includeHandles || handleSku === 'none' ? 'none' : handleSku}
+              aria-label="Дръжка"
+              onChange={(event) => {
+                const sku = parsePullSku(event.target.value)
+                setHandleSku(sku)
+                setIncludeHandles(sku !== 'none')
+                setHandleOverrides({})
+              }}
+            >
+              {PULL_CHOICES.map((choice) => (
+                <option key={choice.sku} value={choice.sku}>
+                  {choice.name}
+                </option>
+              ))}
             </select>
           </label>
           <label className="flex items-center gap-2 text-sm">
@@ -6571,14 +6588,12 @@ function CabinetDialogForm({
                         </div>
                         <label className="mt-2 flex items-center gap-2 text-xs">
                           Брой
-                          <Input
+                          <DraftNumber
                             className="h-8 w-16"
-                            type="number"
-                            min={0}
-                            max={12}
+                            inputMode="numeric"
                             value={spanDoorCountOf(row)}
-                            onChange={(e) => {
-                              const count = Math.max(0, Math.min(12, Math.round(Number(e.target.value) || 0)))
+                            onCommit={(n) => {
+                              const count = Math.max(0, Math.min(12, Math.round(n)))
                               setAttached((rows) =>
                                 rows.map((item) =>
                                   item.cabinetId === row.cabinetId
@@ -6644,16 +6659,16 @@ function CabinetDialogForm({
             showFronts={drawStyle === 'model' || doorView !== 'hidden'}
             drawStyle={drawStyle}
             doorView={doorView}
-            carcassColor={settings.hardware.boardFinishes.find((finish) => finish.id === carcassFinishId)?.color}
-            carcassImage={settings.hardware.boardFinishes.find((finish) => finish.id === carcassFinishId)?.image}
+            carcassColor={finishFor(carcassFinishId)?.color}
+            carcassImage={finishFor(carcassFinishId)?.image}
             frontColor={
-              settings.hardware.boardFinishes.find((finish) => finish.id === (frontFinishId || carcassFinishId))?.color
+              finishFor(frontFinishId || carcassFinishId)?.color
             }
             frontImage={
-              settings.hardware.boardFinishes.find((finish) => finish.id === (frontFinishId || carcassFinishId))?.image
+              finishFor(frontFinishId || carcassFinishId)?.image
             }
-            backColor={settings.hardware.boardFinishes.find((finish) => finish.id === backFinishId)?.color}
-            backImage={settings.hardware.boardFinishes.find((finish) => finish.id === backFinishId)?.image}
+            backColor={finishFor(backFinishId)?.color}
+            backImage={finishFor(backFinishId)?.image}
             finishes={settings.hardware.boardFinishes}
           />
         ) : (
@@ -6680,6 +6695,7 @@ function CabinetDialogForm({
                 value={pieceFinishes[pickedPiece] ?? ''}
                 onChange={(e) => {
                   const id = e.target.value
+                  rememberKronospan(id)
                   setPieceFinishes((current) => {
                     if (!id) {
                       const next = { ...current }
@@ -6692,11 +6708,7 @@ function CabinetDialogForm({
                 className="h-8 rounded-md border border-[var(--color-border)] bg-transparent px-2"
               >
                 <option value="">Както останалите</option>
-                {settings.hardware.boardFinishes.map((finish) => (
-                  <option key={finish.id} value={finish.id}>
-                    {finish.name}
-                  </option>
-                ))}
+                <KronospanFinishOptions finishes={settings.hardware.boardFinishes} />
               </select>
             </label>
           )}
@@ -6711,16 +6723,16 @@ function CabinetDialogForm({
           showFronts={drawStyle === 'model' || doorView !== 'hidden'}
           drawStyle={drawStyle}
           doorView={doorView}
-          carcassColor={settings.hardware.boardFinishes.find((finish) => finish.id === carcassFinishId)?.color}
-          carcassImage={settings.hardware.boardFinishes.find((finish) => finish.id === carcassFinishId)?.image}
+          carcassColor={finishFor(carcassFinishId)?.color}
+          carcassImage={finishFor(carcassFinishId)?.image}
           frontColor={
-            settings.hardware.boardFinishes.find((finish) => finish.id === (frontFinishId || carcassFinishId))?.color
+            finishFor(frontFinishId || carcassFinishId)?.color
           }
           frontImage={
-            settings.hardware.boardFinishes.find((finish) => finish.id === (frontFinishId || carcassFinishId))?.image
+            finishFor(frontFinishId || carcassFinishId)?.image
           }
-          backColor={settings.hardware.boardFinishes.find((finish) => finish.id === backFinishId)?.color}
-          backImage={settings.hardware.boardFinishes.find((finish) => finish.id === backFinishId)?.image}
+          backColor={finishFor(backFinishId)?.color}
+          backImage={finishFor(backFinishId)?.image}
           finishes={settings.hardware.boardFinishes}
         />
         </BoardPickContext.Provider>
@@ -6770,7 +6782,7 @@ function CabinetDialogForm({
                       <td className={cn('px-3 py-2 font-medium', groupEdge('first'))}>
                         {panel.name}
                         {panel.finishId
-                          ? ` · ${settings.hardware.boardFinishes.find((finish) => finish.id === panel.finishId)?.name ?? ''}`
+                          ? ` · ${finishFor(panel.finishId)?.name ?? ''}`
                           : ''}
                       </td>
                       <td className={cn('px-3 py-2 tabular-nums', groupEdge('mid'))}>
@@ -7407,6 +7419,7 @@ function drawerHint(
   doorCount: number,
   drawerFrontHeights: number[],
   clearanceBottom = 0,
+  fromTop = false,
 ): string {
   if (drawerFrontHeights.length === 0) {
     return 'Добави едно или повече чекмеджета — могат да са с различни височини, с или без врата отдолу.'
@@ -7422,6 +7435,9 @@ function drawerHint(
       : 'Челата заемат целия корпус — няма място за врата.'
   }
   if (leftover > 4) {
+    if (fromTop) {
+      return `Чекмеджето почва отгоре, под плота. Отдолу остават ${formatMm(leftover)} мм.`
+    }
     return leftover >= 80
       ? `Остават ${formatMm(leftover)} мм. „Разпредели поравно“ ги слага в челата (фуга ${DOOR_CLEARANCE_TOP} мм отгоре, ${DRAWER_DOOR_GAP} мм между тях${bottomNote ? `, ${bottomNote}` : ''}) или добави врата отдолу.`
       : `Остават ${formatMm(leftover)} мм. Натисни „Разпредели поравно“, за да влязат в челата с фугите.`
@@ -7524,14 +7540,7 @@ function NumField({
   return (
     <div>
       <Label htmlFor={id}>{label}</Label>
-      <Input
-        id={id}
-        type="number"
-        inputMode="numeric"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        onFocus={(e) => e.currentTarget.select()}
-      />
+      <DraftNumber id={id} inputMode="numeric" value={value} onCommit={(n) => onChange(String(n))} />
     </div>
   )
 }

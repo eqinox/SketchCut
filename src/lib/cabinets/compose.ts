@@ -184,6 +184,102 @@ export function cabinetOuterSize(typeId: string, params: Record<string, unknown>
   return { w, h, d, feet: 0, doorTop: door.top, doorPlinth: door.plinth }
 }
 
+interface LaidBox {
+  x: number
+  y: number
+  w: number
+  h: number
+  d: number
+}
+
+/**
+ * One solid piece of a cabinet or a combination, in the group's own frame.
+ * Fronts share v = 0. A shallower box on the front leaves the back empty.
+ * z grows up from the floor of the group.
+ */
+export interface SolidBlock {
+  u0: number
+  u1: number
+  v0: number
+  v1: number
+  z0: number
+  z1: number
+}
+
+function laidBoxes(
+  cabinet: { typeId: string; params: Record<string, unknown> },
+  catalog: { id: string; typeId: string; params: Record<string, unknown> }[],
+): LaidBox[] | null {
+  const one = (typeId: string, params: Record<string, unknown>, x: number, y: number): LaidBox => {
+    const size = cabinetOuterSize(typeId, params)
+    return { x, y, w: size.w, h: size.h + size.feet, d: size.d }
+  }
+  if (!isCombinationType(cabinet.typeId)) return [one(cabinet.typeId, cabinet.params, 0, 0)]
+  const parsed = parseCombination(cabinet.params)
+  if (!parsed) return null
+  const host = catalog.find((item) => item.id === parsed.hostId)
+  if (!host || isCombinationType(host.typeId)) return null
+  const guests = parsed.members.flatMap((member) => {
+    if (member.place === 'host') return []
+    const item = catalog.find((row) => row.id === member.cabinetId)
+    if (!item || isCombinationType(item.typeId)) return []
+    return [{ place: member.place, size: cabinetOuterSize(item.typeId, item.params) }]
+  })
+  const hostSize = cabinetOuterSize(host.typeId, host.params)
+  const laid = arrangeMany(hostSize, guests)
+  return [
+    { x: laid.host.x, y: laid.host.y, w: hostSize.w, h: hostSize.h + hostSize.feet, d: hostSize.d },
+    ...guests.map((guest, index) => ({
+      x: laid.guests[index]!.x,
+      y: laid.guests[index]!.y,
+      w: guest.size.w,
+      h: guest.size.h + guest.size.feet,
+      d: guest.size.d,
+    })),
+  ]
+}
+
+/** Outer box of one cabinet, or of a whole combination. Feet are included in the height of a combination. */
+export function groupOuterSize(
+  cabinet: { typeId: string; params: Record<string, unknown> },
+  catalog: { id: string; typeId: string; params: Record<string, unknown> }[],
+): CabinetSize | null {
+  const boxes = laidBoxes(cabinet, catalog)
+  if (!boxes || boxes.length === 0) return null
+  if (!isCombinationType(cabinet.typeId)) return cabinetOuterSize(cabinet.typeId, cabinet.params)
+  const minX = Math.min(...boxes.map((box) => box.x))
+  const maxX = Math.max(...boxes.map((box) => box.x + box.w))
+  const minY = Math.min(...boxes.map((box) => box.y))
+  const maxY = Math.max(...boxes.map((box) => box.y + box.h))
+  return {
+    w: maxX - minX,
+    h: maxY - minY,
+    d: Math.max(...boxes.map((box) => box.d)),
+    feet: 0,
+    doorTop: 0,
+    doorPlinth: 0,
+  }
+}
+
+/** Each box that actually occupies space. Fronts line up, so a shallower upper cabinet stays forward. */
+export function groupSolidBlocks(
+  cabinet: { typeId: string; params: Record<string, unknown> },
+  catalog: { id: string; typeId: string; params: Record<string, unknown> }[],
+): SolidBlock[] | null {
+  const boxes = laidBoxes(cabinet, catalog)
+  if (!boxes || boxes.length === 0) return null
+  const minX = Math.min(...boxes.map((box) => box.x))
+  const floor = Math.max(...boxes.map((box) => box.y + box.h))
+  return boxes.map((box) => ({
+    u0: box.x - minX,
+    u1: box.x - minX + box.w,
+    v0: 0,
+    v1: box.d,
+    z0: floor - (box.y + box.h),
+    z1: floor - box.y,
+  }))
+}
+
 function doorFace(size: CabinetSize, spot: GroupSpot): { top: number; bot: number } {
   const top = spot.y + size.doorTop
   return { top, bot: Math.max(top + 1, spot.y + size.h - size.doorPlinth) }

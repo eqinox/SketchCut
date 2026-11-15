@@ -46,6 +46,28 @@ function addBox(
   mesh.receiveShadow = true
   parent.add(mesh)
   bin.push({ dispose: () => geo.dispose() })
+  if (solid.pull && !solid.slide) addFrontHandle(parent, solid, bin)
+}
+
+/** Vertical pull on the outer face of a door board. Drawers place their own. */
+function addFrontHandle(
+  parent: Group,
+  solid: Extract<SceneSolid, { kind: 'box' }>,
+  bin: Disposable[],
+) {
+  if (!solid.pull || solid.pull.sku === 'none') return
+  const stand = new Group()
+  stand.rotation.z = Math.PI / 2
+  const pull = addPull(stand, solid.pull.sku, bin)
+  const length = solid.pull.sku === 'normal' ? 128 : (taraPull(solid.pull.sku)?.l ?? 158)
+  if (pull) fitPullLength(pull, length, solid.h)
+  const inset = Math.min(46, Math.max(22, Math.min(solid.w * 0.16, solid.w / 2 - 8)))
+  const at = solid.pull.at ?? 'right'
+  const x =
+    at === 'left' ? solid.x + inset : at === 'center' ? solid.x + solid.w / 2 : solid.x + solid.w - inset
+  // Drawing z grows into the cabinet, so the outer face is the larger three.js z.
+  stand.position.set(x, -(solid.y + solid.h / 2), -solid.z)
+  parent.add(stand)
 }
 
 function addDoor(
@@ -80,7 +102,7 @@ function addDoor(
     stand.rotation.z = Math.PI / 2
     stand.add(arch)
     const pull = addPull(arch, solid.pull.sku, bin)
-    const length = solid.pull.sku === 'normal' ? 120 : (taraPull(solid.pull.sku)?.l ?? 158)
+    const length = solid.pull.sku === 'normal' ? 128 : (taraPull(solid.pull.sku)?.l ?? 158)
     if (pull) fitPullLength(pull, length, solid.height)
     const inset = Math.min(46, Math.max(22, solid.width * 0.16))
     stand.position.set(solid.width / 2 - inset, 0, -solid.thickness / 2)
@@ -146,7 +168,7 @@ function addDrawer(
   const front = parts.find((part) => part.pull && part.d <= part.w && part.d <= part.h)
   if (front?.pull && front.pull.sku !== 'none') {
     const pull = addPull(group, front.pull.sku, bin)
-    const length = front.pull.sku === 'normal' ? 120 : (taraPull(front.pull.sku)?.l ?? 158)
+    const length = front.pull.sku === 'normal' ? 128 : (taraPull(front.pull.sku)?.l ?? 158)
     if (pull) {
       fitPullLength(pull, length, front.w)
       pull.position.set(front.x + front.w / 2, -(front.y + front.h / 2), -front.z)

@@ -611,6 +611,7 @@ export function CabinetsPanel({
         sheets={sheets}
         dailyRateEur={dailyRateEur}
         settings={settings}
+        onHardwareSettingsChange={onHardwareSettingsChange}
         onSave={(input) => {
           if (editing && !isCombinationType(editing.typeId)) applyUpdate(editing.id, input)
           else applyAdd(input)

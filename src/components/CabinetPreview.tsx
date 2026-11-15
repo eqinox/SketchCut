@@ -9,6 +9,7 @@ import {
   parseBedParams,
   vanityBackSpans,
   vanityOpening,
+  zoneInVanityKnee,
   parseSectionParams,
   parseWardrobeParams,
   measureNightstand,
@@ -330,12 +331,14 @@ function drawerFrontTopY(
   heights: number[],
   index: number,
   clearanceBottom = 0,
+  fromTop = false,
 ): number {
   const row = stackFronts({
     frontHeight: box.h,
     doorCount,
     drawerFrontHeights: heights,
     clearanceBottom,
+    fromTop,
   }).find((s) => s.kind === 'drawer' && s.index === index)
   return box.y + (row?.yFromFrontTop ?? 0)
 }
@@ -401,6 +404,8 @@ function DrawerSlidesOnCabinet({
   zLimit,
   seatPageZ,
   seatShelfZ,
+  /** Knee opening, in inner-left coordinates. Drawers there hang from the top. */
+  hangFromTop,
 }: {
   layout: InteriorLayout
   T: number
@@ -427,6 +432,7 @@ function DrawerSlidesOnCabinet({
   /** Front edge of the pages, used so a set-back inner front does not leave the runner in front of it. */
   seatPageZ?: number
   seatShelfZ?: number
+  hangFromTop?: { x0: number; x1: number } | null
 }) {
   const marks = useCabinetMarks()
   return (
@@ -477,7 +483,15 @@ function DrawerSlidesOnCabinet({
           const room = zLimit != null ? Math.max(1, zLimit - startZ) : slideLength
           const drawn = Math.min(slideLength, room)
           const z1 = startZ + drawn
-          const yBot = drawerFrontTopY(src.box, src.doorCount, src.heights, i, bottomGap) + rails.outer.height
+          const yBot =
+            drawerFrontTopY(
+              src.box,
+              src.doorCount,
+              src.heights,
+              i,
+              bottomGap,
+              zone != null && zoneInVanityKnee(zone, hangFromTop),
+            ) + rails.outer.height
           const yTopS = yBot - SLIDE_PROFILE_H
           const a0 = cam.proj(x, yTopS, startZ)
           const a1 = cam.proj(x, yTopS, z1)
@@ -2142,6 +2156,7 @@ function FrontsOnCabinet({
   openDoors = false,
   frontColor,
   visualDoor = false,
+  hangFromTop,
 }: {
   layout: InteriorLayout
   W: number
@@ -2174,6 +2189,8 @@ function FrontsOnCabinet({
   frontColor?: string
   /** One door on the drawing when the cabinet has none, so the colour and the open view show. */
   visualDoor?: boolean
+  /** Knee opening, in inner-left coordinates. Drawers there hang from the top. */
+  hangFromTop?: { x0: number; x1: number } | null
 }) {
   const marks = useCabinetMarks()
   const hideDoors = React.useContext(HideDoorsContext)
@@ -2264,6 +2281,7 @@ function FrontsOnCabinet({
     inset: { x: number; w: number },
     openingBox: { x: number; w: number },
     boundedByShelf: boolean,
+    fromTop = false,
   ) => {
     const hasDrawers = drawerFrontHeights.some((h) => h > 0)
     const hasDoors = doorCount > 0
@@ -2274,6 +2292,7 @@ function FrontsOnCabinet({
       doorCount,
       drawerFrontHeights,
       clearanceBottom: bottomGap,
+      fromTop,
     })
     const label = stacked.length >= 2
     for (const s of stacked) {
@@ -2367,6 +2386,7 @@ function FrontsOnCabinet({
       insetFrontGeom(T, zone.x0, zoneInnerW),
       { x: T + zone.x0, w: zoneInnerW },
       !(zone.isFirst && zone.isLast),
+      zoneInVanityKnee(zone, hangFromTop),
     )
   }
 
@@ -3739,6 +3759,8 @@ function PlinthBoxFront3DView({
   const H = p.height
   const D = p.depth
   const zSide = m.frontOverhang
+  const kneeInner =
+    kneeSpan != null ? { x0: kneeSpan.x - T, x1: kneeSpan.x - T + kneeSpan.w } : null
 
   const hint = createDrawCam({ ox: 0, oy: 0 })
   const { x: dx, y: dy } = hint.depthDelta(D)
@@ -4189,6 +4211,7 @@ function PlinthBoxFront3DView({
                   opening={{ x0, x1, includeFull, zoneId }}
                   seatPageZ={m.sliding ? zPartition : zSide}
                   seatShelfZ={zShelfFront}
+                  hangFromTop={kneeInner}
                 />
                 {showFronts && (
                   <FrontsOnCabinet
@@ -4221,6 +4244,7 @@ function PlinthBoxFront3DView({
                     opening={{ x0, x1, includeFull, zoneId }}
                     openDoors={openDoors}
                     frontColor={frontColor}
+                    hangFromTop={kneeInner}
                   />
                 )}
               </>
@@ -4429,6 +4453,22 @@ function PlinthBoxFront3DView({
                 opacity={0.88}
                 pick={`door-slide-${leaf.index}`}
               />
+              {(['left', 'right'] as const).map((edge) =>
+                leaf.edges[edge] === 'handle' ? (
+                  <Board
+                    key={`${edge}-pull`}
+                    x={edge === 'left' ? doorX : doorX + leaf.gabaritW - 18}
+                    y={bottomY - SLIDING_DOOR_BOTTOM_CLEAR_MM - leaf.gabaritH}
+                    z={zDoor - 8}
+                    w={18}
+                    h={leaf.gabaritH}
+                    d={8}
+                    color="#c5cad3"
+                    cam={view}
+                    faces={{ front: true, top: true, right: true }}
+                  />
+                ) : null,
+              )}
             </g>
           )
         })}
@@ -4457,6 +4497,7 @@ function PlinthBoxFront3DView({
           openDoors={openDoors}
           frontColor={frontColor}
           fontScale={fontScale}
+          hangFromTop={kneeInner}
         />
       )}
 

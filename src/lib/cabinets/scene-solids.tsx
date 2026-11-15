@@ -17,7 +17,7 @@ export type SceneSolid =
       /** Pieces that share an id slide out together. The runners stay put. */
       slide?: { id: string; travel: number }
       /** Bow or bar on this front. The key stays put when the cabinet is moved in a group. */
-      pull?: { key: string; sku: PullSku }
+      pull?: { key: string; sku: PullSku; at?: 'left' | 'right' | 'center' }
     }
   | {
       kind: 'door'

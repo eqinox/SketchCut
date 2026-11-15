@@ -294,6 +294,7 @@ export {
   parseVanityParams,
   vanityOpening,
   vanityBackSpans,
+  zoneInVanityKnee,
   mergeKneePartitions,
   vanityKneeError,
   generateVanity,

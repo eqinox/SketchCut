@@ -3239,13 +3239,15 @@ export function stackFronts(input: {
   doorCount: DoorCount
   drawerFrontHeights: number[]
   clearanceBottom?: number
+  /** Hang the drawers under the top. The empty height stays below them. */
+  fromTop?: boolean
 }): StackedFront[] {
   const drawers = input.drawerFrontHeights.filter((h) => h > 0)
   const hasDoor = input.doorCount > 0
   const bottom = input.clearanceBottom ?? 0
   const out: StackedFront[] = []
   let y = DOOR_CLEARANCE_TOP
-  if (!hasDoor && drawers.length > 0) {
+  if (!hasDoor && drawers.length > 0 && !input.fromTop) {
     const leftover = remainingFrontHeight(input.frontHeight, drawers, false, bottom)
     if (leftover > 0) y += leftover
   }

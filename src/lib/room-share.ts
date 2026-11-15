@@ -1,5 +1,5 @@
 import { parseBoardFinishes, type BoardFinish } from '@/lib/board-finishes'
-import { isCombinationType } from '@/lib/cabinets/compose'
+import { isCombinationType, parseCombination } from '@/lib/cabinets/compose'
 import { loadPublicShare, savePublicShare } from '@/lib/firebase'
 import { parseRoomPlan, type RoomPlan } from '@/lib/room'
 import { generateId } from '@/lib/utils'
@@ -32,7 +32,17 @@ export function shareUrl(id: string): string {
 
 export function buildRoomShare(room: RoomPlan, cabinets: CabinetInstance[], finishes: BoardFinish[]): RoomShare {
   const placed = new Set(room.pieces.map((piece) => piece.cabinetId))
-  const kept = cabinets.filter((cabinet) => placed.has(cabinet.id) && !isCombinationType(cabinet.typeId))
+  const needed = new Set<string>()
+  for (const cabinet of cabinets) {
+    if (!placed.has(cabinet.id)) continue
+    needed.add(cabinet.id)
+    if (!isCombinationType(cabinet.typeId)) continue
+    const group = parseCombination(cabinet.params)
+    if (!group) continue
+    needed.add(group.hostId)
+    for (const member of group.members) needed.add(member.cabinetId)
+  }
+  const kept = cabinets.filter((cabinet) => needed.has(cabinet.id))
   const finishIds = new Set<string>()
   for (const cabinet of kept) {
     for (const key of ['carcassFinishId', 'frontFinishId', 'backFinishId']) {
