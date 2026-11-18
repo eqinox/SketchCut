@@ -1,4 +1,5 @@
 import { stampPanelFinishes } from '@/lib/board-finishes'
+import { applyCabinetMirrors } from './mirror'
 import { COMBINATION_TYPE } from './compose'
 import { kitchenBaseType } from './kitchen-base'
 import { kitchenWallType } from './kitchen-wall'
@@ -43,15 +44,19 @@ export function generateCabinet(
     throw new Error(`Непознат тип шкаф: ${typeId}`)
   }
   const result = type.generate({ ...type.defaultParams, ...params }, settings)
-  return {
-    ...result,
-    panels: stampPanelFinishes(
-      result.panels,
-      params.carcassFinishId,
-      params.frontFinishId,
-      params.pieceFinishes,
-    ),
-  }
+  return applyCabinetMirrors(
+    {
+      ...result,
+      panels: stampPanelFinishes(
+        result.panels,
+        params.carcassFinishId,
+        params.frontFinishId,
+        params.pieceFinishes,
+      ),
+    },
+    params,
+    settings,
+  )
 }
 
 export function scaleCabinetResult(

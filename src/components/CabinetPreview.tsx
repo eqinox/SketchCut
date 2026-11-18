@@ -9,6 +9,7 @@ import {
   parseBedParams,
   vanityBackSpans,
   vanityOpening,
+  VANITY_MIRROR_BOARD_MM,
   zoneInVanityKnee,
   parseSectionParams,
   parseWardrobeParams,
@@ -54,6 +55,7 @@ import {
   type PanelHole,
 } from '@/lib/cabinets'
 import { BedPreview } from '@/components/BedPreview'
+import { MIRROR_GLASS_COLOR, mirrorCoversDoor, mirrorGlass, parseMirrorSpec, type MirrorSpec } from '@/lib/cabinets/mirror'
 import { PullChoiceContext, pullChoiceFrom, type PullSku } from '@/lib/cabinets/pulls'
 import {
   BETWEEN_FACES,
@@ -193,6 +195,7 @@ function drawerHardwareValue(
   }
 }
 const HideDoorsContext = React.createContext(false)
+const DoorMirrorContext = React.createContext<MirrorSpec | null>(null)
 /** The picture is one piece of a larger drawing, so it has no card of its own. */
 export const GroupedPreviewContext = React.createContext(false)
 export const DrawFrameContext = React.createContext<((frame: DrawFrame) => void) | null>(null)
@@ -547,11 +550,13 @@ export function CabinetPreview(props: CabinetPreviewProps) {
   const piecePaint = paintForPieceFinishes(props.params.pieceFinishes, props.finishes ?? [])
   return (
     <PieceColorContext.Provider value={pictured ? piecePaint.colors : {}}>
+    <DoorMirrorContext.Provider value={parseMirrorSpec(props.params.doorMirror)}>
     <PullChoiceContext.Provider value={pullChoiceFrom(props.params, props.onPullChange)}>
       <CaptureSolidsOnly.Provider value={props.captureSolids === true}>
         <CabinetPreviewView {...props} />
       </CaptureSolidsOnly.Provider>
     </PullChoiceContext.Provider>
+    </DoorMirrorContext.Provider>
     </PieceColorContext.Provider>
   )
 }
@@ -2195,6 +2200,7 @@ function FrontsOnCabinet({
   const marks = useCabinetMarks()
   const hideDoors = React.useContext(HideDoorsContext)
   const model = React.useContext(PreviewIsModel)
+  const doorMirror = React.useContext(DoorMirrorContext)
   const gap = DOOR_GAP_X
   const fill = frontColor || FRONT_FILL
   const items: ReactNode[] = []
@@ -2228,11 +2234,15 @@ function FrontsOnCabinet({
   ) => {
     if (!(h > 4)) return
     const leaves = doorLeafLayout(x, w, count, betweenGap)
+    const glassOn = (id: string, leafW: number) =>
+      doorMirror && mirrorCoversDoor(doorMirror, id) ? mirrorGlass(leafW, h, doorMirror) : null
     if (openDoors || model) {
       leaves.forEach((leaf, i) => {
+        const id = leaves.length === 1 ? key : `${key}-${i}`
+        const glass = glassOn(id, leaf.w)
         items.push(
           <HingedDoor
-            key={leaves.length === 1 ? key : `${key}-${i}`}
+            key={id}
             hingeX={leaf.side === 'left' ? leaf.x : leaf.x + leaf.w}
             y={y}
             z={z}
@@ -2243,7 +2253,8 @@ function FrontsOnCabinet({
             color={fill}
             cam={cam}
             inset={innerDoors}
-            pick={leaves.length === 1 ? key : `${key}-${i}`}
+            pick={id}
+            mirror={glass ? { x: glass.x, y: glass.y, width: glass.width, height: glass.height } : undefined}
           />,
         )
       })
@@ -2267,6 +2278,24 @@ function FrontsOnCabinet({
           pick={id}
         />,
       )
+      const glass = glassOn(id, leaf.w)
+      if (glass) {
+        items.push(
+          <Board
+            key={`${id}-glass`}
+            x={leaf.x + glass.x}
+            y={y + glass.y}
+            z={Math.max(0, z - 6)}
+            w={glass.width}
+            h={glass.height}
+            d={4}
+            color={MIRROR_GLASS_COLOR}
+            cam={cam}
+            faces={{ front: true }}
+            mirrorGlass
+          />,
+        )
+      }
       if (label) pushHeightLabel(`${id}-h`, leaf.x, y, leaf.w, h)
     })
   }
@@ -3637,6 +3666,7 @@ function PlinthBoxPreview({
             kneeSpan={kneeSpan}
             backSpans={backSpans}
             fascia={fascia}
+            boardMirror={parseMirrorSpec(params.boardMirror)}
             dividersToFloor={bottomSpans != null}
             sketchTitle={typeId === 'vanity' ? 'Тоалетка 3D' : ''}
           />
@@ -3730,6 +3760,7 @@ function PlinthBoxFront3DView({
   kneeSpan = null,
   backSpans = null,
   fascia = null,
+  boardMirror = null,
   dividersToFloor = false,
   sketchTitle = '',
 }: {
@@ -3746,6 +3777,7 @@ function PlinthBoxFront3DView({
   kneeSpan?: { x: number; w: number } | null
   backSpans?: { x: number; w: number }[] | null
   fascia?: { x: number; w: number; h: number } | null
+  boardMirror?: MirrorSpec | null
   dividersToFloor?: boolean
   sketchTitle?: string
 }) {
@@ -3753,6 +3785,7 @@ function PlinthBoxFront3DView({
   const suppressOuter = useSuppressOuter()
   const coveredTop = useCoveredTop()
   const hideDoors = React.useContext(HideDoorsContext)
+  const doorMirror = React.useContext(DoorMirrorContext)
   const m = measureNightstand(p, topInner)
   const T = m.thickness
   const W = p.width
@@ -3773,8 +3806,12 @@ function PlinthBoxFront3DView({
   const supportFont = scaledDimFont(Math.max(30, Math.min(tallCabinet ? 46 : 48, Math.max(40, fontBase * 0.55) * 0.58)), fontScale)
   const supportGap = Math.max(34, supportFont * 0.75)
   const doorPad = viewPad(openDoors, layout, W, m.sliding && p.doorCount === 2)
-  const padL = (marks ? font + 48 : 28) + doorPad.left
-  const padT = (marks ? font : 20) + Math.abs(dy) + (marks ? 28 : 12)
+  const padL = (marks ? font + 48 : 28) + doorPad.left + (fascia && marks ? font * 1.6 : 0)
+  const padT =
+    (marks ? font : 20) +
+    Math.abs(dy) +
+    (marks ? 28 : 12) +
+    (fascia ? VANITY_MIRROR_BOARD_MM + Math.abs(dy) + (marks ? font : 16) : 0)
   const padR = (marks ? 48 : 24) + doorPad.right
   const leftovers = leftoverPartitionSpans(layout.partitions, layout.columns)
   const openingWidths = openingWidthSpans(layout.partitions, layout.columns)
@@ -3982,6 +4019,40 @@ function PlinthBoxFront3DView({
           faces={BOX_FACES}
         />
       )}
+
+      {fascia && (
+        <Board
+          x={0}
+          y={sideY - VANITY_MIRROR_BOARD_MM}
+          z={zSide + m.sideD}
+          w={W}
+          h={VANITY_MIRROR_BOARD_MM + Math.min(fascia.h, Math.max(T, m.sideH))}
+          d={T}
+          color={wood.side}
+          pick="mirror-board"
+          cam={view}
+          faces={{ front: true, right: true, top: true }}
+        />
+      )}
+      {fascia && (() => {
+        const boardH = VANITY_MIRROR_BOARD_MM + Math.min(fascia.h, Math.max(T, m.sideH))
+        const glass = boardMirror ? mirrorGlass(W, boardH, boardMirror) : null
+        if (!glass) return null
+        return (
+          <Board
+            x={glass.x}
+            y={sideY - VANITY_MIRROR_BOARD_MM + glass.y}
+            z={zSide + m.sideD - 6}
+            w={glass.width}
+            h={glass.height}
+            d={4}
+            color={MIRROR_GLASS_COLOR}
+            cam={view}
+            faces={{ front: true }}
+            mirrorGlass
+          />
+        )
+      })()}
 
       {p.hasBack &&
         (backSpans && backSpans.length > 0 ? backSpans : [{ x: T, w: Math.max(1, W - 2 * T) }]).map((span) => (
@@ -4453,6 +4524,27 @@ function PlinthBoxFront3DView({
                 opacity={0.88}
                 pick={`door-slide-${leaf.index}`}
               />
+              {(() => {
+                const pick = `door-slide-${leaf.index}`
+                const glass = doorMirror && mirrorCoversDoor(doorMirror, pick) ? mirrorGlass(leaf.cutW, leaf.cutH, doorMirror) : null
+                if (!glass) return null
+                const boardX = doorX + slidingProfileMm(leaf.edges.left)
+                const boardY = bottomY - SLIDING_DOOR_BOTTOM_CLEAR_MM - leaf.cutH
+                return (
+                  <Board
+                    x={boardX + glass.x}
+                    y={boardY + glass.y}
+                    z={zDoor - 6}
+                    w={glass.width}
+                    h={glass.height}
+                    d={4}
+                    color={MIRROR_GLASS_COLOR}
+                    cam={view}
+                    faces={{ front: true }}
+                    mirrorGlass
+                  />
+                )
+              })()}
               {(['left', 'right'] as const).map((edge) =>
                 leaf.edges[edge] === 'handle' ? (
                   <Board
@@ -4558,6 +4650,26 @@ function PlinthBoxFront3DView({
         />
       )}
 
+      {fascia && (() => {
+        const zMirror = zSide + m.sideD
+        const fasciaDrawn = Math.min(fascia.h, Math.max(T, m.sideH))
+        const mirrorTop = view.proj(0, sideY - VANITY_MIRROR_BOARD_MM, zMirror)
+        const mirrorBot = view.proj(0, sideY + fasciaDrawn, zMirror)
+        const mirrorX = heightX - font * 0.85
+        return (
+          <g stroke={DRAW_DIM} fill={DRAW_DIM}>
+            <DimLine x1={mirrorX} y1={mirrorTop.y} x2={mirrorX} y2={mirrorBot.y} />
+            <DimText
+              x={mirrorX - font * 0.7}
+              y={(mirrorTop.y + mirrorBot.y) / 2}
+              label={mm(VANITY_MIRROR_BOARD_MM + fasciaDrawn)}
+              fontSize={font}
+              rotate={-90}
+              fill={DRAW_DIM}
+            />
+          </g>
+        )
+      })()}
       {!suppressOuter.height && <DimText x={heightX} y={heightY} label={mm(H)} fontSize={font} rotate={-90} />}
       <DimText x={depthMx} y={depthMy} label={mm(D)} fontSize={font} rotate={depthRot} />
       {!suppressOuter.width && <DimText x={backMx} y={backMy} label={mm(W)} fontSize={font} />}

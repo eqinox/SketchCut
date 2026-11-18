@@ -534,6 +534,7 @@ export function appendSlidingDoors(
         quantity: 1,
         canRotate: false,
         edges: edges({}),
+        pieceKeys: [`door-slide-${leaf.index}`],
         excludeFromCutting: true,
         highlightColor: 'order',
         note: `Външна плъзгаща врата. Готов габарит ${formatMm(leaf.gabaritH)} × ${formatMm(leaf.gabaritW)} мм. Не се реже и не се кантира при нас. Поръчай отделно.`,

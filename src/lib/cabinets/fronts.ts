@@ -28,6 +28,7 @@ import {
   type SlideKind,
 } from './hardware'
 import { evenShelfBottoms, evenShelfGap } from './joinery'
+import { EMPTY_MIRROR, parseMirrorSpec, type MirrorSpec } from './mirror'
 import {
   parsePullOverrides,
   parsePullSku,
@@ -184,6 +185,10 @@ export interface InteriorFittings {
    * Missing: 50 mm on a normal carcass, 10 mm behind a sliding partition.
    */
   shelfFrontInset?: number
+  /** Bought 3 mm glass on the doors. Missing or disabled leaves the doors bare. */
+  doorMirror?: MirrorSpec
+  /** Bought 3 mm glass on the vanity mirror board. */
+  boardMirror?: MirrorSpec
 }
 
 export const DEFAULT_DIM_FONT_SCALE = 1
@@ -243,6 +248,8 @@ export const EMPTY_INTERIOR_FITTINGS: InteriorFittings = {
   innerDrawerFronts: false,
   innerDoors: false,
   dimFontScale: DEFAULT_DIM_FONT_SCALE,
+  doorMirror: EMPTY_MIRROR,
+  boardMirror: EMPTY_MIRROR,
 }
 
 export function parseInteriorFittings(raw: Record<string, unknown>, slideDepth: number): InteriorFittings {
@@ -291,6 +298,8 @@ export function parseInteriorFittings(raw: Record<string, unknown>, slideDepth: 
       shelfFrontInset: raw.shelfFrontInset,
       doorStyle: parseDoorStyle(raw.doorStyle),
     }),
+    doorMirror: parseMirrorSpec(raw.doorMirror),
+    boardMirror: parseMirrorSpec(raw.boardMirror),
   }
 }
 
@@ -1020,6 +1029,11 @@ export function appendDoorsAndDrawers(
       ),
     )
 
+    const doorKeys = input.pieceStem
+      ? doorCount <= 1
+        ? [`door-${input.pieceStem}`]
+        : Array.from({ length: doorCount }, (_, i) => `door-${input.pieceStem}-${i}`)
+      : undefined
     if (boughtDoors) {
       panels.push({
         role: 'door',
@@ -1029,6 +1043,7 @@ export function appendDoorsAndDrawers(
         quantity: doorCount,
         canRotate: false,
         edges: edges({}),
+        ...(doorKeys ? { pieceKeys: doorKeys } : {}),
         excludeFromCutting: true,
         highlightColor: 'order',
         note: insetDoors
@@ -1044,14 +1059,7 @@ export function appendDoorsAndDrawers(
         quantity: doorCount,
         canRotate: false,
         edges: edges({ top: true, bottom: true, left: true, right: true }),
-        ...(input.pieceStem
-          ? {
-              pieceKeys:
-                doorCount <= 1
-                  ? [`door-${input.pieceStem}`]
-                  : Array.from({ length: doorCount }, (_, i) => `door-${input.pieceStem}-${i}`),
-            }
-          : {}),
+        ...(doorKeys ? { pieceKeys: doorKeys } : {}),
         note: insetDoors
           ? `Вътрешна врата — влиза между страниците. Фуга 3 мм отляво и 3 мм отдясно. Кант 2 мм от 4 страни. ${doorWord}. Размерът е за рязане (без канта).`
           : `Външна врата — покрива канта на страниците. Кант 2 мм от 4 страни. ${doorWord}. Размерът е за рязане (без канта).`,

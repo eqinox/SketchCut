@@ -23,6 +23,15 @@ export type VanityLegSide = 'none' | 'left' | 'right'
 /** Rear fascia in the knee opening, instead of a hardboard back. Usually 250–300 mm. */
 export const VANITY_BACK_RAIL_MM = 280
 
+/**
+ * How far the mirror board rises above the top of the knee fascia
+ * (the underside of the top). The board itself starts at the bottom
+ * edge of the fascia, so its cut height is this plus the fascia height
+ * (700 + 280 = 980 on the default vanity). The top stays at 1432 mm
+ * from the floor: about 80 mm above a seated head.
+ */
+export const VANITY_MIRROR_BOARD_MM = 700
+
 /** Clear width of a pedestal, so a drawer can still be made. */
 export const VANITY_MIN_PEDESTAL_MM = 200
 /** Clear sitting opening. */
@@ -334,6 +343,26 @@ export function generateVanity(raw: Record<string, unknown>, settings?: unknown)
     note: `Кант 0.5 мм: долна. Отзад на отвора, от лявата част до дясната, ${formatMm(opening.knee)} × ${formatMm(railH)} мм. Вместо гръб.`,
     pieceKeys: ['fascia-knee'],
   }
+  const mirrorScrews = confirmatCount(parsed.width)
+  const mirrorH = VANITY_MIRROR_BOARD_MM + railH
+  const mirror: GeneratedPanel = {
+    role: 'rail',
+    name: 'Плоскост за огледало',
+    width: parsed.width,
+    height: mirrorH,
+    quantity: 1,
+    canRotate: false,
+    edges: {
+      top: true,
+      bottom: true,
+      left: true,
+      right: true,
+      thickness: 'mm2',
+      sideThickness: { bottom: 'mm05' },
+    },
+    note: `Кант 2 мм: горна и двете страни. Кант 0.5 мм: долна. Зад тоалетката, от долния край на блендата нагоре, ${formatMm(parsed.width)} × ${formatMm(mirrorH)} мм. Огледалото се хваща на нея и не се реже от плочата.`,
+    pieceKeys: ['mirror-board'],
+  }
   const panels = built.panels
     .filter((panel) => panel.role !== 'back')
     .flatMap((panel) => {
@@ -341,7 +370,7 @@ export function generateVanity(raw: Record<string, unknown>, settings?: unknown)
       if (panel.role === 'plinth') return plinths
       return [panel]
     })
-    .concat(backs, fascia)
+    .concat(backs, fascia, mirror)
     .map((panel) => {
     if (panel.name !== 'Разделителна страница') return panel
     if (!panel.note?.includes('Сяда на дъното като вътрешна страница')) return panel
@@ -370,6 +399,11 @@ export function generateVanity(raw: Record<string, unknown>, settings?: unknown)
       fasciaScrews,
       'Бленда — винтове в двата края',
     ),
+    fastenerLine(
+      { ...SCREW_5X60, packPriceEur: hardwareSettings.screw5x60_500PackEur ?? SCREW_5X60.packPriceEur },
+      mirrorScrews,
+      'Плоскост за огледалото — винтове в задния кант на плота',
+    ),
   )
   const kept = built.notes.filter((note) => {
     if (/сяда на дъното|сядат на дъното/.test(note)) return false
@@ -394,7 +428,8 @@ export function generateVanity(raw: Record<string, unknown>, settings?: unknown)
         : 'Двете половини са шкафчета с дъно, цокъл и фазер.',
     `Отзад на отвора има бленда ${formatMm(opening.knee)} × ${formatMm(railH)} мм, от лявата част до дясната. Там няма фазер.`,
     `Разделителите са ${formatMm(measured.sideH)} мм и стигат до пода. Дъното на шкафчето влиза между страницата и разделителя.`,
-    'Плотът минава над целия отвор. Чекмедже в отвора почва отгоре, 3 мм под плота, и празното остава отдолу. Огледалото не се реже от плочата.',
+    'Плотът минава над целия отвор. Чекмедже в отвора почва отгоре, 3 мм под плота, и празното остава отдолу.',
+    `Зад тоалетката има плоскост ${formatMm(parsed.width)} × ${formatMm(mirrorH)} мм. Почва от долния край на блендата и се качва ${formatMm(VANITY_MIRROR_BOARD_MM)} мм над нея. Огледалото се хваща на нея и не се реже от плочата. Хваща се с ${mirrorScrews} винта 5×60 в задния кант на плота.`,
     `Сглобяване: цокъл към дъното на всяко шкафче, после дъното между страницата и разделителя. Плотът се хваща с ${brackets} ъгълчета.`,
     ...kept.slice(1),
   ]
@@ -419,8 +454,8 @@ export function generateVanity(raw: Record<string, unknown>, settings?: unknown)
     notes,
     labor: {
       ...built.labor,
-      assemblyMinutes: (built.labor.assemblyMinutes ?? 0) + extra,
-      assemblySteps: steps,
+      assemblyMinutes: (built.labor.assemblyMinutes ?? 0) + extra + 15,
+      assemblySteps: [...steps, { id: 'mirror-board', label: 'Плоскост за огледалото', minutes: 15 }],
     },
   }
 }
@@ -436,7 +471,8 @@ export function vanityRuleBlock(): RuleBlock {
       `Отвор за краката ${formatMm(opening?.knee ?? sample.kneeWidth)} мм по средата. Шкафчетата са ${pedText} мм.`,
       'Под отвора няма дъно и цокъл. Отзад там има бленда, висока около 250–300 мм, широка колкото отвора. Фазер имат само шкафчетата.',
       'Лявата или дясната половина може да е една плоскост-крак, без дъно, цокъл и гръб.',
-      'Чекмедже в отвора почва отгоре, под плота. Празното остава отдолу. Огледалото не се реже от плочата.',
+      'Чекмедже в отвора почва отгоре, под плота. Празното остава отдолу.',
+      `Зад тоалетката има плоскост за огледалото, широка колкото нея. Почва от долния край на блендата и се качва ${formatMm(VANITY_MIRROR_BOARD_MM)} мм над нея. Огледалото се хваща на нея и не се реже от плочата.`,
     ],
   }
 }
@@ -446,7 +482,7 @@ export const vanityType: CabinetTypeDefinition = {
   name: 'Тоалетка',
   category: 'other',
   description:
-    'Седяща маса с отвор за краката. Шкафчетата са с дъно, цокъл и фазер, отзад на отвора има бленда. Чекмедже може и в отвора. Едната половина може да е само крак. Огледалото не влиза в разкроя.',
+    'Седяща маса с отвор за краката. Шкафчетата са с дъно, цокъл и фазер, отзад на отвора има бленда. Зад тоалетката има плоскост за огледалото. Чекмедже може и в отвора. Едната половина може да е само крак. Самото огледало не влиза в разкроя.',
   defaultParams: { ...DEFAULT_VANITY_PARAMS },
   generate: generateVanity,
 }

@@ -168,11 +168,14 @@ import {
 import { parsePieceFinishes } from '@/lib/board-finishes'
 import { KronospanColorGrid, KronospanCombinationRow, KronospanFinishOptions } from '@/components/KronospanColors'
 import {
+  kronospanBoardByFinishId,
+  kronospanBoardId,
   kronospanCodeFromFinish,
   kronospanFinishId,
-  kronospanSwatchByFinishId,
   resolveBoardFinish,
+  withKronospanBoard,
   withKronospanFinish,
+  type KronospanBoard,
   type KronospanSwatch,
 } from '@/lib/kronospan-color'
 import type { HardwareSettings } from '@/lib/settings'
@@ -202,6 +205,15 @@ import {
   type VanityLegSide,
   type VanityParams,
 } from '@/lib/cabinets/vanity'
+import {
+  isMirrorBoard,
+  mirrorDoorTargets,
+  mirrorGlass,
+  mirrorQuote,
+  parseMirrorSpec,
+  type MirrorMode,
+  type MirrorSpec,
+} from '@/lib/cabinets/mirror'
 import {
   BED_INNER_DROP_MM,
   DEFAULT_BED_PARAMS,
@@ -1333,6 +1345,201 @@ function pieceColorLabel(id: string): string {
   return 'Детайл'
 }
 
+function MirrorFields({
+  id,
+  spec,
+  onChange,
+  wholeLabel,
+  sample,
+  doors,
+  perM2,
+  edgePerM,
+}: {
+  id: string
+  spec: MirrorSpec
+  onChange: (next: MirrorSpec) => void
+  wholeLabel: string
+  sample: { width: number; height: number; quantity: number } | null
+  /** When there is more than one door, the glass is chosen per door. */
+  doors?: { id: string; label: string; width: number; height: number }[]
+  perM2: number
+  edgePerM: number
+}) {
+  const set = (patch: Partial<MirrorSpec>) => onChange({ ...spec, ...patch })
+  const chosenDoors = (doors ?? []).filter((door) => !spec.on || spec.on.includes(door.id))
+  const priced =
+    doors && doors.length > 0
+      ? chosenDoors
+      : sample
+        ? [{ id: 'board', label: '', width: sample.width, height: sample.height }]
+        : []
+  const first = priced[0]
+  const glass = first && spec.enabled ? mirrorGlass(first.width, first.height, spec) : null
+  const quote = glass ? mirrorQuote(glass.width, glass.height, spec.polished, perM2, edgePerM) : null
+  const sameSize = priced.every((door) => door.width === first?.width && door.height === first?.height)
+  const modes: [MirrorMode, string][] = [
+    ['full', wholeLabel],
+    ['rise', 'Отдолу нагоре'],
+    ['inset', 'Отстъпи'],
+  ]
+  return (
+    <div className="mt-3 rounded-md border border-[var(--color-border)] p-3">
+      <label className="flex cursor-pointer items-center gap-2 text-sm">
+        <Checkbox
+          checked={spec.enabled}
+          onCheckedChange={(c) => {
+            const enabled = c === true
+            if (!enabled) {
+              set({ enabled: false, on: undefined })
+              return
+            }
+            set(doors && doors.length > 1 ? { enabled: true, on: [] } : { enabled: true, on: undefined })
+          }}
+        />
+        Огледало
+      </label>
+      {spec.enabled && (
+        <>
+          <label className="mt-2 flex cursor-pointer items-center gap-2 text-sm">
+            <Checkbox checked={spec.polished} onCheckedChange={(c) => set({ polished: c === true })} />
+            Полиран кант
+          </label>
+          {doors && doors.length > 1 && (
+            <div className="mt-3">
+              <p className="text-sm">На коя врата?</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {doors.map((door) => {
+                  const selected = !spec.on || spec.on.includes(door.id)
+                  return (
+                    <Button
+                      key={door.id}
+                      type="button"
+                      size="sm"
+                      variant={selected ? 'default' : 'outline'}
+                      onClick={() => {
+                        const all = doors.map((item) => item.id)
+                        const current = spec.on ?? all
+                        const next = current.includes(door.id)
+                          ? current.filter((item) => item !== door.id)
+                          : [...current, door.id]
+                        set({ on: all.filter((item) => next.includes(item)) })
+                      }}
+                    >
+                      {door.label.replace(/^Врата · /, '')}
+                    </Button>
+                  )
+                })}
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={!spec.on || spec.on.length === doors.length ? 'default' : 'outline'}
+                  onClick={() => set({ on: doors.map((door) => door.id) })}
+                >
+                  {doors.length === 2 ? 'И двете' : 'Всички'}
+                </Button>
+              </div>
+            </div>
+          )}
+          <div className="mt-2 flex flex-wrap gap-2">
+            {modes.map(([mode, label]) => (
+              <Button
+                key={mode}
+                type="button"
+                size="sm"
+                variant={spec.mode === mode ? 'default' : 'outline'}
+                onClick={() => set({ mode })}
+              >
+                {label}
+              </Button>
+            ))}
+          </div>
+          {spec.mode === 'rise' && (
+            <div className="mt-2 grid gap-2 sm:grid-cols-3">
+              <label className="text-xs" htmlFor={`${id}-rise`}>
+                Височина
+                <DraftNumber
+                  id={`${id}-rise`}
+                  inputMode="numeric"
+                  value={spec.riseMm}
+                  onCommit={(n) => set({ riseMm: Math.max(0, Math.round(n)) })}
+                />
+              </label>
+              <label className="text-xs" htmlFor={`${id}-left`}>
+                Отляво
+                <DraftNumber
+                  id={`${id}-left`}
+                  inputMode="numeric"
+                  value={spec.left}
+                  onCommit={(n) => set({ left: Math.max(0, Math.round(n)) })}
+                />
+              </label>
+              <label className="text-xs" htmlFor={`${id}-right`}>
+                Отдясно
+                <DraftNumber
+                  id={`${id}-right`}
+                  inputMode="numeric"
+                  value={spec.right}
+                  onCommit={(n) => set({ right: Math.max(0, Math.round(n)) })}
+                />
+              </label>
+              <label className="text-xs" htmlFor={`${id}-bottom`}>
+                Отдолу
+                <DraftNumber
+                  id={`${id}-bottom`}
+                  inputMode="numeric"
+                  value={spec.bottom}
+                  onCommit={(n) => set({ bottom: Math.max(0, Math.round(n)) })}
+                />
+              </label>
+            </div>
+          )}
+          {spec.mode === 'inset' && (
+            <div className="mt-2 grid gap-2 sm:grid-cols-4">
+              {(
+                [
+                  ['left', 'Отляво'],
+                  ['right', 'Отдясно'],
+                  ['top', 'Отгоре'],
+                  ['bottom', 'Отдолу'],
+                ] as const
+              ).map(([key, label]) => (
+                <label key={key} className="text-xs" htmlFor={`${id}-${key}`}>
+                  {label}
+                  <DraftNumber
+                    id={`${id}-${key}`}
+                    inputMode="numeric"
+                    value={spec[key]}
+                    onCommit={(n) => set({ [key]: Math.max(0, Math.round(n)) })}
+                  />
+                </label>
+              ))}
+            </div>
+          )}
+          <p className="mt-2 text-xs text-[var(--color-muted-foreground)]">
+            {doors && doors.length > 1 && chosenDoors.length === 0
+              ? 'Избери на коя врата да е огледалото.'
+              : !first
+                ? 'Няма плоскост, върху която да легне огледалото.'
+                : !glass
+                  ? `Не се събира в ${formatMm(first.width)} × ${formatMm(first.height)} мм. 0 мм е ръбът на плоскостта, не кантът.`
+                  : sameSize
+                    ? `${priced.length > 1 ? `${priced.length} × ` : ''}огледало ${formatMm(glass.width)} × ${formatMm(glass.height)} мм · ${formatEur(quote?.eur ?? 0)}/бр. Слагането е 30 мин и една бутилка силикон.`
+                    : `${chosenDoors
+                        .map((door) => {
+                          const fit = mirrorGlass(door.width, door.height, spec)
+                          const price = fit ? mirrorQuote(fit.width, fit.height, spec.polished, perM2, edgePerM) : null
+                          return fit
+                            ? `${door.label}: ${formatMm(fit.width)} × ${formatMm(fit.height)} мм · ${formatEur(price?.eur ?? 0)}`
+                            : `${door.label}: не се събира`
+                        })
+                        .join(' · ')}. Слагането е 30 мин и една бутилка силикон.`}
+          </p>
+        </>
+      )}
+    </div>
+  )
+}
+
 function CabinetDialogForm({
   open,
   onOpenChange,
@@ -1466,6 +1673,8 @@ function CabinetDialogForm({
   const [kneeWidth, setKneeWidth] = useState(String(initialVanity.kneeWidth))
   const [legSide, setLegSide] = useState<VanityLegSide>(initialVanity.legSide)
   const [backRailHeight, setBackRailHeight] = useState(String(initialVanity.backRailHeight))
+  const [doorMirror, setDoorMirror] = useState<MirrorSpec>(() => parseMirrorSpec(editing?.params.doorMirror))
+  const [boardMirror, setBoardMirror] = useState<MirrorSpec>(() => parseMirrorSpec(editing?.params.boardMirror))
   const [plinthCount, setPlinthCount] = useState<1 | 2>(initialBox.plinthCount)
   const [plinthHeight, setPlinthHeight] = useState(String(initialBox.plinthHeight))
   const [useLegs, setUseLegs] = useState(initialBox.useLegs)
@@ -1666,6 +1875,8 @@ function CabinetDialogForm({
         : zoneMap,
       dimFontScale,
       shelfFrontInset: Math.max(0, parseInt(shelfFrontInset, 10) || 0),
+      doorMirror,
+      boardMirror,
     }
     if (typeId === 'vanity') {
       const opening = vanityOpening({
@@ -1774,7 +1985,7 @@ function CabinetDialogForm({
       colors,
       ...fittings,
     })
-  }, [typeId, width, height, depth, depthMode, thickness, legHeight, shelfCount, movableShelves, hasBack, nailBack, clothesRails, doorCount, doorStyle, slidingDoorCount, slidingEdges, slidingUpperTrackColor, slidingLowerTrackColor, slidingHandleSkuId, slidingCapSkuId, slidingSoftCloseLeft, slidingSoftCloseRight, drawerFrontHeights, cutFromOneBoard, includeHandles, handleSku, handleOverrides, slideKind, slideLength, useLegs, plinthCount, plinthHeight, colors, topStyle, hasHood, hoodShape, hoodDiameter, hoodRectW, hoodRectD, fixedShelves, partitions, doorSpan, zoneUi, externalDoors, innerDrawerFronts, innerDoors, dimFontScale, shelfFrontInset, knee, kneeWidth, legSide, backRailHeight, bedMattressLength, bedMattressWidth, bedSideHeight, bedLift, bedHeadboard, bedHeadboardHeight])
+  }, [typeId, width, height, depth, depthMode, thickness, legHeight, shelfCount, movableShelves, hasBack, nailBack, clothesRails, doorCount, doorStyle, slidingDoorCount, slidingEdges, slidingUpperTrackColor, slidingLowerTrackColor, slidingHandleSkuId, slidingCapSkuId, slidingSoftCloseLeft, slidingSoftCloseRight, drawerFrontHeights, cutFromOneBoard, includeHandles, handleSku, handleOverrides, slideKind, slideLength, useLegs, plinthCount, plinthHeight, colors, topStyle, hasHood, hoodShape, hoodDiameter, hoodRectW, hoodRectD, fixedShelves, partitions, doorSpan, zoneUi, externalDoors, innerDrawerFronts, innerDoors, dimFontScale, shelfFrontInset, knee, kneeWidth, legSide, backRailHeight, doorMirror, boardMirror, bedMattressLength, bedMattressWidth, bedSideHeight, bedLift, bedHeadboard, bedHeadboardHeight])
 
   const params = useMemo(
     () => ({
@@ -1965,16 +2176,28 @@ function CabinetDialogForm({
   const counts = fittingsCountsFromParams(params)
   const projectExternalDoors = settings.hardware.externalDoors
   const rememberKronospan = (id: string) => {
-    const swatch = kronospanSwatchByFinishId(id)
-    if (!swatch) return
-    const next = withKronospanFinish(settings.hardware.boardFinishes, swatch)
-    if (next !== settings.hardware.boardFinishes) {
-      onHardwareSettingsChange?.({ ...settings.hardware, boardFinishes: next })
-    }
+    const board = kronospanBoardByFinishId(id)
+    const next = board
+      ? withKronospanBoard(settings.hardware.boardFinishes, board)
+      : null
+    if (!next || next === settings.hardware.boardFinishes) return
+    onHardwareSettingsChange?.({ ...settings.hardware, boardFinishes: next })
+  }
+  const pickBoard = (board: KronospanBoard, target: 'carcass' | 'front') => {
+    rememberKronospan(kronospanBoardId(board))
+    const id = kronospanBoardId(board)
+    if (target === 'carcass') setCarcassFinishId(id)
+    else setFrontFinishId(id)
   }
   const pickKronospan = (swatch: KronospanSwatch, target: 'carcass' | 'front') => {
-    rememberKronospan(kronospanFinishId(swatch.code))
     const id = kronospanFinishId(swatch.code)
+    if (kronospanBoardByFinishId(id)) rememberKronospan(id)
+    else {
+      const next = withKronospanFinish(settings.hardware.boardFinishes, swatch)
+      if (next !== settings.hardware.boardFinishes) {
+        onHardwareSettingsChange?.({ ...settings.hardware, boardFinishes: next })
+      }
+    }
     if (target === 'carcass') setCarcassFinishId(id)
     else setFrontFinishId(id)
   }
@@ -5749,6 +5972,31 @@ function CabinetDialogForm({
           </p>
             </>
           )}
+          {(isSlidingCabinet ? doorCount > 0 : counts.doorCount > 0) && (
+            <MirrorFields
+              id="door-mirror"
+              spec={doorMirror}
+              onChange={setDoorMirror}
+              wholeLabel="На цялата врата"
+              perM2={settings.hardware.mirrorEurPerM2}
+              edgePerM={settings.hardware.mirrorEdgeEurPerM}
+              doors={mirrorDoorTargets(result?.panels ?? [])}
+              sample={(() => {
+                const doors =
+                  result?.panels.filter(
+                    (panel) =>
+                      (panel.role === 'door' || panel.role === 'sliding-door') &&
+                      !panel.name.includes('след разрязване'),
+                  ) ?? []
+                const door = doors[0]
+                if (!door) return null
+                const copies = doors
+                  .filter((panel) => panel.width === door.width && panel.height === door.height)
+                  .reduce((sum, panel) => sum + panel.quantity, 0)
+                return { width: door.width, height: door.height, quantity: copies }
+              })()}
+            />
+          )}
         </FormSection>
 
         <FormSection defaultOpen={false}
@@ -6140,6 +6388,18 @@ function CabinetDialogForm({
                         className="w-32"
                       />
                     </div>
+                    <MirrorFields
+                      id="board-mirror"
+                      spec={boardMirror}
+                      onChange={setBoardMirror}
+                      wholeLabel="На цялата плоскост"
+                      perM2={settings.hardware.mirrorEurPerM2}
+                      edgePerM={settings.hardware.mirrorEdgeEurPerM}
+                      sample={(() => {
+                        const board = result?.panels.find((panel) => isMirrorBoard(panel))
+                        return board ? { width: board.width, height: board.height, quantity: board.quantity } : null
+                      })()}
+                    />
                     <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
                       {(() => {
                         const opening = vanityOpening({
@@ -6323,7 +6583,8 @@ function CabinetDialogForm({
             <KronospanColorGrid
               finishes={settings.hardware.boardFinishes}
               selectedCode={kronospanCodeFromFinish({ id: carcassFinishId })}
-              onPick={(swatch) => pickKronospan(swatch, 'carcass')}
+              selectedId={carcassFinishId}
+              onPick={(board) => pickBoard(board, 'carcass')}
             />
             <div className="mt-2">
               <KronospanCombinationRow

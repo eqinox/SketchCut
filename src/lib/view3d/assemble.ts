@@ -3,6 +3,7 @@ import {
   CylinderGeometry,
   Group,
   Mesh,
+  MeshStandardMaterial,
   Vector3,
 } from 'three'
 import type { DecorSheet } from '@/lib/finish-photo'
@@ -29,6 +30,24 @@ export type AnimatedDrawer = {
   apply(open: number): void
 }
 
+function mirrorFace(bin: Disposable[]) {
+  const mat = new MeshStandardMaterial({
+    color: '#f7fcff',
+    metalness: 0.94,
+    roughness: 0.06,
+    envMapIntensity: 1.4,
+  })
+  bin.push({ dispose: () => mat.dispose() })
+  return mat
+}
+
+function mirrorFaces(bin: Disposable[]) {
+  const face = mirrorFace(bin)
+  const edge = new MeshStandardMaterial({ color: '#8ea0aa', metalness: 0.65, roughness: 0.28 })
+  bin.push({ dispose: () => edge.dispose() })
+  return [edge, edge, edge, edge, face, face]
+}
+
 function addBox(
   parent: Group,
   solid: Extract<SceneSolid, { kind: 'box' }>,
@@ -39,7 +58,9 @@ function addBox(
   const geo = new BoxGeometry(solid.w, solid.h, solid.d)
   const mesh = new Mesh(
     geo,
-    boardMaterials(solid.color, sheet, solid.w, solid.h, solid.d, anisotropy, bin, solid.rearColor),
+    solid.mirrorGlass
+      ? mirrorFaces(bin)
+      : boardMaterials(solid.color, sheet, solid.w, solid.h, solid.d, anisotropy, bin, solid.rearColor),
   )
   mesh.position.set(solid.x + solid.w / 2, -(solid.y + solid.h / 2), -(solid.z + solid.d / 2))
   mesh.castShadow = true
@@ -90,6 +111,23 @@ function addDoor(
   board.receiveShadow = true
   group.add(board)
   bin.push({ dispose: () => geo.dispose() })
+
+  if (solid.mirror && solid.mirror.width > 1 && solid.mirror.height > 1) {
+    const glass = solid.mirror
+    const depth = 4
+    const glassGeo = new BoxGeometry(glass.width, glass.height, depth)
+    const glassMat = mirrorFace(bin)
+    const glassMesh = new Mesh(glassGeo, glassMat)
+    const cx =
+      solid.side === 'left'
+        ? -solid.width / 2 + glass.x + glass.width / 2
+        : solid.width / 2 - glass.x - glass.width / 2
+    const cy = solid.height / 2 - glass.y - glass.height / 2
+    glassMesh.position.set(cx, cy, -solid.thickness / 2 - depth / 2)
+    glassMesh.castShadow = true
+    group.add(glassMesh)
+    bin.push({ dispose: () => glassGeo.dispose() })
+  }
 
   const hinges = (solid.hingeFromTop ?? []).map((fromTop) =>
     addEuropeanHinge(group, parent, solid, fromTop, bin),

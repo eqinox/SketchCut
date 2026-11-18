@@ -347,6 +347,7 @@ export function Board({
   slide,
   pull,
   pick,
+  mirrorGlass,
 }: {
   x: number
   y: number
@@ -367,11 +368,15 @@ export function Board({
   pull?: { key: string; sku: PullSku; at?: 'left' | 'right' | 'center' }
   /** This one piece. Boards of the same panel share the id. */
   pick?: string
+  /** Shiny mirror, not a chipboard face. */
+  mirrorGlass?: boolean
 }) {
   const piece = usePiecePaint(pick, color)
   const chosen = piece.chosen
   useCaptureSolid(
-    w > 0.4 && h > 0.4 && d > 0.2 ? { kind: 'box', x, y, z, w, h, d, color: piece.color, rearColor, slide, pull } : null,
+    w > 0.4 && h > 0.4 && d > 0.2
+      ? { kind: 'box', x, y, z, w, h, d, color: piece.color, rearColor, slide, pull, ...(mirrorGlass ? { mirrorGlass: true } : {}) }
+      : null,
   )
   const c = partFaces(piece.color)
   const sheet = useContext(DecorSheetContext).get(piece.color.toLowerCase())
@@ -523,6 +528,7 @@ export function HingedDoor({
   cam,
   inset = false,
   pick,
+  mirror,
 }: {
   hingeX: number
   y: number
@@ -536,6 +542,8 @@ export function HingedDoor({
   inset?: boolean
   /** This one door. */
   pick?: string
+  /** Glass on the outer face. x and y are from the top-left of the door, y downward. */
+  mirror?: { x: number; y: number; width: number; height: number }
 }) {
   const paint = usePiecePaint(pick, color)
   const tone = paint.color
@@ -559,6 +567,7 @@ export function HingedDoor({
     hingeFromTop,
     inset,
     pull: sku === 'none' ? undefined : { key: pullKey, sku },
+    ...(mirror && mirror.width > 1 && mirror.height > 1 ? { mirror } : {}),
   })
   const rad = (HINGE_OPEN_DEG * Math.PI) / 180
   const c = Math.cos(rad)
@@ -622,6 +631,23 @@ export function HingedDoor({
         along={height}
         show={seesFrontRight(widthDir)}
       />
+      {mirror && mirror.width > 1 && mirror.height > 1 && (() => {
+        const along0 = side === 'left' ? mirror.x : width - mirror.x - mirror.width
+        const along1 = along0 + mirror.width
+        const y0 = y + mirror.y
+        const y1 = y0 + mirror.height
+        const pts = [map(along0, -1, y0), map(along1, -1, y0), map(along1, -1, y1), map(along0, -1, y1)].map(
+          (point) => cam.proj(point[0], point[1], point[2]),
+        )
+        return (
+          <polygon
+            points={pts.map((point) => `${point.x},${point.y}`).join(' ')}
+            fill="#f7fcff"
+            stroke="#5c6b73"
+            strokeWidth={1.6}
+          />
+        )
+      })()}
       {hingeFromTop.map((fromTop) => {
         const hy = y + fromTop
         const mount = side === 'left'

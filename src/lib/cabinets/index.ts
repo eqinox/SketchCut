@@ -290,6 +290,7 @@ export {
 export type { NightstandParams } from './nightstand'
 export {
   VANITY_TYPE_ID,
+  VANITY_MIRROR_BOARD_MM,
   DEFAULT_VANITY_PARAMS,
   parseVanityParams,
   vanityOpening,

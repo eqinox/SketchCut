@@ -18,6 +18,8 @@ export type SceneSolid =
       slide?: { id: string; travel: number }
       /** Bow or bar on this front. The key stays put when the cabinet is moved in a group. */
       pull?: { key: string; sku: PullSku; at?: 'left' | 'right' | 'center' }
+      /** Bought mirror glass. Drawn shiny, not as a chipboard face. */
+      mirrorGlass?: boolean
     }
   | {
       kind: 'door'
@@ -36,6 +38,8 @@ export type SceneSolid =
       inset?: boolean
       /** Bow or bar on the outer face. */
       pull?: { key: string; sku: PullSku }
+      /** Glass on the outer face. x and y are from the top-left of the door, y downward. */
+      mirror?: { x: number; y: number; width: number; height: number }
     }
   | {
       kind: 'rail'

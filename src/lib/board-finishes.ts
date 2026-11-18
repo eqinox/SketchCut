@@ -121,15 +121,8 @@ export function newBoardFinish(
   }
 }
 
-function panelWithoutPieceKeys(panel: GeneratedPanel): GeneratedPanel {
-  if (!panel.pieceKeys) return panel
-  const { pieceKeys: _keys, ...rest } = panel
-  return rest
-}
-
 function withFinish(panel: GeneratedPanel, finishId: string): GeneratedPanel {
-  const plain = panelWithoutPieceKeys(panel)
-  return finishId ? { ...plain, finishId } : plain
+  return finishId ? { ...panel, finishId } : panel
 }
 
 /**
@@ -150,7 +143,7 @@ export function stampPanelFinishes(
   const out: GeneratedPanel[] = []
   for (const panel of panels) {
     if (panel.material === 'hardboard' || panel.excludeFromCutting) {
-      out.push(panelWithoutPieceKeys(panel))
+      out.push(panel)
       continue
     }
     const fallback = isFrontPanel(panel.role) ? frontFinish : carcassFinish
@@ -170,7 +163,11 @@ export function stampPanelFinishes(
       continue
     }
     for (const [id, quantity] of groups) {
-      out.push(withFinish({ ...panel, quantity }, id))
+      const pieceKeys = keys.filter((key, index) => {
+        const finish = (key && chosen[key]) || fallback || ''
+        return index < panel.quantity && finish === id && key
+      })
+      out.push(withFinish({ ...panel, quantity, ...(pieceKeys.length > 0 ? { pieceKeys } : {}) }, id))
     }
   }
   return out
