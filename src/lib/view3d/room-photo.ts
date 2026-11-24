@@ -32,7 +32,7 @@ import {
 } from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js'
-import { addDimensions } from '@/lib/view3d/dimensions'
+import { addDimensions, addOverallDimensions } from '@/lib/view3d/dimensions'
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
 import type { DecorSheet } from '@/lib/finish-photo'
 import type { SceneSolid } from '@/lib/cabinets/scene-solids'
@@ -57,6 +57,13 @@ export type RoomPlacement = {
   w: number
   d: number
   solids: SceneSolid[]
+  /** The cabinet's own outer size (legs in the height), before the turn. Written on the picture. */
+  size?: { w: number; h: number; d: number }
+  /**
+   * Which sizes to write. `outer` (default): only width, height and depth.
+   * `detail`: every size from the drawing, for the cabinet being edited. `none`: nothing.
+   */
+  dims?: 'outer' | 'detail' | 'none'
 }
 
 export type RoomFront = {
@@ -676,11 +683,20 @@ export function mountRoomStudio(host: HTMLElement): RoomStudio {
     const local = new Box3().setFromObject(root)
     if (local.isEmpty()) return
     root.position.set(-local.min.x, -local.min.y, -local.max.z)
-    addDimensions(root, solids, bin)
     const stand = new Group()
     stand.userData.roomPiece = piece.id
     stand.userData.roomSpot = { x: piece.x, y: piece.y }
     stand.add(root)
+    const dims = piece.dims ?? 'outer'
+    if (dims === 'detail') {
+      addDimensions(root, solids, bin)
+    } else if (dims === 'outer') {
+      // In the room only the outer width, height and depth are written, not every inner size.
+      root.updateMatrixWorld(true)
+      const outer = new Box3().setFromObject(root)
+      const span = outer.getSize(new Vector3())
+      addOverallDimensions(stand, outer, piece.size ?? { w: span.x, h: span.y, d: span.z }, bin)
+    }
     stand.scale.z = -1
     // Scale Z turns the door face toward the front wall. A positive quarter
     // turn then matches the plan: front, left, back, right.

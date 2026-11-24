@@ -316,6 +316,7 @@ export function CabinetRoom({ scene, solids }: { scene: ProjectRoom; solids: Sce
         w: box.w,
         d: box.d,
         solids,
+        dims: 'detail' as const,
       }
     })
     const rest: RoomPlacement[] = neighbors.flatMap(({ piece, cabinet }) => {
@@ -331,6 +332,7 @@ export function CabinetRoom({ scene, solids }: { scene: ProjectRoom; solids: Sce
         w: box.w,
         d: box.d,
         solids: (packs.get(piece.cabinetId) ?? []).filter((solid) => solid.kind !== 'dim'),
+        dims: 'none' as const,
       }]
     })
     return { own, rest, anchored: spots.length > 0 }

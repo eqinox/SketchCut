@@ -325,6 +325,7 @@ export function RoomPhoto({
           turn: piece.turn,
           w: box.w,
           d: box.d,
+          size: { w: outer.w, h: outer.h + outer.feet, d: outer.d },
           solids: packs.get(piece.cabinetId) ?? [],
         }
       }),
