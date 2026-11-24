@@ -37,5 +37,8 @@ export function addDimensions(parent: Group, solids: SceneSolid[], bin: Disposab
     const tag = new CSS2DObject(el)
     tag.position.copy(a).add(b).multiplyScalar(0.5)
     parent.add(tag)
+    // The label is a page element on top of the picture. Clearing the scene does not take it off
+    // the page, so a removed cabinet would leave its sizes floating. Take it off with the rest.
+    bin.push({ dispose: () => el.remove() })
   }
 }
