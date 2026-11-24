@@ -14,7 +14,7 @@ import {
 } from '@/lib/cabinets/compose'
 import { decorSheetFor, type DecorSheet } from '@/lib/finish-photo'
 import type { BoardFinish } from '@/lib/board-finishes'
-import { mountRoomStudio, type RoomFront, type RoomStudio } from '@/lib/view3d/room-photo'
+import { mountRoomStudio, type FloorRect, type RoomFront, type RoomStudio } from '@/lib/view3d/room-photo'
 import { pieceSpan, type RoomPlan } from '@/lib/room'
 import {
   OPENING_NAME,
@@ -187,6 +187,10 @@ export function RoomPhoto({
   onPick,
   heightClass,
   bare = false,
+  drawing = false,
+  sketch = null,
+  onSketch,
+  onMovePiece,
 }: {
   room: RoomPlan
   cabinets: CabinetInstance[]
@@ -203,7 +207,20 @@ export function RoomPhoto({
   heightClass?: string
   /** Only the picture: no caption, wall tools, door buttons or hint. The design mode has its own menu. */
   bare?: boolean
+  /** The left button draws a cabinet rectangle on the floor. */
+  drawing?: boolean
+  /** A drawn rectangle waiting for its cabinet, shown on the floor. */
+  sketch?: FloorRect | null
+  onSketch?: (rect: FloorRect) => void
+  /** When set, the picked cabinet can be dragged over the floor; the drop lands here. */
+  onMovePiece?: (id: string, x: number, y: number) => void
 }) {
+  const onSketchRef = useRef(onSketch)
+  const onMoveRef = useRef(onMovePiece)
+  useEffect(() => {
+    onSketchRef.current = onSketch
+    onMoveRef.current = onMovePiece
+  }, [onSketch, onMovePiece])
   const onPickRef = useRef(onPick)
   useEffect(() => {
     onPickRef.current = onPick
@@ -325,6 +342,29 @@ export function RoomPhoto({
   useEffect(() => {
     studioRef.current?.setPicked(pickedId)
   }, [pickedId, ready])
+
+  const movable = !!onMovePiece
+  useEffect(() => {
+    const studio = studioRef.current
+    if (!studio) return
+    studio.setDrawing(drawing)
+    studio.setMovable(movable)
+  }, [drawing, movable, ready])
+
+  useEffect(() => {
+    studioRef.current?.showSketch(sketch)
+  }, [sketch, ready])
+
+  useEffect(() => {
+    const studio = studioRef.current
+    if (!studio) return
+    const offSketch = studio.onSketch((rect) => onSketchRef.current?.(rect))
+    const offMoved = studio.onMoved((id, x, y) => onMoveRef.current?.(id, x, y))
+    return () => {
+      offSketch()
+      offMoved()
+    }
+  }, [ready])
 
   const picks = !!onPick
   useEffect(() => {

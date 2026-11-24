@@ -223,6 +223,8 @@ export function RoomPlanView({
   const [showPhoto, setShowPhoto] = useState(() => room.pieces.length > 0)
   // Full-screen design mode: the same room and cabinets, laid out like a drawing program.
   const [studio, setStudio] = useState(false)
+  // Arrow keys, Page Up/Down and Delete act on the selected cabinet. Filled in after each render.
+  const studioKey = useRef<(event: KeyboardEvent) => void>(() => {})
   const [view, setView] = useState<'2d' | 'both' | '3d'>('both')
   // «Начертай шкаф»: a rectangle dragged on the plan, in room mm. `live` while the button is held.
   const [drawCabinet, setDrawCabinet] = useState(false)
@@ -233,7 +235,12 @@ export function RoomPlanView({
     document.body.style.overflow = 'hidden'
     const onKey = (event: KeyboardEvent) => {
       // A cabinet form opened from here closes itself first.
-      if (event.key === 'Escape' && !document.querySelector('[role="dialog"]')) setStudio(false)
+      if (document.querySelector('[role="dialog"]')) return
+      if (event.key === 'Escape') {
+        setStudio(false)
+        return
+      }
+      studioKey.current(event)
     }
     // Capture phase: this runs before the form's own Escape handler removes the form.
     window.addEventListener('keydown', onKey, true)
@@ -333,10 +340,14 @@ export function RoomPlanView({
       seated.y < -1 ||
       seated.x + box.w > room.width + 1 ||
       seated.y + box.d > room.depth + 1
+    // Two pieces clash only when they share floor area and height too: a wall cabinet can hang above a base one.
+    const tall = outer.h + outer.feet
     const hit = placed.some(
       (row) =>
         row.piece.id !== id &&
-        boxesOverlap({ x: seated.x, y: seated.y, w: box.w, d: box.d }, { x: row.piece.x, y: row.piece.y, w: row.w, d: row.d }),
+        boxesOverlap({ x: seated.x, y: seated.y, w: box.w, d: box.d }, { x: row.piece.x, y: row.piece.y, w: row.w, d: row.d }) &&
+        seated.lift < row.piece.lift + row.h &&
+        row.piece.lift < seated.lift + tall,
     )
     if (hit) {
       setNote('Там вече има мебел.')
@@ -868,6 +879,20 @@ export function RoomPlanView({
       }}
       heightClass={heightClass}
       bare={bare}
+      drawing={studio && drawCabinet}
+      sketch={sketch}
+      onSketch={(rect) => {
+        if (rect.w < 100 || rect.d < 100) {
+          setSketch(null)
+          setNote('Дръпни по-голям правоъгълник по пода — поне 10 × 10 см.')
+          return
+        }
+        setNote('')
+        setSelected(null)
+        setSelectedOpening(null)
+        setSketch({ ...rect, live: false })
+      }}
+      onMovePiece={studio ? (id, x, y) => patchPiece(id, { x, y }) : undefined}
     />
   )
 
@@ -877,6 +902,34 @@ export function RoomPlanView({
     onChange({ ...room, pieces: room.pieces.filter((piece) => piece.id !== selected) })
     setSelected(null)
   }
+
+  useEffect(() => {
+    studioKey.current = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null
+      if (target && (target.isContentEditable || ['INPUT', 'SELECT', 'TEXTAREA'].includes(target.tagName))) return
+      if (!selectedRow) return
+      const step = event.shiftKey ? 100 : 10
+      const { x, y, lift } = selectedRow.piece
+      const moves: Record<string, Partial<RoomPiece>> = {
+        ArrowLeft: { x: x - step },
+        ArrowRight: { x: x + step },
+        ArrowUp: { y: y + step },
+        ArrowDown: { y: y - step },
+        PageUp: { lift: lift + step },
+        PageDown: { lift: Math.max(0, lift - step) },
+      }
+      const move = moves[event.key]
+      if (move) {
+        event.preventDefault()
+        patchPiece(selectedRow.piece.id, move)
+        return
+      }
+      if (event.key === 'Delete' || event.key === 'Backspace') {
+        event.preventDefault()
+        removeSelected()
+      }
+    }
+  })
 
   const pieceEditor = selected && (
     <PieceEditor
@@ -942,7 +995,6 @@ export function RoomPlanView({
                 setDrawCabinet(on)
                 setPen(null)
                 if (!on) setSketch(null)
-                if (on && view === '3d') setView('both')
               }}
             >
               Начертай шкаф
@@ -1030,7 +1082,7 @@ export function RoomPlanView({
               <>
                 <h3 className="text-sm font-semibold">Начертай шкаф</h3>
                 <p className="mt-1 text-sm text-[var(--color-muted-foreground)]">
-                  Хвани с мишката на плана и дръпни правоъгълник — това е мястото на шкафа, гледано отгоре. Размерът се показва, докато дърпаш. После тук избираш какъв да е.
+                  Хвани с мишката и дръпни правоъгълник — на плана или по пода в 3D. Това е мястото на шкафа, гледано отгоре. После тук избираш какъв да е. Докато чертаеш, 3D не се върти; натисни пак «Начертай шкаф», за да спреш.
                 </p>
               </>
             ) : selectedRow ? (
@@ -1499,7 +1551,10 @@ function PieceEditor({
   onEdit?: (cabinetId: string) => void
   onRemove: () => void
 }) {
+  const [step, setStep] = useState(50)
   if (!row) return null
+  const nudge = (patch: Partial<RoomPiece>) => onPatch(patch)
+  const { x, y, lift } = row.piece
   const field = (label: string, value: number, key: 'x' | 'y' | 'lift') => (
     <div className="w-28">
       <Label>{label}</Label>
@@ -1530,6 +1585,46 @@ function PieceEditor({
       </div>
       {field('От предната стена', row.piece.y, 'y')}
       {field('От пода', row.piece.lift, 'lift')}
+      <div className="w-full">
+        <div className="flex flex-wrap items-center gap-2">
+          <Label htmlFor={`nudge-${row.piece.id}`}>Мести с</Label>
+          <select
+            id={`nudge-${row.piece.id}`}
+            className="h-8 rounded-md border border-[var(--color-input)] bg-[var(--color-background)] px-2 text-sm"
+            value={step}
+            onChange={(event) => setStep(Number(event.target.value))}
+          >
+            {[10, 50, 100, 500].map((value) => (
+              <option key={value} value={value}>
+                {value} мм
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="mt-2 grid grid-cols-3 gap-1" role="group" aria-label="Мести шкафа">
+          <Button type="button" size="sm" variant="outline" onClick={() => nudge({ lift: lift + step })}>
+            Нагоре
+          </Button>
+          <Button type="button" size="sm" variant="outline" onClick={() => nudge({ y: y + step })}>
+            Назад
+          </Button>
+          <Button type="button" size="sm" variant="outline" onClick={() => nudge({ lift: Math.max(0, lift - step) })}>
+            Надолу
+          </Button>
+          <Button type="button" size="sm" variant="outline" onClick={() => nudge({ x: x - step })}>
+            Наляво
+          </Button>
+          <Button type="button" size="sm" variant="outline" onClick={() => nudge({ y: y - step })}>
+            Напред
+          </Button>
+          <Button type="button" size="sm" variant="outline" onClick={() => nudge({ x: x + step })}>
+            Надясно
+          </Button>
+        </div>
+        <p className="mt-1 text-[11px] text-[var(--color-muted-foreground)]">
+          В «Проектиране»: стрелките местят с 10 мм (със Shift — 100), Page Up/Down вдигат и свалят, Delete трие. В 3D хвани избрания шкаф и го влачи по пода.
+        </p>
+      </div>
       <Button type="button" variant="outline" onClick={() => onPatch(turnedPlacement(row))}>
         Завърти
       </Button>

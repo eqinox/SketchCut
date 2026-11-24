@@ -9,7 +9,9 @@ import {
   HemisphereLight,
   MOUSE,
   Mesh,
+  MeshBasicMaterial,
   MeshPhysicalMaterial,
+  Plane,
   MeshStandardMaterial,
   Object3D,
   Path,
@@ -68,6 +70,9 @@ export type RoomHit =
   | { kind: 'wall'; wall: RoomWall; along: number; up: number }
   | { kind: 'busy' }
 
+/** A rectangle on the floor, in room mm: x from the left wall, y from the front wall. */
+export type FloorRect = { x: number; y: number; w: number; d: number }
+
 export type RoomStudio = {
   setRoom(
     room: RoomPlan,
@@ -91,6 +96,18 @@ export type RoomStudio = {
   setPicked(id: string | null): void
   /** Called when a click lands on a cabinet (its piece id) or on empty room (null). */
   onPick(listener: (id: string | null) => void): () => void
+  /**
+   * When on, the left button drags a rectangle on the floor instead of turning the camera.
+   * The finished rectangle goes to `onSketch`, in room mm (x from the left wall, y from the front wall).
+   */
+  setDrawing(on: boolean): void
+  onSketch(listener: (rect: FloorRect) => void): () => void
+  /** Shows a drawn rectangle on the floor, or hides it. */
+  showSketch(rect: FloorRect | null): void
+  /** When on, the picked cabinet can be dragged over the floor with the left button. */
+  setMovable(on: boolean): void
+  /** A dragged cabinet was dropped: its piece id and new spot, in room mm. */
+  onMoved(listener: (id: string, x: number, y: number) => void): () => void
   /** Left button orbits while navigating. A drawing tool takes that button. */
   setNavigate(on: boolean): void
   subscribe(listener: () => void): () => void
@@ -482,6 +499,137 @@ export function mountRoomStudio(host: HTMLElement): RoomStudio {
     furniture.add(pickedBox)
   }
 
+  // ── Floor tools: drawing a cabinet and dragging one ─────────────────────────
+  // The furniture lives in `view`, whose local x is mm from the left wall and z is mm from the front wall.
+  const floorPlane = new Plane(new Vector3(0, 1, 0), 0)
+  const floorAt = (clientX: number, clientY: number): { x: number; y: number } | null => {
+    const rect = renderer.domElement.getBoundingClientRect()
+    if (rect.width < 1 || rect.height < 1) return null
+    pointer.x = ((clientX - rect.left) / rect.width) * 2 - 1
+    pointer.y = -((clientY - rect.top) / rect.height) * 2 + 1
+    raycaster.setFromCamera(pointer, camera)
+    view.updateMatrixWorld(true)
+    const ray = raycaster.ray.clone().applyMatrix4(view.matrixWorld.clone().invert())
+    const point = ray.intersectPlane(floorPlane, new Vector3())
+    return point ? { x: point.x, y: point.z } : null
+  }
+  const snap10 = (value: number) => Math.round(value / 10) * 10
+
+  const sketchMat = new MeshBasicMaterial({ color: '#f97316', transparent: true, opacity: 0.45, depthWrite: false })
+  const sketchMesh = new Mesh(new BoxGeometry(1, 1, 1), sketchMat)
+  sketchMesh.visible = false
+  sketchMesh.renderOrder = 5
+  view.add(sketchMesh)
+  const showSketchRect = (rect: FloorRect | null) => {
+    if (!rect || rect.w < 1 || rect.d < 1) {
+      sketchMesh.visible = false
+      return
+    }
+    sketchMesh.visible = true
+    sketchMesh.scale.set(rect.w, 6, rect.d)
+    sketchMesh.position.set(rect.x + rect.w / 2, 4, rect.y + rect.d / 2)
+  }
+
+  let drawingOn = false
+  let movableOn = false
+  const sketchListeners = new Set<(rect: FloorRect) => void>()
+  const movedListeners = new Set<(id: string, x: number, y: number) => void>()
+  type FloorDrag =
+    | { kind: 'sketch'; pointerId: number; start: { x: number; y: number }; rect: FloorRect }
+    | {
+        kind: 'move'
+        pointerId: number
+        id: string
+        stand: Object3D
+        startPos: Vector3
+        grab: { x: number; y: number }
+        moved: number
+        at: { x: number; y: number }
+        from: { x: number; y: number }
+      }
+  let floorDrag: FloorDrag | null = null
+  let roomSize = { width: 0, depth: 0 }
+  const clampRoom = (p: { x: number; y: number }) => ({
+    x: Math.max(0, Math.min(roomSize.width, snap10(p.x))),
+    y: Math.max(0, Math.min(roomSize.depth, snap10(p.y))),
+  })
+
+  // Capture phase on the host, so the camera controls on the canvas never see a drag that is ours.
+  const onHostDown = (event: PointerEvent) => {
+    if (event.button !== 0 || floorDrag) return
+    if (drawingOn) {
+      const at = floorAt(event.clientX, event.clientY)
+      if (!at) return
+      event.stopPropagation()
+      event.preventDefault()
+      const start = clampRoom(at)
+      floorDrag = { kind: 'sketch', pointerId: event.pointerId, start, rect: { ...start, w: 0, d: 0 } }
+      showSketchRect(null)
+      return
+    }
+    if (!movableOn || !pickedId) return
+    if (hitPiece(event) !== pickedId) return
+    const stand = furniture.children.find((child) => child.userData.roomPiece === pickedId)
+    const at = floorAt(event.clientX, event.clientY)
+    const from = stand?.userData.roomSpot as { x: number; y: number } | undefined
+    if (!stand || !at || !from) return
+    event.stopPropagation()
+    event.preventDefault()
+    floorDrag = {
+      kind: 'move',
+      pointerId: event.pointerId,
+      id: pickedId,
+      stand,
+      startPos: stand.position.clone(),
+      grab: { x: at.x - from.x, y: at.y - from.y },
+      moved: 0,
+      at: { ...from },
+      from: { ...from },
+    }
+    renderer.domElement.style.cursor = 'grabbing'
+  }
+  const onFloorMove = (event: PointerEvent) => {
+    const held = floorDrag
+    if (!held || event.pointerId !== held.pointerId) return
+    const at = floorAt(event.clientX, event.clientY)
+    if (!at) return
+    if (held.kind === 'sketch') {
+      const end = clampRoom(at)
+      held.rect = {
+        x: Math.min(held.start.x, end.x),
+        y: Math.min(held.start.y, end.y),
+        w: Math.abs(end.x - held.start.x),
+        d: Math.abs(end.y - held.start.y),
+      }
+      showSketchRect(held.rect)
+      return
+    }
+    const x = snap10(at.x - held.grab.x)
+    const y = snap10(at.y - held.grab.y)
+    held.moved = Math.max(held.moved, Math.abs(x - held.from.x), Math.abs(y - held.from.y))
+    held.at = { x, y }
+    held.stand.position.set(held.startPos.x + (x - held.from.x), held.startPos.y, held.startPos.z + (y - held.from.y))
+    outlinePicked()
+  }
+  const onFloorUp = (event: PointerEvent) => {
+    const held = floorDrag
+    if (!held || event.pointerId !== held.pointerId) return
+    floorDrag = null
+    renderer.domElement.style.cursor = ''
+    if (held.kind === 'sketch') {
+      for (const listener of sketchListeners) listener(held.rect)
+      return
+    }
+    // Put it back: the room is rebuilt at the new spot only if the plan accepts the move.
+    held.stand.position.copy(held.startPos)
+    outlinePicked()
+    if (held.moved >= 10) for (const listener of movedListeners) listener(held.id, held.at.x, held.at.y)
+  }
+  host.addEventListener('pointerdown', onHostDown, true)
+  window.addEventListener('pointermove', onFloorMove)
+  window.addEventListener('pointerup', onFloorUp)
+  window.addEventListener('pointercancel', onFloorUp)
+
   let downX = 0
   let downY = 0
   let pressed = false
@@ -506,7 +654,13 @@ export function mountRoomStudio(host: HTMLElement): RoomStudio {
     for (const listener of pickListeners) listener(pieceId)
   }
   const onMove = (event: PointerEvent) => {
-    renderer.domElement.style.cursor = hitPiece(event) ? 'pointer' : ''
+    if (floorDrag) return
+    if (drawingOn) {
+      renderer.domElement.style.cursor = 'crosshair'
+      return
+    }
+    const over = hitPiece(event)
+    renderer.domElement.style.cursor = over && movableOn && over === pickedId ? 'grab' : over ? 'pointer' : ''
   }
   const pointerDoc = renderer.domElement.ownerDocument
   renderer.domElement.addEventListener('pointerdown', onDown)
@@ -525,6 +679,7 @@ export function mountRoomStudio(host: HTMLElement): RoomStudio {
     addDimensions(root, solids, bin)
     const stand = new Group()
     stand.userData.roomPiece = piece.id
+    stand.userData.roomSpot = { x: piece.x, y: piece.y }
     stand.add(root)
     stand.scale.z = -1
     // Scale Z turns the door face toward the front wall. A positive quarter
@@ -837,6 +992,7 @@ export function mountRoomStudio(host: HTMLElement): RoomStudio {
   return {
     setRoom(room, placements, sheets, focusId) {
       const { width, depth, height } = room
+      roomSize = { width, depth }
       const tex = floorTexture(room.floorColor)
       floorMat.map = tex
       floorMat.needsUpdate = true
@@ -938,6 +1094,25 @@ export function mountRoomStudio(host: HTMLElement): RoomStudio {
       pickListeners.add(listener)
       return () => pickListeners.delete(listener)
     },
+    setDrawing(on) {
+      drawingOn = on
+      if (!on && floorDrag?.kind === 'sketch') floorDrag = null
+      renderer.domElement.style.cursor = on ? 'crosshair' : ''
+    },
+    onSketch(listener) {
+      sketchListeners.add(listener)
+      return () => sketchListeners.delete(listener)
+    },
+    showSketch(rect) {
+      showSketchRect(rect)
+    },
+    setMovable(on) {
+      movableOn = on
+    },
+    onMoved(listener) {
+      movedListeners.add(listener)
+      return () => movedListeners.delete(listener)
+    },
     setNavigate(on) {
       ;(controls.mouseButtons as { LEFT: number }).LEFT = on ? MOUSE.ROTATE : -1
     },
@@ -954,6 +1129,14 @@ export function mountRoomStudio(host: HTMLElement): RoomStudio {
       renderer.domElement.removeEventListener('pointermove', onMove)
       listeners.clear()
       pickListeners.clear()
+      sketchListeners.clear()
+      movedListeners.clear()
+      host.removeEventListener('pointerdown', onHostDown, true)
+      window.removeEventListener('pointermove', onFloorMove)
+      window.removeEventListener('pointerup', onFloorUp)
+      window.removeEventListener('pointercancel', onFloorUp)
+      sketchMesh.geometry.dispose()
+      sketchMat.dispose()
       pickedId = null
       outlinePicked()
       controls.dispose()
