@@ -631,6 +631,7 @@ function App() {
           onChange={setRoom}
           onEditCabinet={(cabinetId) => setEditRequest({ cabinetId, nonce: Date.now() })}
           onCreateCabinet={handleDrawCabinet}
+          onRemoveCabinet={handleRemoveCabinet}
         />
 
         <div className="flex flex-wrap gap-3">

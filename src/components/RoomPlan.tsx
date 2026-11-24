@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent, type ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { DraftNumber } from '@/components/DraftNumber'
 import { groupOuterSize, groupSolidBlocks } from '@/lib/cabinets/compose'
 import { CABINET_TYPES, getCabinetType } from '@/lib/cabinets'
@@ -203,6 +204,7 @@ export function RoomPlanView({
   onChange,
   onEditCabinet,
   onCreateCabinet,
+  onRemoveCabinet,
 }: {
   room: RoomPlan
   cabinets: CabinetInstance[]
@@ -213,6 +215,8 @@ export function RoomPlanView({
   onEditCabinet?: (cabinetId: string) => void
   /** Adds a cabinet drawn on the plan and stands it at the drawn spot. */
   onCreateCabinet?: (input: { typeId: string; params: Record<string, unknown> }, piece: Omit<RoomPiece, 'cabinetId'>) => void
+  /** Removes a cabinet from the project list (and so from cutting and price). */
+  onRemoveCabinet?: (cabinetId: string) => void
 }) {
   const [pen, setPen] = useState<RoomOpeningKind | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
@@ -225,6 +229,8 @@ export function RoomPlanView({
   const [studio, setStudio] = useState(false)
   // Arrow keys, Page Up/Down and Delete act on the selected cabinet. Filled in after each render.
   const studioKey = useRef<(event: KeyboardEvent) => void>(() => {})
+  /** Room piece waiting for the «only the room, or the list too» answer. */
+  const [confirmRemove, setConfirmRemove] = useState<string | null>(null)
   const [view, setView] = useState<'2d' | 'both' | '3d'>('both')
   // «Начертай шкаф»: a rectangle dragged on the plan, in room mm. `live` while the button is held.
   const [drawCabinet, setDrawCabinet] = useState(false)
@@ -897,11 +903,57 @@ export function RoomPlanView({
   )
 
   const selectedRow = selected ? (placed.find((row) => row.piece.id === selected) ?? null) : null
+  // Delete asks first: off the room only, or out of the project too (list, cutting, price).
   const removeSelected = () => {
     if (!selected) return
-    onChange({ ...room, pieces: room.pieces.filter((piece) => piece.id !== selected) })
-    setSelected(null)
+    setConfirmRemove(selected)
   }
+  const removeFromRoom = (pieceId: string) => {
+    onChange({ ...room, pieces: room.pieces.filter((piece) => piece.id !== pieceId) })
+    setSelected((current) => (current === pieceId ? null : current))
+    setConfirmRemove(null)
+  }
+  const removeEverywhere = (pieceId: string) => {
+    const piece = room.pieces.find((item) => item.id === pieceId)
+    if (!piece || !onRemoveCabinet) return
+    // Every place this cabinet stands goes with it.
+    onChange({ ...room, pieces: room.pieces.filter((item) => item.cabinetId !== piece.cabinetId) })
+    onRemoveCabinet(piece.cabinetId)
+    setSelected(null)
+    setConfirmRemove(null)
+  }
+  const confirmPiece = confirmRemove ? (room.pieces.find((piece) => piece.id === confirmRemove) ?? null) : null
+  const confirmCabinet = confirmPiece ? byId.get(confirmPiece.cabinetId) : undefined
+  const otherSpots = confirmPiece
+    ? room.pieces.filter((piece) => piece.cabinetId === confirmPiece.cabinetId && piece.id !== confirmPiece.id).length
+    : 0
+  const removeDialog = (
+    <Dialog open={!!confirmPiece} onOpenChange={(open) => !open && setConfirmRemove(null)}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Изтриване на «{confirmCabinet?.name || 'шкаф'}»</DialogTitle>
+          <DialogDescription>
+            Да го махна само от стаята, или и от списъка с шкафове? Ако го махнеш и от списъка, излиза и от разкроя и от цената.
+            {otherSpots > 0 &&
+              ` Същият шкаф стои още на ${otherSpots} ${otherSpots === 1 ? 'място' : 'места'} в стаята — при триене от списъка и те изчезват.`}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="flex flex-wrap justify-end gap-2">
+          <Button type="button" variant="outline" onClick={() => setConfirmRemove(null)}>
+            Отказ
+          </Button>
+          <Button type="button" variant="outline" onClick={() => confirmPiece && removeFromRoom(confirmPiece.id)}>
+            Само от стаята
+          </Button>
+          {onRemoveCabinet && (
+            <Button type="button" variant="destructive" onClick={() => confirmPiece && removeEverywhere(confirmPiece.id)}>
+              И от списъка
+            </Button>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
 
   useEffect(() => {
     studioKey.current = (event: KeyboardEvent) => {
@@ -1107,6 +1159,7 @@ export function RoomPlanView({
             )}
           </aside>
         </div>
+        {removeDialog}
       </div>
     )
   }
@@ -1153,6 +1206,7 @@ export function RoomPlanView({
       {pieceEditor}
       {openingList}
       {openingEditor}
+      {removeDialog}
       <div className="mt-6">
         <RoomLink room={room} cabinets={cabinets} finishes={finishes} userId={userId} />
       </div>
