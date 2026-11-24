@@ -46,6 +46,20 @@ export default defineConfig({
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
         maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
+        navigateFallbackDenylist: [/^\/api\//],
+        cleanupOutdatedCaches: true,
+        runtimeCaching: [
+          {
+            // Текстури на плочите (Kronospan) и други снимки — пазят се след първото зареждане,
+            // за да работи 3D изгледът и без интернет.
+            urlPattern: ({ request, sameOrigin }) => sameOrigin && request.destination === 'image',
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'sketchcut-images',
+              expiration: { maxEntries: 300, maxAgeSeconds: 60 * 60 * 24 * 60 },
+            },
+          },
+        ],
       },
     }),
   ],
