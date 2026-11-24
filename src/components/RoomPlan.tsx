@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { DraftNumber } from '@/components/DraftNumber'
 import { groupOuterSize, groupSolidBlocks } from '@/lib/cabinets/compose'
+import { CABINET_TYPES, getCabinetType } from '@/lib/cabinets'
 import {
   ROOM_WALL_MM,
   boxesOverlap,
@@ -201,6 +202,7 @@ export function RoomPlanView({
   userId,
   onChange,
   onEditCabinet,
+  onCreateCabinet,
 }: {
   room: RoomPlan
   cabinets: CabinetInstance[]
@@ -209,6 +211,8 @@ export function RoomPlanView({
   onChange: (room: RoomPlan) => void
   /** Opens the full cabinet form for this cabinet id. */
   onEditCabinet?: (cabinetId: string) => void
+  /** Adds a cabinet drawn on the plan and stands it at the drawn spot. */
+  onCreateCabinet?: (input: { typeId: string; params: Record<string, unknown> }, piece: Omit<RoomPiece, 'cabinetId'>) => void
 }) {
   const [pen, setPen] = useState<RoomOpeningKind | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
@@ -220,6 +224,9 @@ export function RoomPlanView({
   // Full-screen design mode: the same room and cabinets, laid out like a drawing program.
   const [studio, setStudio] = useState(false)
   const [view, setView] = useState<'2d' | 'both' | '3d'>('both')
+  // «Начертай шкаф»: a rectangle dragged on the plan, in room mm. `live` while the button is held.
+  const [drawCabinet, setDrawCabinet] = useState(false)
+  const [sketch, setSketch] = useState<(Sketch & { live: boolean }) | null>(null)
   useEffect(() => {
     if (!studio) return
     const before = document.body.style.overflow
@@ -493,8 +500,64 @@ export function RoomPlanView({
     return { x: local.x, y: local.y }
   }
 
+  /** Drag a rectangle on the plan. Sizes snap to 10 mm and stay inside the room. */
+  const startSketch = (event: PointerEvent) => {
+    event.preventDefault()
+    const current = roomRef.current
+    const snap = (value: number, max: number) => Math.max(0, Math.min(max, Math.round(value / 10) * 10))
+    const toRoom = (at: { clientX: number; clientY: number }) => {
+      const local = svgPoint(at)
+      return { x: snap(local.x - INNER_X, current.width), y: snap(current.depth - (local.y - INNER_Y), current.depth) }
+    }
+    const boxOf = (a: { x: number; y: number }, b: { x: number; y: number }): Sketch => ({
+      x: Math.min(a.x, b.x),
+      y: Math.min(a.y, b.y),
+      w: Math.abs(a.x - b.x),
+      d: Math.abs(a.y - b.y),
+    })
+    const start = toRoom(event)
+    setSketch({ ...boxOf(start, start), live: true })
+    setSelected(null)
+    setSelectedOpening(null)
+    const move = (next: globalThis.PointerEvent) => setSketch({ ...boxOf(start, toRoom(next)), live: true })
+    const up = (next: globalThis.PointerEvent) => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+      window.removeEventListener('pointercancel', up)
+      const box = boxOf(start, toRoom(next))
+      if (box.w < 100 || box.d < 100) {
+        setSketch(null)
+        setNote('Дръпни по-голям правоъгълник — поне 10 × 10 см.')
+        return
+      }
+      setNote('')
+      setSketch({ ...box, live: false })
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+    window.addEventListener('pointercancel', up)
+  }
+
+  const createSketched = (typeId: string, size: { w: number; d: number; h: number }, turn: 0 | 1 | 2 | 3) => {
+    if (!sketch || !onCreateCabinet) return
+    const type = getCabinetType(typeId)
+    if (!type) return
+    const id = generateId()
+    onCreateCabinet(
+      { typeId, params: { ...structuredClone(type.defaultParams), width: size.w, depth: size.d, height: size.h } },
+      { id, x: sketch.x, y: sketch.y, lift: defaultLift(typeId, size.h, room.height), turn },
+    )
+    setSketch(null)
+    setDrawCabinet(false)
+    setSelected(id)
+  }
+
   const onPlanPointerDown = (event: PointerEvent) => {
     if (event.pointerType === 'mouse' && event.button !== 0) return
+    if (drawCabinet) {
+      startSketch(event)
+      return
+    }
     const local = svgPoint(event)
     const depth = roomRef.current.depth
     const row = [...placedRef.current].reverse().find((item) => {
@@ -715,7 +778,9 @@ export function RoomPlanView({
   const planBox = (fill: boolean) => (
     <div
       ref={planRef}
-      className={`overflow-hidden rounded-md border border-neutral-300 bg-white ${fill ? 'h-full min-h-0' : ''}`}
+      className={`overflow-hidden rounded-md border border-neutral-300 bg-white ${fill ? 'h-full min-h-0' : ''} ${
+        drawCabinet ? 'cursor-crosshair [&_g]:!cursor-crosshair' : ''
+      }`}
       style={{ touchAction: 'none' }}
       onPointerDown={onPlanPointerDown}
     >
@@ -759,6 +824,33 @@ export function RoomPlanView({
             </g>
           )
         })}
+        {sketch && (
+          <g pointerEvents="none">
+            <rect
+              x={INNER_X + sketch.x}
+              y={INNER_Y + room.depth - sketch.y - sketch.d}
+              width={Math.max(sketch.w, 1)}
+              height={Math.max(sketch.d, 1)}
+              fill="#fb923c"
+              fillOpacity={0.25}
+              stroke="#ea580c"
+              strokeWidth={8}
+              strokeDasharray="40 24"
+            />
+            {sketch.w >= 100 && sketch.d >= 100 && (
+              <text
+                x={INNER_X + sketch.x + sketch.w / 2}
+                y={INNER_Y + room.depth - sketch.y - sketch.d / 2}
+                fill="#9a3412"
+                fontSize={fitted(`${formatMm(sketch.w)} × ${formatMm(sketch.d)}`, sketch.w - 20)}
+                textAnchor="middle"
+                dominantBaseline="middle"
+              >
+                {formatMm(sketch.w)} × {formatMm(sketch.d)}
+              </text>
+            )}
+          </g>
+        )}
       </svg>
     </div>
   )
@@ -839,6 +931,24 @@ export function RoomPlanView({
       >
         <header className="flex flex-wrap items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-card)] px-3 py-2">
           <span className="mr-2 text-base font-semibold">Проектиране</span>
+          {onCreateCabinet && (
+            <Button
+              type="button"
+              size="sm"
+              variant={drawCabinet ? 'default' : 'outline'}
+              aria-pressed={drawCabinet}
+              onClick={() => {
+                const on = !drawCabinet
+                setDrawCabinet(on)
+                setPen(null)
+                if (!on) setSketch(null)
+                if (on && view === '3d') setView('both')
+              }}
+            >
+              Начертай шкаф
+            </Button>
+          )}
+          <span className="mx-1 h-6 w-px bg-[var(--color-border)]" aria-hidden />
           <div className="w-56">{cabinetPicker}</div>
           <Button type="button" size="sm" className="mt-1" onClick={addPiece} disabled={!pick}>
             Сложи в стаята
@@ -905,7 +1015,25 @@ export function RoomPlanView({
             className="w-80 shrink-0 overflow-y-auto border-l border-[var(--color-border)] bg-[var(--color-card)] p-3"
             aria-label="Свойства"
           >
-            {selectedRow ? (
+            {sketch && !sketch.live ? (
+              <>
+                <h3 className="text-sm font-semibold">Нов шкаф</h3>
+                <NewCabinetPanel
+                  key={`${sketch.x}:${sketch.y}:${sketch.w}:${sketch.d}`}
+                  sketch={sketch}
+                  room={room}
+                  onCreate={createSketched}
+                  onCancel={() => setSketch(null)}
+                />
+              </>
+            ) : drawCabinet ? (
+              <>
+                <h3 className="text-sm font-semibold">Начертай шкаф</h3>
+                <p className="mt-1 text-sm text-[var(--color-muted-foreground)]">
+                  Хвани с мишката на плана и дръпни правоъгълник — това е мястото на шкафа, гледано отгоре. Размерът се показва, докато дърпаш. После тук избираш какъв да е.
+                </p>
+              </>
+            ) : selectedRow ? (
               <>
                 <h3 className="text-sm font-semibold">Шкаф</h3>
                 {pieceEditor}
@@ -1183,6 +1311,114 @@ function ColorField({
 }
 
 const FACING = ['към предната стена', 'към лявата стена', 'към задната стена', 'към дясната стена'] as const
+
+/** A rectangle drawn on the plan, in room mm: x from the left wall, y from the front wall. */
+type Sketch = { x: number; y: number; w: number; d: number }
+
+/** The back goes to the nearest wall, so the doors face into the room. */
+function facingFor(sketch: Sketch, room: { width: number; depth: number }): 0 | 1 | 2 | 3 {
+  const gaps: [number, 0 | 1 | 2 | 3][] = [
+    [room.depth - (sketch.y + sketch.d), 0],
+    [room.width - (sketch.x + sketch.w), 1],
+    [sketch.y, 2],
+    [sketch.x, 3],
+  ]
+  gaps.sort((a, b) => a[0] - b[0])
+  return gaps[0]![1]
+}
+
+function NewCabinetPanel({
+  sketch,
+  room,
+  onCreate,
+  onCancel,
+}: {
+  sketch: Sketch
+  room: { width: number; depth: number }
+  onCreate: (typeId: string, size: { w: number; d: number; h: number }, turn: 0 | 1 | 2 | 3) => void
+  onCancel: () => void
+}) {
+  const [typeId, setTypeId] = useState(CABINET_TYPES[0]?.id ?? 'kitchen-base')
+  const [turn, setTurn] = useState<0 | 1 | 2 | 3>(() => facingFor(sketch, room))
+  // Along the doors is the width. A cabinet turned to a side wall has its width across the plan.
+  const across = turn % 2 === 1
+  const [w, setW] = useState(across ? sketch.d : sketch.w)
+  const [d, setD] = useState(across ? sketch.w : sketch.d)
+  const heightOf = (id: string) => {
+    const value = Number(getCabinetType(id)?.defaultParams.height)
+    return Number.isFinite(value) && value > 0 ? value : 720
+  }
+  const [h, setH] = useState(() => heightOf(typeId))
+  const changeTurn = (next: 0 | 1 | 2 | 3) => {
+    if (next % 2 !== turn % 2) {
+      setW(d)
+      setD(w)
+    }
+    setTurn(next)
+  }
+  return (
+    <div className="mt-3 space-y-3">
+      <p className="text-xs text-[var(--color-muted-foreground)]">
+        Начерта {formatMm(sketch.w)} × {formatMm(sketch.d)} мм. Избери какъв да е шкафът. Размерите може да ги поправиш.
+      </p>
+      <div>
+        <Label htmlFor="sketch-type">Вид</Label>
+        <select
+          id="sketch-type"
+          className="mt-1 flex h-9 w-full rounded-md border border-[var(--color-input)] bg-[var(--color-background)] px-3 text-sm"
+          value={typeId}
+          onChange={(event) => {
+            setTypeId(event.target.value)
+            setH(heightOf(event.target.value))
+          }}
+        >
+          {CABINET_TYPES.map((type) => (
+            <option key={type.id} value={type.id}>
+              {type.name}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="flex flex-wrap gap-3">
+        <div className="w-24">
+          <Label>Ширина</Label>
+          <DraftNumber className="mt-1" inputMode="numeric" value={w} onCommit={(n) => setW(Math.max(100, n))} />
+        </div>
+        <div className="w-24">
+          <Label>Дълбочина</Label>
+          <DraftNumber className="mt-1" inputMode="numeric" value={d} onCommit={(n) => setD(Math.max(100, n))} />
+        </div>
+        <div className="w-24">
+          <Label>Височина</Label>
+          <DraftNumber className="mt-1" inputMode="numeric" value={h} onCommit={(n) => setH(Math.max(100, n))} />
+        </div>
+      </div>
+      <div>
+        <Label htmlFor="sketch-facing">Челото сочи</Label>
+        <select
+          id="sketch-facing"
+          className="mt-1 flex h-9 w-full rounded-md border border-[var(--color-input)] bg-[var(--color-background)] px-3 text-sm"
+          value={turn}
+          onChange={(event) => changeTurn(Number(event.target.value) as 0 | 1 | 2 | 3)}
+        >
+          {FACING.map((label, index) => (
+            <option key={label} value={index}>
+              {label}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="flex gap-2">
+        <Button type="button" onClick={() => onCreate(typeId, { w, d, h }, turn)}>
+          Създай шкафа
+        </Button>
+        <Button type="button" variant="outline" onClick={onCancel}>
+          Отказ
+        </Button>
+      </div>
+    </div>
+  )
+}
 
 /** Next quarter turn, kept on the same spot on the floor. */
 function turnedPlacement(row: Placed): Partial<RoomPiece> {

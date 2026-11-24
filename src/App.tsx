@@ -41,7 +41,7 @@ import { formatFirebaseError } from '@/lib/firebase-errors'
 import { getMissingClientEnvKeys } from '@/lib/env'
 import { DbErrorBanner, type DbErrorDetails } from '@/components/DbErrorBanner'
 import type { CabinetInstance, Part, PartEdgeBanding, PackingResult, SavedProject, Sheet } from '@/types'
-import { parseRoomPlan, type RoomPlan } from '@/lib/room'
+import { parseRoomPlan, type RoomPiece, type RoomPlan } from '@/lib/room'
 
 const initialDraft = readInitialDraft()
 
@@ -408,6 +408,23 @@ function App() {
     resetPacking()
   }
 
+  /** A cabinet drawn on the room plan: add it to the project and stand it where it was drawn. */
+  const handleDrawCabinet = (
+    input: { typeId: string; params: Record<string, unknown> },
+    piece: Omit<RoomPiece, 'cabinetId'>,
+  ) => {
+    const before = new Set(cabinetState.cabinets.map((cabinet) => cabinet.id))
+    const next = addCabinetAndLabel(cabinetState, { ...input, quantity: 1 }, { hardware: settings, assemblyTime: assemblyTimeSettings })
+    const made = next.cabinets.find((cabinet) => !before.has(cabinet.id))
+    setCabinets(next.cabinets)
+    setParts(next.parts)
+    setEdgeBanding(next.edgeBanding)
+    ensureHardboardSheet(input.params)
+    setSheets((prev) => ensureFinishSheets(prev, next.parts, settings.boardFinishes))
+    resetPacking()
+    if (made) setRoom((prev) => ({ ...prev, pieces: [...prev.pieces, { ...piece, cabinetId: made.id }] }))
+  }
+
   const handleUpdateCabinet = (
     cabinetId: string,
     input: { typeId: string; params: Record<string, unknown>; quantity: number },
@@ -613,6 +630,7 @@ function App() {
           userId={user?.uid ?? null}
           onChange={setRoom}
           onEditCabinet={(cabinetId) => setEditRequest({ cabinetId, nonce: Date.now() })}
+          onCreateCabinet={handleDrawCabinet}
         />
 
         <div className="flex flex-wrap gap-3">
