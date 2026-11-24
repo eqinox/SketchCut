@@ -1297,8 +1297,17 @@ interface CabinetDialogProps {
   /** Cabinets already chosen to join, when the dialog is opened from the cabinet list. */
   startAttached?: AttachedCabinet[]
   room: RoomPlan
-  /** Show only this cabinet in 3D, not the room around it. Set when the form is opened from the room. */
-  cabinetOnly?: boolean
+}
+
+const WITH_ROOM_KEY = 'sketchcut.cabinetView'
+
+/** Cabinet in its room (the default) or alone, as last chosen in the form. */
+function readWithRoom(): boolean {
+  try {
+    return localStorage.getItem(WITH_ROOM_KEY) !== 'cabinet'
+  } catch {
+    return true
+  }
 }
 
 interface CabinetDialogFormProps extends CabinetDialogProps {
@@ -1568,7 +1577,6 @@ function CabinetDialogForm({
   lockedCabinetIds = [],
   room,
   roomPieceIds = [],
-  cabinetOnly = false,
 }: CabinetDialogFormProps) {
   const isEdit = !!editing && !treatAsNew
   const [typeId, setTypeId] = useState(editing?.typeId ?? 'kitchen-base')
@@ -1780,6 +1788,16 @@ function CabinetDialogForm({
     typeof editing?.params.backFinishId === 'string' ? editing.params.backFinishId : '',
   )
   const [drawStyle, setDrawStyle] = useState<'line' | 'color' | 'model'>('model')
+  // The 3D picture shows the cabinet in its room or alone. The last choice is kept for next time.
+  const [withRoom, setWithRoom] = useState(() => readWithRoom())
+  const changeWithRoom = (next: boolean) => {
+    setWithRoom(next)
+    try {
+      localStorage.setItem(WITH_ROOM_KEY, next ? 'room' : 'cabinet')
+    } catch {
+      // Private mode: the choice just isn't remembered.
+    }
+  }
   const [doorView, setDoorView] = useState<'hidden' | 'closed' | 'open'>('hidden')
   const [attachedState, setAttachedState] = useState<AttachedCabinet[]>([])
   const attached = attachedRows ?? attachedState
@@ -3243,6 +3261,20 @@ function CabinetDialogForm({
               <option value="line">Чертеж</option>
             </select>
           </label>
+          {drawStyle === 'model' && (
+            <label className="flex items-center gap-2 text-sm">
+              Покажи
+              <select
+                className="h-8 rounded-md border border-[var(--color-border)] bg-transparent px-2"
+                value={withRoom ? 'room' : 'cabinet'}
+                aria-label="Покажи шкафа сам или в стаята"
+                onChange={(event) => changeWithRoom(event.target.value === 'room')}
+              >
+                <option value="room">Шкафа в стаята</option>
+                <option value="cabinet">Само шкафа</option>
+              </select>
+            </label>
+          )}
           <label className="flex items-center gap-2 text-sm">
             Дръжка
             <select
@@ -7178,7 +7210,7 @@ function CabinetDialogForm({
     typeId,
   }
   // Without a room the picture is the cabinet alone, where doors and handles can be clicked.
-  const pictured = <ProjectRoomContext.Provider value={cabinetOnly ? null : projectRoom}>{dialogBody}</ProjectRoomContext.Provider>
+  const pictured = <ProjectRoomContext.Provider value={withRoom ? projectRoom : null}>{dialogBody}</ProjectRoomContext.Provider>
   if (bare) return pictured
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

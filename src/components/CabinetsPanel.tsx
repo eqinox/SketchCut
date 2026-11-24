@@ -139,11 +139,7 @@ export function CabinetsPanel({
 
   const joinable = cabinets.filter((cabinet) => !isCombinationType(cabinet.typeId))
 
-  // Opened from the room: the form shows only this cabinet, not the room around it.
-  const [fromRoom, setFromRoom] = useState(false)
-
   const openAdd = () => {
-    setFromRoom(false)
     setEditing(null)
     setStartAttached([])
     setFormKey((k) => k + 1)
@@ -151,7 +147,6 @@ export function CabinetsPanel({
   }
 
   const openEdit = (cabinet: CabinetInstance) => {
-    setFromRoom(false)
     setEditing(cabinet)
     setStartAttached([])
     setFormKey((k) => k + 1)
@@ -165,7 +160,6 @@ export function CabinetsPanel({
     setHandledNonce(editRequest.nonce)
     const cabinet = cabinets.find((item) => item.id === editRequest.cabinetId)
     if (cabinet) {
-      setFromRoom(true)
       setEditing(cabinet)
       setStartAttached([])
       setFormKey((k) => k + 1)
@@ -185,7 +179,6 @@ export function CabinetsPanel({
     const host = joinable.find((cabinet) => cabinet.id === joinHost)
     if (!host || !joinGuest || joinHost === joinGuest) return
     setJoinOpen(false)
-    setFromRoom(false)
     setEditing(host)
     setStartAttached([{ cabinetId: joinGuest, place: 'right', joinScrews: false, spanDoor: false, spanDoorCount: 0 }])
     setFormKey((k) => k + 1)
@@ -636,7 +629,6 @@ export function CabinetsPanel({
         startAttached={startAttached}
         projectCabinets={cabinets}
         room={room}
-        cabinetOnly={fromRoom}
         sheets={sheets}
         dailyRateEur={dailyRateEur}
         settings={settings}
