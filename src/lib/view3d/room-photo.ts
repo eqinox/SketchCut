@@ -1,6 +1,7 @@
 import {
   ACESFilmicToneMapping,
   Box3,
+  Box3Helper,
   BoxGeometry,
   Color,
   DirectionalLight,
@@ -86,6 +87,10 @@ export type RoomStudio = {
   /** Draw a temporary opening list without rebuilding the furniture. */
   preview(openings: RoomOpening[]): void
   setSelected(id: string | null): void
+  /** Outlines one placed cabinet (a room piece id), or none. */
+  setPicked(id: string | null): void
+  /** Called when a click lands on a cabinet (its piece id) or on empty room (null). */
+  onPick(listener: (id: string | null) => void): () => void
   /** Left button orbits while navigating. A drawing tool takes that button. */
   setNavigate(on: boolean): void
   subscribe(listener: () => void): () => void
@@ -434,6 +439,49 @@ export function mountRoomStudio(host: HTMLElement): RoomStudio {
     angle.target = angle.target > 1 ? 0 : mover.openDeg
     notify()
   }
+  const hitPiece = (event: PointerEvent) => {
+    const rect = renderer.domElement.getBoundingClientRect()
+    if (rect.width < 1 || rect.height < 1) return null
+    pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1
+    pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1
+    raycaster.setFromCamera(pointer, camera)
+    const hits = raycaster.intersectObjects([...Object.values(wallOf), furniture], true)
+    const first = hits.find((hit) => !(hit.object instanceof Box3Helper))
+    let current: Object3D | null = first?.object ?? null
+    while (current) {
+      if (typeof current.userData.roomPiece === 'string') return current.userData.roomPiece as string
+      current = current.parent
+    }
+    return null
+  }
+
+  // The selected cabinet gets an orange box around it. It is rebuilt with the furniture.
+  let pickedId: string | null = null
+  let pickedBox: Box3Helper | null = null
+  const pickListeners = new Set<(id: string | null) => void>()
+  const outlinePicked = () => {
+    if (pickedBox) {
+      pickedBox.removeFromParent()
+      pickedBox.geometry.dispose()
+      ;(pickedBox.material as { dispose(): void }).dispose()
+      pickedBox = null
+    }
+    if (!pickedId) return
+    const stand = furniture.children.find((child) => child.userData.roomPiece === pickedId)
+    if (!stand) return
+    furniture.updateMatrixWorld(true)
+    const box = new Box3().setFromObject(stand)
+    if (box.isEmpty()) return
+    // Box3Helper draws in world space, so undo the furniture's own transform.
+    const inverse = furniture.matrixWorld.clone().invert()
+    box.applyMatrix4(inverse)
+    box.expandByScalar(12)
+    pickedBox = new Box3Helper(box, new Color('#ea580c'))
+    pickedBox.renderOrder = 10
+    ;(pickedBox.material as { depthTest: boolean }).depthTest = false
+    furniture.add(pickedBox)
+  }
+
   let downX = 0
   let downY = 0
   let pressed = false
@@ -447,11 +495,18 @@ export function mountRoomStudio(host: HTMLElement): RoomStudio {
     if (!pressed) return
     pressed = false
     if (Math.hypot(event.clientX - downX, event.clientY - downY) > 10) return
-    const id = hitMoving(event)
-    if (id) toggle(id)
+    const pieceId = hitPiece(event)
+    const moving = hitMoving(event)
+    // First click picks the cabinet. A door or drawer of the picked cabinet opens on the next click.
+    // With nobody listening for picks (the shared link), a door opens on the first click.
+    if (moving && (pickListeners.size === 0 || (pieceId === pickedId && moving.startsWith(`${pieceId}:`)))) {
+      toggle(moving)
+      return
+    }
+    for (const listener of pickListeners) listener(pieceId)
   }
   const onMove = (event: PointerEvent) => {
-    renderer.domElement.style.cursor = hitMoving(event) ? 'pointer' : ''
+    renderer.domElement.style.cursor = hitPiece(event) ? 'pointer' : ''
   }
   const pointerDoc = renderer.domElement.ownerDocument
   renderer.domElement.addEventListener('pointerdown', onDown)
@@ -469,6 +524,7 @@ export function mountRoomStudio(host: HTMLElement): RoomStudio {
     root.position.set(-local.min.x, -local.min.y, -local.max.z)
     addDimensions(root, solids, bin)
     const stand = new Group()
+    stand.userData.roomPiece = piece.id
     stand.add(root)
     stand.scale.z = -1
     // Scale Z turns the door face toward the front wall. A positive quarter
@@ -817,6 +873,7 @@ export function mountRoomStudio(host: HTMLElement): RoomStudio {
         if (!movers.some((mover) => mover.id === id)) angles.delete(id)
       }
       applyMotion()
+      outlinePicked()
 
       controls.maxDistance = span * 1.4
       if (!userMoved) {
@@ -872,6 +929,15 @@ export function mountRoomStudio(host: HTMLElement): RoomStudio {
       selectedOpening = id
       if (paintedRoom) paintOpenings(paintedRoom, paintedList)
     },
+    setPicked(id) {
+      if (id === pickedId) return
+      pickedId = id
+      outlinePicked()
+    },
+    onPick(listener) {
+      pickListeners.add(listener)
+      return () => pickListeners.delete(listener)
+    },
     setNavigate(on) {
       ;(controls.mouseButtons as { LEFT: number }).LEFT = on ? MOUSE.ROTATE : -1
     },
@@ -887,6 +953,9 @@ export function mountRoomStudio(host: HTMLElement): RoomStudio {
       pointerDoc.removeEventListener('pointerup', onUp)
       renderer.domElement.removeEventListener('pointermove', onMove)
       listeners.clear()
+      pickListeners.clear()
+      pickedId = null
+      outlinePicked()
       controls.dispose()
       for (const item of bin) item.dispose()
       floor.geometry.dispose()

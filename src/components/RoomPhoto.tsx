@@ -183,6 +183,9 @@ export function RoomPhoto({
   finishes,
   tall = false,
   onChange,
+  pickedId = null,
+  onPick,
+  heightClass,
 }: {
   room: RoomPlan
   cabinets: CabinetInstance[]
@@ -191,7 +194,17 @@ export function RoomPhoto({
   tall?: boolean
   /** When set, windows, doors and niches can be drawn on the walls. */
   onChange?: (room: RoomPlan) => void
+  /** The room piece that is selected, outlined in orange. */
+  pickedId?: string | null
+  /** A click on a cabinet gives its piece id; a click on empty room gives null. */
+  onPick?: (id: string | null) => void
+  /** Tailwind height of the picture, to match a plan beside it. */
+  heightClass?: string
 }) {
+  const onPickRef = useRef(onPick)
+  useEffect(() => {
+    onPickRef.current = onPick
+  }, [onPick])
   const hostRef = useRef<HTMLDivElement>(null)
   const studioRef = useRef<RoomStudio | null>(null)
   const roomRef = useRef(room)
@@ -305,6 +318,21 @@ export function RoomPhoto({
     studio.setNavigate(tool === 'look')
     studio.setSelected(selectedId)
   }, [tool, selectedId, ready, room])
+
+  useEffect(() => {
+    studioRef.current?.setPicked(pickedId)
+  }, [pickedId, ready])
+
+  const picks = !!onPick
+  useEffect(() => {
+    const studio = studioRef.current
+    // Without a listener a click on a door opens it straight away, as on the shared link.
+    if (!studio || !picks) return
+    return studio.onPick((id) => {
+      if (toolRef.current !== 'look') return
+      onPickRef.current?.(id)
+    })
+  }, [ready, picks])
 
   useEffect(() => {
     const canvas = hostRef.current?.querySelector('canvas')
@@ -475,12 +503,17 @@ export function RoomPhoto({
       {failed ? (
         <p className="py-8 text-center text-sm text-neutral-600">Браузърът не пуска 3D картината.</p>
       ) : (
-        <div ref={hostRef} className={`${tall ? 'h-[min(78vh,820px)]' : 'h-[640px]'} w-full overflow-hidden rounded-sm bg-[#c9d3dc]`} />
+        <div
+          ref={hostRef}
+          className={`${heightClass ?? (tall ? 'h-[min(78vh,820px)]' : 'h-[640px]')} w-full overflow-hidden rounded-sm bg-[#c9d3dc]`}
+        />
       )}
       <FrontButtons fronts={fronts} placed={placed} onToggle={(id) => studioRef.current?.toggle(id)} />
       <p className="mt-1 text-center text-[11px] text-neutral-500">
         {tool === 'look'
-          ? 'Лявото копче върти, дясното мести настрани, колелцето приближава. Кликни прозорец, врата или ниша, за да го преместиш на друга стена или да го изтриеш.'
+          ? onPick
+            ? 'Кликни шкаф, за да го избереш — същият се избира и на плана. Втори клик на врата или чекмедже на избрания шкаф го отваря. Лявото копче върти, дясното мести настрани, колелцето приближава.'
+            : 'Лявото копче върти, дясното мести настрани, колелцето приближава. Кликни прозорец, врата или ниша, за да го преместиш на друга стена или да го изтриеш.'
           : 'Дръпни по стената от тук до тук — така задаваш от къде до къде е отворът. Готовия го хвани и го занеси на друга стена, или го изтрий.'}
       </p>
       {onChange && selected && (

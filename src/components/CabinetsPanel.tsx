@@ -48,6 +48,8 @@ interface CabinetsPanelProps {
   onSaveGroup?: (group: SavedCabinetGroup) => void
   onClear?: () => void
   room: RoomPlan
+  /** Opens the form for this cabinet. A new nonce opens it again. */
+  editRequest?: { cabinetId: string; nonce: number } | null
 }
 
 export function CabinetsPanel({
@@ -63,6 +65,7 @@ export function CabinetsPanel({
   onSaveGroup,
   onClear,
   room,
+  editRequest = null,
 }: CabinetsPanelProps) {
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<CabinetInstance | null>(null)
@@ -148,6 +151,20 @@ export function CabinetsPanel({
     setStartAttached([])
     setFormKey((k) => k + 1)
     setOpen(true)
+  }
+
+  // The room asks for a cabinet by id: open its form, as the edit button in the list does.
+  // Adjusting state while rendering is React's own pattern for reacting to a changed prop.
+  const [handledNonce, setHandledNonce] = useState<number | null>(null)
+  if (editRequest && editRequest.nonce !== handledNonce) {
+    setHandledNonce(editRequest.nonce)
+    const cabinet = cabinets.find((item) => item.id === editRequest.cabinetId)
+    if (cabinet) {
+      setEditing(cabinet)
+      setStartAttached([])
+      setFormKey((k) => k + 1)
+      setOpen(true)
+    }
   }
 
   const openJoin = () => {

@@ -53,6 +53,7 @@ function App() {
   const [cabinets, setCabinets] = useState<CabinetInstance[]>(initialDraft.cabinets)
   const [dailyRateEur, setDailyRateEur] = useState(initialDraft.dailyRateEur)
   const [room, setRoom] = useState<RoomPlan>(initialDraft.room)
+  const [editRequest, setEditRequest] = useState<{ cabinetId: string; nonce: number } | null>(null)
   const [packingResult, setPackingResult] = useState<PackingResult | null>(null)
   const [hardboardResult, setHardboardResult] = useState<PackingResult | null>(null)
   const saveReadyRef = useRef(false)
@@ -602,6 +603,7 @@ function App() {
           onSaveGroup={handleSaveGroup}
           onClear={clearCabinets}
           room={room}
+          editRequest={editRequest}
         />
 
         <RoomPlanView
@@ -610,6 +612,7 @@ function App() {
           finishes={settings.boardFinishes}
           userId={user?.uid ?? null}
           onChange={setRoom}
+          onEditCabinet={(cabinetId) => setEditRequest({ cabinetId, nonce: Date.now() })}
         />
 
         <div className="flex flex-wrap gap-3">

@@ -200,19 +200,23 @@ export function RoomPlanView({
   finishes,
   userId,
   onChange,
+  onEditCabinet,
 }: {
   room: RoomPlan
   cabinets: CabinetInstance[]
   finishes: BoardFinish[]
   userId: string | null
   onChange: (room: RoomPlan) => void
+  /** Opens the full cabinet form for this cabinet id. */
+  onEditCabinet?: (cabinetId: string) => void
 }) {
   const [pen, setPen] = useState<RoomOpeningKind | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
   const [selectedOpening, setSelectedOpening] = useState<string | null>(null)
   const [pick, setPick] = useState('')
   const [note, setNote] = useState('')
-  const [showPhoto, setShowPhoto] = useState(false)
+  // Plan and 3D side by side, like PRO100. The picture starts on as soon as something stands in the room.
+  const [showPhoto, setShowPhoto] = useState(() => room.pieces.length > 0)
   const svgRef = useRef<SVGSVGElement | null>(null)
   const planRef = useRef<HTMLDivElement | null>(null)
   const drag = useRef<{ id: string; ox: number; oy: number } | null>(null)
@@ -697,9 +701,18 @@ export function RoomPlanView({
       </div>
       {note && <p className="mt-2 text-sm text-[var(--color-destructive)]">{note}</p>}
 
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <Button type="button" variant="outline" size="sm" onClick={() => setShowPhoto((on) => !on)}>
+          {showPhoto ? 'Скрий 3D' : 'Покажи 3D'}
+        </Button>
+        <p className="text-xs text-[var(--color-muted-foreground)]">
+          Планът и 3D са едно и също: избереш ли шкаф на едното, светва и на другото.
+        </p>
+      </div>
+      <div className={`mt-2 grid items-start gap-3 ${showPhoto ? 'xl:grid-cols-2' : ''}`}>
       <div
         ref={planRef}
-        className="mt-4 overflow-hidden rounded-md border border-neutral-300 bg-white"
+        className="overflow-hidden rounded-md border border-neutral-300 bg-white"
         style={{ touchAction: 'none' }}
         onPointerDown={onPlanPointerDown}
       >
@@ -745,12 +758,28 @@ export function RoomPlanView({
           })}
         </svg>
       </div>
+        {showPhoto && (
+          <RoomPhoto
+            room={room}
+            cabinets={cabinets}
+            finishes={finishes}
+            onChange={onChange}
+            pickedId={selected}
+            onPick={(id) => {
+              setSelected(id)
+              if (id) setSelectedOpening(null)
+            }}
+            heightClass="h-[min(70vh,640px)]"
+          />
+        )}
+      </div>
 
       {selected && (
         <PieceEditor
           row={placed.find((row) => row.piece.id === selected) ?? null}
           roomWidth={room.width}
           onPatch={(patch) => patchPiece(selected, patch)}
+          onEdit={onEditCabinet}
           onRemove={() => {
             onChange({ ...room, pieces: room.pieces.filter((piece) => piece.id !== selected) })
             setSelected(null)
@@ -789,23 +818,6 @@ export function RoomPlanView({
       )}
 
       <div className="mt-6">
-        {showPhoto ? (
-          <div className="mb-2">
-            <Button type="button" variant="outline" onClick={() => setShowPhoto(false)}>
-              Скрий 3D стаята
-            </Button>
-          </div>
-        ) : (
-          <div className="mb-3">
-            <Button type="button" onClick={() => setShowPhoto(true)}>
-              Покажи 3D стаята
-            </Button>
-            <p className="mt-1 text-sm text-[var(--color-muted-foreground)]">
-              Картината се пуска само оттук, за да не бави останалата работа.
-            </p>
-          </div>
-        )}
-        {showPhoto && <RoomPhoto room={room} cabinets={cabinets} finishes={finishes} onChange={onChange} />}
         <RoomLink room={room} cabinets={cabinets} finishes={finishes} userId={userId} />
       </div>
 
@@ -1086,11 +1098,13 @@ function PieceEditor({
   row,
   roomWidth,
   onPatch,
+  onEdit,
   onRemove,
 }: {
   row: Placed | null
   roomWidth: number
   onPatch: (patch: Partial<RoomPiece>) => void
+  onEdit?: (cabinetId: string) => void
   onRemove: () => void
 }) {
   if (!row) return null
@@ -1101,10 +1115,17 @@ function PieceEditor({
     </div>
   )
   return (
-    <div className="mt-3 flex flex-wrap items-end gap-3">
-      <p className="w-full text-sm font-medium">
-        {row.name}. Челото сочи {FACING[row.piece.turn]}
-      </p>
+    <div className="mt-3 flex flex-wrap items-end gap-3 rounded-md border border-orange-500/60 bg-orange-500/5 p-3">
+      <div className="flex w-full flex-wrap items-center gap-2">
+        <p className="text-sm font-medium">
+          {row.name} · {formatMm(row.w)} × {formatMm(row.d)} × {formatMm(row.h)} мм. Челото сочи {FACING[row.piece.turn]}
+        </p>
+        {onEdit && (
+          <Button type="button" size="sm" onClick={() => onEdit(row.piece.cabinetId)}>
+            Редактирай шкафа
+          </Button>
+        )}
+      </div>
       {field('От лявата стена', row.piece.x, 'x')}
       <div className="w-28">
         <Label>От дясната стена</Label>
