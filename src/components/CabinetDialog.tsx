@@ -1297,6 +1297,8 @@ interface CabinetDialogProps {
   /** Cabinets already chosen to join, when the dialog is opened from the cabinet list. */
   startAttached?: AttachedCabinet[]
   room: RoomPlan
+  /** Show only this cabinet in 3D, not the room around it. Set when the form is opened from the room. */
+  cabinetOnly?: boolean
 }
 
 interface CabinetDialogFormProps extends CabinetDialogProps {
@@ -1566,6 +1568,7 @@ function CabinetDialogForm({
   lockedCabinetIds = [],
   room,
   roomPieceIds = [],
+  cabinetOnly = false,
 }: CabinetDialogFormProps) {
   const isEdit = !!editing && !treatAsNew
   const [typeId, setTypeId] = useState(editing?.typeId ?? 'kitchen-base')
@@ -7174,7 +7177,8 @@ function CabinetDialogForm({
     group: attached.length > 0 || roomPieceIds.length > 0,
     typeId,
   }
-  const pictured = <ProjectRoomContext.Provider value={projectRoom}>{dialogBody}</ProjectRoomContext.Provider>
+  // Without a room the picture is the cabinet alone, where doors and handles can be clicked.
+  const pictured = <ProjectRoomContext.Provider value={cabinetOnly ? null : projectRoom}>{dialogBody}</ProjectRoomContext.Provider>
   if (bare) return pictured
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
