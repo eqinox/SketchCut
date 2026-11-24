@@ -217,6 +217,24 @@ export function RoomPlanView({
   const [note, setNote] = useState('')
   // Plan and 3D side by side, like PRO100. The picture starts on as soon as something stands in the room.
   const [showPhoto, setShowPhoto] = useState(() => room.pieces.length > 0)
+  // Full-screen design mode: the same room and cabinets, laid out like a drawing program.
+  const [studio, setStudio] = useState(false)
+  const [view, setView] = useState<'2d' | 'both' | '3d'>('both')
+  useEffect(() => {
+    if (!studio) return
+    const before = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    const onKey = (event: KeyboardEvent) => {
+      // A cabinet form opened from here closes itself first.
+      if (event.key === 'Escape' && !document.querySelector('[role="dialog"]')) setStudio(false)
+    }
+    // Capture phase: this runs before the form's own Escape handler removes the form.
+    window.addEventListener('keydown', onKey, true)
+    return () => {
+      document.body.style.overflow = before
+      window.removeEventListener('keydown', onKey, true)
+    }
+  }, [studio])
   const svgRef = useRef<SVGSVGElement | null>(null)
   const planRef = useRef<HTMLDivElement | null>(null)
   const drag = useRef<{ id: string; ox: number; oy: number } | null>(null)
@@ -460,7 +478,8 @@ export function RoomPlanView({
       plan.removeEventListener('touchmove', keepFinger)
       stopDrag.current?.()
     }
-  }, [])
+    // The plan box is a new element when the design mode opens or the view changes.
+  }, [studio, view])
 
   const svgPoint = (event: { clientX: number; clientY: number }) => {
     const svg = svgRef.current
@@ -637,67 +656,304 @@ export function RoomPlanView({
     room.depth,
   )
 
+  const roomFields = (
+    <>
+      <SizeField label="Широчина" value={room.width} onChange={(width) => setRoom({ ...room, width })} />
+      <SizeField label="Дълбочина" value={room.depth} onChange={(depth) => setRoom({ ...room, depth })} />
+      <SizeField label="Височина" value={room.height} onChange={(height) => setRoom({ ...room, height })} />
+      <ColorField
+        label="Ламинат"
+        value={room.floorColor}
+        swatches={FLOORS}
+        onChange={(floorColor) => onChange({ ...room, floorColor })}
+      />
+      <ColorField
+        label="Стени"
+        value={room.wallColor}
+        swatches={WALLS}
+        onChange={(wallColor) => onChange({ ...room, wallColor })}
+      />
+    </>
+  )
+
+  const cabinetPicker = (
+    <select
+      id="room-cabinet"
+      aria-label="Мебел от проекта"
+      className="mt-1 flex h-9 w-full rounded-md border border-[var(--color-input)] bg-[var(--color-background)] px-3 text-sm"
+      value={pick}
+      onChange={(event) => setPick(event.target.value)}
+    >
+      <option value="">Избери шкаф</option>
+      {choices.map((cabinet, index) => (
+        <option key={cabinet.id} value={cabinet.id}>
+          Ш{index + 1} · {cabinet.name}
+        </option>
+      ))}
+    </select>
+  )
+
+  const penButtons = (size?: 'sm') =>
+    (
+      [
+        ['window', 'Прозорец'],
+        ['door', 'Врата'],
+        ['niche', 'Ниша'],
+      ] as const
+    ).map(([kind, label]) => (
+      <Button
+        key={kind}
+        type="button"
+        size={size}
+        variant={pen === kind ? 'default' : 'outline'}
+        onClick={() => setPen((current) => (current === kind ? null : kind))}
+      >
+        {label}
+      </Button>
+    ))
+
+  const planBox = (fill: boolean) => (
+    <div
+      ref={planRef}
+      className={`overflow-hidden rounded-md border border-neutral-300 bg-white ${fill ? 'h-full min-h-0' : ''}`}
+      style={{ touchAction: 'none' }}
+      onPointerDown={onPlanPointerDown}
+    >
+      <svg
+        ref={svgRef}
+        viewBox={planView}
+        className={`${fill ? 'h-full' : 'h-auto'} w-full select-none`}
+        role="img"
+        aria-label="Нареждане в стаята, изглед отгоре"
+        style={{ touchAction: 'none', WebkitUserSelect: 'none', WebkitTouchCallout: 'none' }}
+      >
+        <rect x={PAD_L} y={PAD_T} width={room.width + ROOM_WALL_MM * 2} height={room.depth + ROOM_WALL_MM * 2} fill={room.wallColor} stroke="#1e293b" strokeWidth={2} />
+        <rect x={INNER_X} y={INNER_Y} width={room.width} height={room.depth} fill={room.floorColor} stroke="#1e293b" strokeWidth={2} />
+        <OpeningMarks room={room} openings={openings} selectedId={selectedOpening} />
+        <text x={INNER_X + room.width / 2} y={INNER_Y + room.depth + ROOM_WALL_MM + 70} fill="#1e293b" fontSize={64} textAnchor="middle">
+          Отпред
+        </text>
+        {placed.map((row) => {
+          const sx = INNER_X + row.piece.x
+          const sy = INNER_Y + (room.depth - row.piece.y - row.d)
+          const on = row.piece.id === selected
+          return (
+            <g key={row.piece.id} style={{ cursor: 'grab' }}>
+              <rect
+                x={sx}
+                y={sy}
+                width={row.w}
+                height={row.d}
+                fill={on ? '#fff7ed' : '#ffffff'}
+                fillOpacity={0.92}
+                stroke={on ? '#c2410c' : '#1e293b'}
+                strokeWidth={on ? 8 : 3}
+              />
+              <text pointerEvents="none" x={sx + row.w / 2} y={sy + row.d / 2 - 16} fill="#1e293b" fontSize={fitted(row.name, row.w - 20)} textAnchor="middle">
+                {row.name}
+              </text>
+              <text pointerEvents="none" x={sx + row.w / 2} y={sy + row.d / 2 + 56} fill="#1e293b" fontSize={fitted(`${formatMm(row.w)} × ${formatMm(row.d)}`, row.w - 20)} textAnchor="middle">
+                {formatMm(row.w)} × {formatMm(row.d)}
+              </text>
+              <FrontMark turn={row.piece.turn} x={sx} y={sy} w={row.w} h={row.d} />
+            </g>
+          )
+        })}
+      </svg>
+    </div>
+  )
+
+  const photo = (heightClass: string, bare: boolean) => (
+    <RoomPhoto
+      room={room}
+      cabinets={cabinets}
+      finishes={finishes}
+      onChange={onChange}
+      pickedId={selected}
+      onPick={(id) => {
+        setSelected(id)
+        if (id) setSelectedOpening(null)
+      }}
+      heightClass={heightClass}
+      bare={bare}
+    />
+  )
+
+  const selectedRow = selected ? (placed.find((row) => row.piece.id === selected) ?? null) : null
+  const removeSelected = () => {
+    if (!selected) return
+    onChange({ ...room, pieces: room.pieces.filter((piece) => piece.id !== selected) })
+    setSelected(null)
+  }
+
+  const pieceEditor = selected && (
+    <PieceEditor
+      row={selectedRow}
+      roomWidth={room.width}
+      onPatch={(patch) => patchPiece(selected, patch)}
+      onEdit={onEditCabinet}
+      onRemove={removeSelected}
+    />
+  )
+
+  const openingList = openings.some((opening) => opening.id !== '__draft__') && (
+    <ul className="mt-3 space-y-2">
+      {openings.filter((opening) => opening.id !== '__draft__').map((opening) => (
+        <li key={opening.id} className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            className={`inline-flex items-center gap-2 text-sm ${opening.id === selectedOpening ? 'font-semibold' : ''}`}
+            onClick={() => {
+              setSelected(null)
+              setSelectedOpening(opening.id)
+            }}
+          >
+            <span className="inline-block h-4 w-4 rounded border border-neutral-400" style={{ background: openingColor(opening) }} />
+            {OPENING_NAME[opening.kind]} · {WALL_NAME[opening.wall]}
+          </button>
+          <Button type="button" size="sm" variant="ghost" onClick={() => removeOpening(opening.id)}>
+            Изтрий
+          </Button>
+        </li>
+      ))}
+    </ul>
+  )
+
+  const openingEditor = selectedOpening && (
+    <OpeningEditor
+      opening={openings.find((opening) => opening.id === selectedOpening) ?? null}
+      room={room}
+      onPatch={(part) => patchOpening(selectedOpening, part)}
+      onRemove={() => removeOpening(selectedOpening)}
+    />
+  )
+
+  if (studio) {
+    const showPlan = view !== '3d'
+    const show3d = view !== '2d'
+    return (
+      <div
+        className="fixed inset-0 z-40 flex flex-col bg-[var(--color-background)] text-[var(--color-foreground)]"
+        role="region"
+        aria-label="Проектиране"
+      >
+        <header className="flex flex-wrap items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-card)] px-3 py-2">
+          <span className="mr-2 text-base font-semibold">Проектиране</span>
+          <div className="w-56">{cabinetPicker}</div>
+          <Button type="button" size="sm" className="mt-1" onClick={addPiece} disabled={!pick}>
+            Сложи в стаята
+          </Button>
+          <span className="mx-1 h-6 w-px bg-[var(--color-border)]" aria-hidden />
+          {penButtons('sm')}
+          <span className="mx-1 h-6 w-px bg-[var(--color-border)]" aria-hidden />
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={!selectedRow}
+            onClick={() => selectedRow && patchPiece(selectedRow.piece.id, turnedPlacement(selectedRow))}
+          >
+            Завърти
+          </Button>
+          <Button type="button" size="sm" variant="outline" disabled={!selectedRow} onClick={removeSelected}>
+            Изтрий
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={!selectedRow || !onEditCabinet}
+            onClick={() => selectedRow && onEditCabinet?.(selectedRow.piece.cabinetId)}
+          >
+            Редактирай шкафа
+          </Button>
+          <span className="mx-1 h-6 w-px bg-[var(--color-border)]" aria-hidden />
+          <div className="flex overflow-hidden rounded-md border border-[var(--color-border)]" role="group" aria-label="Изглед">
+            {(
+              [
+                ['2d', '2D'],
+                ['both', '2D + 3D'],
+                ['3d', '3D'],
+              ] as const
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                aria-pressed={view === id}
+                className={`px-3 py-1.5 text-sm ${
+                  view === id ? 'bg-[var(--color-primary)] text-[var(--color-primary-foreground)]' : 'hover:bg-[var(--color-muted)]'
+                }`}
+                onClick={() => setView(id)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <Button type="button" size="sm" className="ml-auto" onClick={() => setStudio(false)}>
+            Затвори
+          </Button>
+        </header>
+        {note && (
+          <p className="border-b border-[var(--color-border)] px-3 py-1 text-sm text-[var(--color-destructive)]">{note}</p>
+        )}
+        <div className="flex min-h-0 flex-1">
+          <main className={`grid min-h-0 min-w-0 flex-1 gap-2 p-2 ${showPlan && show3d ? 'grid-cols-2' : 'grid-cols-1'}`}>
+            {showPlan && planBox(true)}
+            {show3d && <div className="min-h-0">{photo('h-full', true)}</div>}
+          </main>
+          <aside
+            className="w-80 shrink-0 overflow-y-auto border-l border-[var(--color-border)] bg-[var(--color-card)] p-3"
+            aria-label="Свойства"
+          >
+            {selectedRow ? (
+              <>
+                <h3 className="text-sm font-semibold">Шкаф</h3>
+                {pieceEditor}
+              </>
+            ) : selectedOpening ? (
+              <>
+                <h3 className="text-sm font-semibold">Отвор</h3>
+                {openingEditor}
+              </>
+            ) : (
+              <>
+                <h3 className="text-sm font-semibold">Стая</h3>
+                <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
+                  Кликни шкаф на плана или в 3D, за да го настроиш. Прозорец, Врата и Ниша се чертаят на плана: дръпни по стената от къде до къде.
+                </p>
+                <div className="mt-3 flex flex-wrap items-end gap-3">{roomFields}</div>
+                {openingList}
+              </>
+            )}
+          </aside>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <section className="rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] p-4">
-      <h2 className="text-lg font-semibold">Стая</h2>
+      <div className="flex flex-wrap items-center gap-3">
+        <h2 className="text-lg font-semibold">Стая</h2>
+        <Button type="button" onClick={() => setStudio(true)}>
+          Проектиране на цял екран
+        </Button>
+      </div>
       <p className="mt-1 text-sm text-[var(--color-muted-foreground)]">
-        Светлият размер. Натисни Прозорец, Врата или Ниша и дръпни по стената от къде до къде да е. Готовия отвор се хваща и се носи на друга стена. Изтрий го с бутона до името. Хвани мебела и го плъзни с мишката или с пръст. Ако частта, която опира в стената, се събира в нишата, бутни го. По-плитък шкаф отпред не пречи на по-дълбокия зад него. Оранжевата стрелка сочи челото — там са вратите. Избери мебела и натисни «Завърти», за да я обърнеш. 3D стаята долу гледа както този план: дясното е вдясно. Отдолу е чертежът: изглед отгоре и отпред, с вериги, които събират размера.
+        Светлият размер. Натисни Прозорец, Врата или Ниша и дръпни по стената от къде до къде да е. Готовия отвор се хваща и се носи на друга стена. Изтрий го с бутона до името. Хвани мебела и го плъзни с мишката или с пръст. Ако частта, която опира в стената, се събира в нишата, бутни го. По-плитък шкаф отпред не пречи на по-дълбокия зад него. Оранжевата стрелка сочи челото — там са вратите. Избери мебела и натисни «Завърти», за да я обърнеш. 3D стаята гледа както този план: дясното е вдясно. Отдолу е чертежът: изглед отгоре и отпред, с вериги, които събират размера.
       </p>
 
-      <div className="mt-3 flex flex-wrap items-end gap-3">
-        <SizeField label="Широчина" value={room.width} onChange={(width) => setRoom({ ...room, width })} />
-        <SizeField label="Дълбочина" value={room.depth} onChange={(depth) => setRoom({ ...room, depth })} />
-        <SizeField label="Височина" value={room.height} onChange={(height) => setRoom({ ...room, height })} />
-        <ColorField
-          label="Ламинат"
-          value={room.floorColor}
-          swatches={FLOORS}
-          onChange={(floorColor) => onChange({ ...room, floorColor })}
-        />
-        <ColorField
-          label="Стени"
-          value={room.wallColor}
-          swatches={WALLS}
-          onChange={(wallColor) => onChange({ ...room, wallColor })}
-        />
-      </div>
+      <div className="mt-3 flex flex-wrap items-end gap-3">{roomFields}</div>
 
       <div className="mt-3 flex flex-wrap items-end gap-2">
         <div className="min-w-[16rem] flex-1">
           <Label htmlFor="room-cabinet">Мебел от проекта</Label>
-          <select
-            id="room-cabinet"
-            className="mt-1 flex h-9 w-full rounded-md border border-[var(--color-input)] bg-[var(--color-background)] px-3 text-sm"
-            value={pick}
-            onChange={(event) => setPick(event.target.value)}
-          >
-            <option value="">Избери шкаф</option>
-            {choices.map((cabinet, index) => (
-              <option key={cabinet.id} value={cabinet.id}>
-                Ш{index + 1} · {cabinet.name}
-              </option>
-            ))}
-          </select>
+          {cabinetPicker}
         </div>
         <Button type="button" onClick={addPiece} disabled={!pick}>
           Сложи в стаята
         </Button>
-        {(
-          [
-            ['window', 'Прозорец'],
-            ['door', 'Врата'],
-            ['niche', 'Ниша'],
-          ] as const
-        ).map(([kind, label]) => (
-          <Button
-            key={kind}
-            type="button"
-            variant={pen === kind ? 'default' : 'outline'}
-            onClick={() => setPen((current) => (current === kind ? null : kind))}
-          >
-            {label}
-          </Button>
-        ))}
+        {penButtons()}
       </div>
       {note && <p className="mt-2 text-sm text-[var(--color-destructive)]">{note}</p>}
 
@@ -710,113 +966,13 @@ export function RoomPlanView({
         </p>
       </div>
       <div className={`mt-2 grid items-start gap-3 ${showPhoto ? 'xl:grid-cols-2' : ''}`}>
-      <div
-        ref={planRef}
-        className="overflow-hidden rounded-md border border-neutral-300 bg-white"
-        style={{ touchAction: 'none' }}
-        onPointerDown={onPlanPointerDown}
-      >
-        <svg
-          ref={svgRef}
-          viewBox={planView}
-          className="h-auto w-full select-none"
-          role="img"
-          aria-label="Нареждане в стаята, изглед отгоре"
-          style={{ touchAction: 'none', WebkitUserSelect: 'none', WebkitTouchCallout: 'none' }}
-        >
-          <rect x={PAD_L} y={PAD_T} width={room.width + ROOM_WALL_MM * 2} height={room.depth + ROOM_WALL_MM * 2} fill={room.wallColor} stroke="#1e293b" strokeWidth={2} />
-          <rect x={INNER_X} y={INNER_Y} width={room.width} height={room.depth} fill={room.floorColor} stroke="#1e293b" strokeWidth={2} />
-          <OpeningMarks room={room} openings={openings} selectedId={selectedOpening} />
-          <text x={INNER_X + room.width / 2} y={INNER_Y + room.depth + ROOM_WALL_MM + 70} fill="#1e293b" fontSize={64} textAnchor="middle">
-            Отпред
-          </text>
-          {placed.map((row) => {
-            const sx = INNER_X + row.piece.x
-            const sy = INNER_Y + (room.depth - row.piece.y - row.d)
-            const on = row.piece.id === selected
-            return (
-              <g key={row.piece.id} style={{ cursor: 'grab' }}>
-                <rect
-                  x={sx}
-                  y={sy}
-                  width={row.w}
-                  height={row.d}
-                  fill={on ? '#fff7ed' : '#ffffff'}
-                  fillOpacity={0.92}
-                  stroke={on ? '#c2410c' : '#1e293b'}
-                  strokeWidth={on ? 8 : 3}
-                />
-                <text pointerEvents="none" x={sx + row.w / 2} y={sy + row.d / 2 - 16} fill="#1e293b" fontSize={fitted(row.name, row.w - 20)} textAnchor="middle">
-                  {row.name}
-                </text>
-                <text pointerEvents="none" x={sx + row.w / 2} y={sy + row.d / 2 + 56} fill="#1e293b" fontSize={fitted(`${formatMm(row.w)} × ${formatMm(row.d)}`, row.w - 20)} textAnchor="middle">
-                  {formatMm(row.w)} × {formatMm(row.d)}
-                </text>
-                <FrontMark turn={row.piece.turn} x={sx} y={sy} w={row.w} h={row.d} />
-              </g>
-            )
-          })}
-        </svg>
-      </div>
-        {showPhoto && (
-          <RoomPhoto
-            room={room}
-            cabinets={cabinets}
-            finishes={finishes}
-            onChange={onChange}
-            pickedId={selected}
-            onPick={(id) => {
-              setSelected(id)
-              if (id) setSelectedOpening(null)
-            }}
-            heightClass="h-[min(70vh,640px)]"
-          />
-        )}
+        {planBox(false)}
+        {showPhoto && photo('h-[min(70vh,640px)]', false)}
       </div>
 
-      {selected && (
-        <PieceEditor
-          row={placed.find((row) => row.piece.id === selected) ?? null}
-          roomWidth={room.width}
-          onPatch={(patch) => patchPiece(selected, patch)}
-          onEdit={onEditCabinet}
-          onRemove={() => {
-            onChange({ ...room, pieces: room.pieces.filter((piece) => piece.id !== selected) })
-            setSelected(null)
-          }}
-        />
-      )}
-      {openings.some((opening) => opening.id !== '__draft__') && (
-        <ul className="mt-3 space-y-2">
-          {openings.filter((opening) => opening.id !== '__draft__').map((opening) => (
-            <li key={opening.id} className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                className={`inline-flex items-center gap-2 text-sm ${opening.id === selectedOpening ? 'font-semibold' : ''}`}
-                onClick={() => {
-                  setSelected(null)
-                  setSelectedOpening(opening.id)
-                }}
-              >
-                <span className="inline-block h-4 w-4 rounded border border-neutral-400" style={{ background: openingColor(opening) }} />
-                {OPENING_NAME[opening.kind]} · {WALL_NAME[opening.wall]}
-              </button>
-              <Button type="button" size="sm" variant="ghost" onClick={() => removeOpening(opening.id)}>
-                Изтрий
-              </Button>
-            </li>
-          ))}
-        </ul>
-      )}
-      {selectedOpening && (
-        <OpeningEditor
-          opening={openings.find((opening) => opening.id === selectedOpening) ?? null}
-          room={room}
-          onPatch={(part) => patchOpening(selectedOpening, part)}
-          onRemove={() => removeOpening(selectedOpening)}
-        />
-      )}
-
+      {pieceEditor}
+      {openingList}
+      {openingEditor}
       <div className="mt-6">
         <RoomLink room={room} cabinets={cabinets} finishes={finishes} userId={userId} />
       </div>

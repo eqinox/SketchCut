@@ -186,6 +186,7 @@ export function RoomPhoto({
   pickedId = null,
   onPick,
   heightClass,
+  bare = false,
 }: {
   room: RoomPlan
   cabinets: CabinetInstance[]
@@ -200,6 +201,8 @@ export function RoomPhoto({
   onPick?: (id: string | null) => void
   /** Tailwind height of the picture, to match a plan beside it. */
   heightClass?: string
+  /** Only the picture: no caption, wall tools, door buttons or hint. The design mode has its own menu. */
+  bare?: boolean
 }) {
   const onPickRef = useRef(onPick)
   useEffect(() => {
@@ -470,6 +473,23 @@ export function RoomPhoto({
     onChange({ ...room, openings: next })
   }
 
+  const captures = placed.map(({ piece, cabinet }) => (
+    <CabinetCapture key={piece.id} cabinet={cabinet} cabinets={cabinets} finishes={finishes} onSolids={onSolids} />
+  ))
+
+  if (bare) {
+    return (
+      <div className="h-full">
+        {failed ? (
+          <p className="py-8 text-center text-sm text-neutral-600">Браузърът не пуска 3D картината.</p>
+        ) : (
+          <div ref={hostRef} className={`${heightClass ?? 'h-full'} w-full overflow-hidden rounded-md bg-[#c9d3dc]`} />
+        )}
+        {captures}
+      </div>
+    )
+  }
+
   return (
     <figure className="rounded-md border border-neutral-300 bg-white p-2">
       <figcaption className="mb-1 text-sm font-medium text-neutral-800">Снимка</figcaption>
@@ -593,9 +613,7 @@ export function RoomPhoto({
           </Button>
         </div>
       )}
-      {placed.map(({ piece, cabinet }) => (
-        <CabinetCapture key={piece.id} cabinet={cabinet} cabinets={cabinets} finishes={finishes} onSolids={onSolids} />
-      ))}
+      {captures}
     </figure>
   )
 }
