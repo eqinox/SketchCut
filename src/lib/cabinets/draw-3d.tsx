@@ -723,6 +723,28 @@ export function ClothesRailBar({
   )
 }
 
+/** A size in millimetres, captured for the turning view. The drawing still writes its own text. */
+export function WorldDim({
+  label,
+  x0,
+  y0,
+  z0 = 0,
+  x1,
+  y1,
+  z1 = 0,
+}: {
+  label: string
+  x0: number
+  y0: number
+  z0?: number
+  x1: number
+  y1: number
+  z1?: number
+}) {
+  useCaptureSolid(label ? { kind: 'dim', label, x0, y0, z0, x1, y1, z1 } : null)
+  return null
+}
+
 export function DimText({
   x,
   y,

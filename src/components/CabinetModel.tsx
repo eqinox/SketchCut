@@ -2,6 +2,8 @@ import { useContext, useEffect, useRef, useState, useSyncExternalStore, type Rea
 import { DecorSheetContext } from '@/lib/cabinets/draw-3d'
 import { PULL_CHOICES, PullChoiceContext, type PullSku } from '@/lib/cabinets/pulls'
 import { SceneCaptureContext, createCaptureStore, type CaptureStore } from '@/lib/cabinets/scene-solids'
+import { CabinetRoom } from '@/components/CabinetRoom'
+import { ProjectRoomContext } from '@/lib/project-room'
 import { mountCabinetStudio, type CabinetStudio, type StudioPick } from '@/lib/view3d/studio'
 
 export function CabinetModel({ store }: { store: CaptureStore }) {
@@ -114,16 +116,24 @@ export function CapturedModel({ children }: { children: ReactNode }) {
   const storeRef = useRef<CaptureStore | null>(null)
   if (!storeRef.current) storeRef.current = createCaptureStore()
   const store = storeRef.current
+  const solids = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot)
+  const scene = useContext(ProjectRoomContext)
   return (
     <SceneCaptureContext.Provider value={store}>
       <div className="relative w-full">
         <div className="pointer-events-none absolute h-px w-px overflow-hidden opacity-0" aria-hidden>
           {children}
         </div>
-        <CabinetModel store={store} />
-        <p className="mt-1 text-center text-[11px] text-neutral-500">
-          Кликни врата или чекмедже: отваряне и смяна на дръжката · завърти с мишката · колелцето приближава
-        </p>
+        {scene ? (
+          <CabinetRoom scene={scene} solids={solids} />
+        ) : (
+          <>
+            <CabinetModel store={store} />
+            <p className="mt-1 text-center text-[11px] text-neutral-500">
+              Размерите се четат и докато въртиш · кликни врата или чекмедже: отваряне и смяна на дръжката · колелцето приближава
+            </p>
+          </>
+        )}
       </div>
     </SceneCaptureContext.Provider>
   )

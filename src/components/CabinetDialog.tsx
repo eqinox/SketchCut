@@ -13,6 +13,8 @@ import {
 } from '@/components/ui/dialog'
 import { CabinetPreview } from '@/components/CabinetPreview'
 import { BoardPickContext } from '@/lib/cabinets/draw-3d'
+import { ProjectRoomContext, type ProjectRoom } from '@/lib/project-room'
+import type { RoomPlan } from '@/lib/room'
 import { CabinetGroupView } from '@/components/CabinetGroupView'
 import {
   attachmentTouchesHost,
@@ -1294,6 +1296,7 @@ interface CabinetDialogProps {
   onSaveGroup?: (group: SavedCabinetGroup) => void
   /** Cabinets already chosen to join, when the dialog is opened from the cabinet list. */
   startAttached?: AttachedCabinet[]
+  room: RoomPlan
 }
 
 interface CabinetDialogFormProps extends CabinetDialogProps {
@@ -1306,6 +1309,8 @@ interface CabinetDialogFormProps extends CabinetDialogProps {
   peerDrafts?: Record<string, CabinetDraft>
   groupRole?: 'host' | 'guest'
   lockedCabinetIds?: string[]
+  /** Combination id, when the open picture is a joined group saved as its own piece. */
+  roomPieceIds?: string[]
 }
 
 function initialDepthMode(params: Record<string, unknown> | undefined): 'without-door' | 'with-door' | 'no-doors' {
@@ -1559,6 +1564,8 @@ function CabinetDialogForm({
   peerDrafts,
   groupRole = 'host',
   lockedCabinetIds = [],
+  room,
+  roomPieceIds = [],
 }: CabinetDialogFormProps) {
   const isEdit = !!editing && !treatAsNew
   const [typeId, setTypeId] = useState(editing?.typeId ?? 'kitchen-base')
@@ -1769,7 +1776,7 @@ function CabinetDialogForm({
   const [backFinishId, setBackFinishId] = useState(
     typeof editing?.params.backFinishId === 'string' ? editing.params.backFinishId : '',
   )
-  const [drawStyle, setDrawStyle] = useState<'line' | 'color' | 'model'>('line')
+  const [drawStyle, setDrawStyle] = useState<'line' | 'color' | 'model'>('model')
   const [doorView, setDoorView] = useState<'hidden' | 'closed' | 'open'>('hidden')
   const [attachedState, setAttachedState] = useState<AttachedCabinet[]>([])
   const attached = attachedRows ?? attachedState
@@ -3216,6 +3223,213 @@ function CabinetDialogForm({
                   : 'Размерите са на корпуса в мм. Крачетата са отделно. Детайлите и кантът се смятат автоматично.'}
           </DialogDescription>
         </DialogHeader>
+
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <label className="flex items-center gap-2 text-sm">
+            Изглед
+            <select
+              className="h-8 rounded-md border border-[var(--color-border)] bg-transparent px-2"
+              value={drawStyle}
+              onChange={(e) => {
+                const next = e.target.value
+                setDrawStyle(next === 'color' || next === 'model' ? next : 'line')
+              }}
+            >
+              <option value="model">3D</option>
+              <option value="color">Цветен</option>
+              <option value="line">Чертеж</option>
+            </select>
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            Дръжка
+            <select
+              className="h-8 rounded-md border border-[var(--color-border)] bg-transparent px-2"
+              value={!includeHandles || handleSku === 'none' ? 'none' : handleSku}
+              aria-label="Дръжка"
+              onChange={(event) => {
+                const sku = parsePullSku(event.target.value)
+                setHandleSku(sku)
+                setIncludeHandles(sku !== 'none')
+                setHandleOverrides({})
+              }}
+            >
+              {PULL_CHOICES.map((choice) => (
+                <option key={choice.sku} value={choice.sku}>
+                  {choice.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            Врати
+            <select
+              className="h-8 rounded-md border border-[var(--color-border)] bg-transparent px-2"
+              value={doorView}
+              onChange={(e) => {
+                const next = e.target.value === 'open' || e.target.value === 'closed' ? e.target.value : 'hidden'
+                setDoorView(next)
+                setShowFronts(next !== 'hidden')
+              }}
+            >
+              <option value="hidden">Скрити</option>
+              <option value="closed">Затворени</option>
+              <option value="open">Отворени</option>
+            </select>
+          </label>
+          {drawStyle === 'line' && (
+            <label className="flex cursor-pointer items-center gap-2 text-sm">
+              <Checkbox
+                checked={showDimLines}
+                onCheckedChange={(c) => setShowDimLines(c === true)}
+              />
+              Оразмерителни линии
+            </label>
+          )}
+          {drawStyle !== 'color' && (
+            <label className="flex cursor-pointer items-center gap-2 text-sm">
+              <Checkbox
+                checked={showOpeningDims}
+                onCheckedChange={(c) => setShowOpeningDims(c === true)}
+              />
+              Оставащи размери
+            </label>
+          )}
+        </div>
+        {drawStyle === 'line' && (
+          <label className="flex flex-col gap-1.5 text-sm">
+            <span className="flex items-center justify-between">
+              <span>Шрифт на размерите</span>
+              <span className="tabular-nums text-[var(--color-muted-foreground)]">
+                {Math.round(dimFontScale * 100)}%
+              </span>
+            </span>
+            <input
+              type="range"
+              min={DIM_FONT_SCALE_MIN * 100}
+              max={DIM_FONT_SCALE_MAX * 100}
+              step={5}
+              value={Math.round(dimFontScale * 100)}
+              onChange={(e) => setDimFontScale(parseDimFontScale(Number(e.target.value) / 100))}
+              className="h-2 w-full cursor-pointer accent-[var(--color-primary)]"
+              aria-label="Шрифт на размерите по чертежа"
+            />
+          </label>
+        )}
+
+        {showFronts && isSlidingCabinet && doorCount === 2 && nsMeasure && (
+          <div className="rounded-md border border-[var(--color-border)] px-3 py-2 text-xs">
+            <p className="font-medium">Размери на вратите</p>
+            <ul className="mt-1 space-y-1">
+              {layoutSlidingDoors({
+                innerW: nsMeasure.innerW,
+                innerH: nsMeasure.innerH,
+                thickness: params.thickness,
+                partitions: layout.partitions,
+                edges: slidingDoorCount === 3 ? threeDoorSlidingEdges() : slidingEdges,
+              }).map((leaf) => (
+                <li key={leaf.index}>
+                  <span className="font-medium">{leaf.name}:</span>{' '}
+                  с кант дръжка {formatMm(leaf.gabaritW)} × {formatMm(leaf.gabaritH)} мм
+                  {' · '}
+                  без профилите {formatMm(leaf.cutW)} × {formatMm(leaf.cutH)} мм
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {attachedGuests.length > 0 ? (
+          <CabinetGroupView
+            host={groupRole === 'guest' && peerDrafts?.host ? peerDrafts.host : { typeId, params }}
+            guests={attachedGuests.map(({ row, cabinet }) => {
+              const live = groupRole === 'guest' && editing?.id === cabinet.id
+              const peer = peerDrafts?.[cabinet.id]
+              const source = live ? { typeId, params } : peer ?? { typeId: cabinet.typeId, params: cabinet.params }
+              return { typeId: source.typeId, params: source.params, place: row.place, spanDoor: row.spanDoor, spanDoorCount: row.spanDoorCount }
+            })}
+            showDimLines={showDimLines}
+            showOpeningDims={showOpeningDims}
+            showFronts={drawStyle === 'model' || doorView !== 'hidden'}
+            drawStyle={drawStyle}
+            doorView={doorView}
+            carcassColor={finishFor(carcassFinishId)?.color}
+            carcassImage={finishFor(carcassFinishId)?.image}
+            frontColor={
+              finishFor(frontFinishId || carcassFinishId)?.color
+            }
+            frontImage={
+              finishFor(frontFinishId || carcassFinishId)?.image
+            }
+            backColor={finishFor(backFinishId)?.color}
+            backImage={finishFor(backFinishId)?.image}
+            finishes={settings.hardware.boardFinishes}
+          />
+        ) : (
+        <BoardPickContext.Provider
+          value={
+            drawStyle === 'color'
+              ? {
+                  selected: pickedPiece,
+                  onSelect: (id) => setPickedPiece(id),
+                }
+              : null
+          }
+        >
+        {drawStyle === 'color' && (
+        <div className="flex flex-wrap items-center gap-3">
+          <p className="text-xs text-[var(--color-muted-foreground)]">
+            Кликни детайл на цветния изглед. Плочата се сменя само на него.
+          </p>
+          {pickedPiece && (
+            <label className="flex items-center gap-2 text-sm">
+              {pieceColorLabel(pickedPiece)}
+              <select
+                aria-label={`Плоча ${pieceColorLabel(pickedPiece)}`}
+                value={pieceFinishes[pickedPiece] ?? ''}
+                onChange={(e) => {
+                  const id = e.target.value
+                  rememberKronospan(id)
+                  setPieceFinishes((current) => {
+                    if (!id) {
+                      const next = { ...current }
+                      delete next[pickedPiece]
+                      return next
+                    }
+                    return { ...current, [pickedPiece]: id }
+                  })
+                }}
+                className="h-8 rounded-md border border-[var(--color-border)] bg-transparent px-2"
+              >
+                <option value="">Както останалите</option>
+                <KronospanFinishOptions finishes={settings.hardware.boardFinishes} />
+              </select>
+            </label>
+          )}
+        </div>
+        )}
+        <CabinetPreview
+          typeId={typeId}
+          params={{ ...params }}
+          onPullChange={(key, sku) => setHandleOverrides((prev) => ({ ...prev, [key]: sku }))}
+          showDimLines={showDimLines}
+          showOpeningDims={showOpeningDims}
+          showFronts={drawStyle === 'model' || doorView !== 'hidden'}
+          drawStyle={drawStyle}
+          doorView={doorView}
+          carcassColor={finishFor(carcassFinishId)?.color}
+          carcassImage={finishFor(carcassFinishId)?.image}
+          frontColor={
+            finishFor(frontFinishId || carcassFinishId)?.color
+          }
+          frontImage={
+            finishFor(frontFinishId || carcassFinishId)?.image
+          }
+          backColor={finishFor(backFinishId)?.color}
+          backImage={finishFor(backFinishId)?.image}
+          finishes={settings.hardware.boardFinishes}
+        />
+        </BoardPickContext.Provider>
+        )}
 
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
@@ -6637,114 +6851,6 @@ function CabinetDialogForm({
           </div>
         </FormSection>
 
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <label className="flex cursor-pointer items-center gap-2 text-sm">
-            <Checkbox
-              checked={showDimLines}
-              onCheckedChange={(c) => setShowDimLines(c === true)}
-            />
-            Оразмерителни линии
-          </label>
-          <label className="flex cursor-pointer items-center gap-2 text-sm">
-            <Checkbox
-              checked={showOpeningDims}
-              onCheckedChange={(c) => setShowOpeningDims(c === true)}
-            />
-            Оставащи размери
-          </label>
-          <label className="flex items-center gap-2 text-sm">
-            Изглед
-            <select
-              className="h-8 rounded-md border border-[var(--color-border)] bg-transparent px-2"
-              value={drawStyle}
-              onChange={(e) => {
-                const next = e.target.value
-                setDrawStyle(next === 'color' || next === 'model' ? next : 'line')
-              }}
-            >
-              <option value="line">Чертеж</option>
-              <option value="color">Цветен</option>
-              <option value="model">3D</option>
-            </select>
-          </label>
-          <label className="flex items-center gap-2 text-sm">
-            Дръжка
-            <select
-              className="h-8 rounded-md border border-[var(--color-border)] bg-transparent px-2"
-              value={!includeHandles || handleSku === 'none' ? 'none' : handleSku}
-              aria-label="Дръжка"
-              onChange={(event) => {
-                const sku = parsePullSku(event.target.value)
-                setHandleSku(sku)
-                setIncludeHandles(sku !== 'none')
-                setHandleOverrides({})
-              }}
-            >
-              {PULL_CHOICES.map((choice) => (
-                <option key={choice.sku} value={choice.sku}>
-                  {choice.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="flex items-center gap-2 text-sm">
-            Врати
-            <select
-              className="h-8 rounded-md border border-[var(--color-border)] bg-transparent px-2"
-              value={doorView}
-              onChange={(e) => {
-                const next = e.target.value === 'open' || e.target.value === 'closed' ? e.target.value : 'hidden'
-                setDoorView(next)
-                setShowFronts(next !== 'hidden')
-              }}
-            >
-              <option value="hidden">Скрити</option>
-              <option value="closed">Затворени</option>
-              <option value="open">Отворени</option>
-            </select>
-          </label>
-        </div>
-        <label className="flex flex-col gap-1.5 text-sm">
-          <span className="flex items-center justify-between">
-            <span>Шрифт на размерите</span>
-            <span className="tabular-nums text-[var(--color-muted-foreground)]">
-              {Math.round(dimFontScale * 100)}%
-            </span>
-          </span>
-          <input
-            type="range"
-            min={DIM_FONT_SCALE_MIN * 100}
-            max={DIM_FONT_SCALE_MAX * 100}
-            step={5}
-            value={Math.round(dimFontScale * 100)}
-            onChange={(e) => setDimFontScale(parseDimFontScale(Number(e.target.value) / 100))}
-            className="h-2 w-full cursor-pointer accent-[var(--color-primary)]"
-            aria-label="Шрифт на размерите по чертежа"
-          />
-        </label>
-
-        {showFronts && isSlidingCabinet && doorCount === 2 && nsMeasure && (
-          <div className="rounded-md border border-[var(--color-border)] px-3 py-2 text-xs">
-            <p className="font-medium">Размери на вратите</p>
-            <ul className="mt-1 space-y-1">
-              {layoutSlidingDoors({
-                innerW: nsMeasure.innerW,
-                innerH: nsMeasure.innerH,
-                thickness: params.thickness,
-                partitions: layout.partitions,
-                edges: slidingDoorCount === 3 ? threeDoorSlidingEdges() : slidingEdges,
-              }).map((leaf) => (
-                <li key={leaf.index}>
-                  <span className="font-medium">{leaf.name}:</span>{' '}
-                  с кант дръжка {formatMm(leaf.gabaritW)} × {formatMm(leaf.gabaritH)} мм
-                  {' · '}
-                  без профилите {formatMm(leaf.cutW)} × {formatMm(leaf.cutH)} мм
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-
         <div id="cabinet-join" className="rounded-md border border-[var(--color-border)] px-3 py-2">
           <p className="text-sm font-medium">Шкафове от проекта</p>
           <p className="mt-0.5 text-xs text-[var(--color-muted-foreground)]">
@@ -6906,99 +7012,6 @@ function CabinetDialogForm({
           )}
         </div>
 
-        {attachedGuests.length > 0 ? (
-          <CabinetGroupView
-            host={groupRole === 'guest' && peerDrafts?.host ? peerDrafts.host : { typeId, params }}
-            guests={attachedGuests.map(({ row, cabinet }) => {
-              const live = groupRole === 'guest' && editing?.id === cabinet.id
-              const peer = peerDrafts?.[cabinet.id]
-              const source = live ? { typeId, params } : peer ?? { typeId: cabinet.typeId, params: cabinet.params }
-              return { typeId: source.typeId, params: source.params, place: row.place, spanDoor: row.spanDoor, spanDoorCount: row.spanDoorCount }
-            })}
-            showDimLines={showDimLines}
-            showOpeningDims={showOpeningDims}
-            showFronts={drawStyle === 'model' || doorView !== 'hidden'}
-            drawStyle={drawStyle}
-            doorView={doorView}
-            carcassColor={finishFor(carcassFinishId)?.color}
-            carcassImage={finishFor(carcassFinishId)?.image}
-            frontColor={
-              finishFor(frontFinishId || carcassFinishId)?.color
-            }
-            frontImage={
-              finishFor(frontFinishId || carcassFinishId)?.image
-            }
-            backColor={finishFor(backFinishId)?.color}
-            backImage={finishFor(backFinishId)?.image}
-            finishes={settings.hardware.boardFinishes}
-          />
-        ) : (
-        <BoardPickContext.Provider
-          value={
-            drawStyle === 'line'
-              ? null
-              : {
-                  selected: pickedPiece,
-                  onSelect: (id) => setPickedPiece(id),
-                }
-          }
-        >
-        {drawStyle !== 'line' && (
-        <div className="flex flex-wrap items-center gap-3">
-          <p className="text-xs text-[var(--color-muted-foreground)]">
-            Кликни детайл на цветния изглед. Плочата се сменя само на него.
-          </p>
-          {pickedPiece && (
-            <label className="flex items-center gap-2 text-sm">
-              {pieceColorLabel(pickedPiece)}
-              <select
-                aria-label={`Плоча ${pieceColorLabel(pickedPiece)}`}
-                value={pieceFinishes[pickedPiece] ?? ''}
-                onChange={(e) => {
-                  const id = e.target.value
-                  rememberKronospan(id)
-                  setPieceFinishes((current) => {
-                    if (!id) {
-                      const next = { ...current }
-                      delete next[pickedPiece]
-                      return next
-                    }
-                    return { ...current, [pickedPiece]: id }
-                  })
-                }}
-                className="h-8 rounded-md border border-[var(--color-border)] bg-transparent px-2"
-              >
-                <option value="">Както останалите</option>
-                <KronospanFinishOptions finishes={settings.hardware.boardFinishes} />
-              </select>
-            </label>
-          )}
-        </div>
-        )}
-        <CabinetPreview
-          typeId={typeId}
-          params={{ ...params }}
-          onPullChange={(key, sku) => setHandleOverrides((prev) => ({ ...prev, [key]: sku }))}
-          showDimLines={showDimLines}
-          showOpeningDims={showOpeningDims}
-          showFronts={drawStyle === 'model' || doorView !== 'hidden'}
-          drawStyle={drawStyle}
-          doorView={doorView}
-          carcassColor={finishFor(carcassFinishId)?.color}
-          carcassImage={finishFor(carcassFinishId)?.image}
-          frontColor={
-            finishFor(frontFinishId || carcassFinishId)?.color
-          }
-          frontImage={
-            finishFor(frontFinishId || carcassFinishId)?.image
-          }
-          backColor={finishFor(backFinishId)?.color}
-          backImage={finishFor(backFinishId)?.image}
-          finishes={settings.hardware.boardFinishes}
-        />
-        </BoardPickContext.Provider>
-        )}
-
         {error && <p className="text-sm text-[var(--color-destructive)]">{error}</p>}
 
         {result && estimate && (
@@ -7152,10 +7165,20 @@ function CabinetDialogForm({
         </Button>
     </>
   )
-  if (bare) return dialogBody
+  const projectRoom: ProjectRoom = {
+    room,
+    cabinets: projectCabinets,
+    finishes: settings.hardware.boardFinishes,
+    replaceIds: [...roomPieceIds, ...(editing?.id ? [editing.id] : []), ...attached.map((row) => row.cabinetId)],
+    anchorIds: [...roomPieceIds, ...(editing?.id ? [editing.id] : []), ...attached.map((row) => row.cabinetId)],
+    group: attached.length > 0 || roomPieceIds.length > 0,
+    typeId,
+  }
+  const pictured = <ProjectRoomContext.Provider value={projectRoom}>{dialogBody}</ProjectRoomContext.Provider>
+  if (bare) return pictured
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[92vh] max-w-4xl overflow-y-auto">{dialogBody}</DialogContent>
+      <DialogContent className="max-h-[92vh] max-w-4xl overflow-y-auto">{pictured}</DialogContent>
     </Dialog>
   )
 }
@@ -7298,6 +7321,7 @@ export function CabinetDialog(props: CabinetDialogProps) {
         <CabinetDialogForm
           key={active}
           {...props}
+          roomPieceIds={combination && props.editing ? [props.editing.id] : []}
           bare
           editing={formEditing()}
           treatAsNew={active === HOST_TAB && !hostCabinetId}

@@ -29,6 +29,7 @@ import type { HardwareSettings } from '@/lib/settings'
 import { DEFAULT_HARDWARE_SETTINGS } from '@/lib/settings'
 import type { AssemblyTimeSettings } from '@/lib/assembly-time'
 import { DEFAULT_ASSEMBLY_TIME_SETTINGS } from '@/lib/assembly-time'
+import type { RoomPlan } from '@/lib/room'
 import type { Sheet } from '@/types'
 
 interface CabinetsPanelProps {
@@ -46,6 +47,7 @@ interface CabinetsPanelProps {
   applyRemove: (cabinetId: string) => void
   onSaveGroup?: (group: SavedCabinetGroup) => void
   onClear?: () => void
+  room: RoomPlan
 }
 
 export function CabinetsPanel({
@@ -60,6 +62,7 @@ export function CabinetsPanel({
   applyRemove,
   onSaveGroup,
   onClear,
+  room,
 }: CabinetsPanelProps) {
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<CabinetInstance | null>(null)
@@ -608,6 +611,7 @@ export function CabinetsPanel({
         editing={editing}
         startAttached={startAttached}
         projectCabinets={cabinets}
+        room={room}
         sheets={sheets}
         dailyRateEur={dailyRateEur}
         settings={settings}

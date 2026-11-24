@@ -66,6 +66,7 @@ import {
   ClothesRailBar,
   DimLine,
   DimText,
+  WorldDim,
   DRAW_STROKE,
   DRAW_DIM,
   SIDE_LEFT_BODY,
@@ -612,7 +613,7 @@ function CabinetPreviewView({
         ]
       : []),
   ]
-  const showMarks = drawStyle === 'line'
+  const showMarks = drawStyle === 'line' || drawStyle === 'model'
   const model = drawStyle === 'model' || captureSolids
   const suppressOuter = { height: suppressOuterHeight, width: suppressOuterWidth }
   if (typeId === 'bed') {
@@ -1011,6 +1012,15 @@ function InteriorHeightDimLines({
               rotate={-90}
               fill={DRAW_DIM}
             />
+            <WorldDim
+              label={mm(d.offsetMm)}
+              x0={worldX}
+              y0={innerFloorY - d.y0}
+              z0={d.originZ}
+              x1={worldX}
+              y1={innerFloorY - d.y1}
+              z1={d.endZ}
+            />
           </g>
         )
       })}
@@ -1239,6 +1249,15 @@ function RemainingHeightDimLines({
               fontSize={fontSize}
               rotate={-90}
               fill={DRAW_DIM}
+            />
+            <WorldDim
+              label={mm(s.offsetMm)}
+              x0={x}
+              y0={innerFloorY - s.startY}
+              z0={originZ}
+              x1={x}
+              y1={innerFloorY - s.endY}
+              z1={originZ}
             />
           </g>
         )
@@ -1648,6 +1667,15 @@ function PartitionDimLines({
             <line x1={b.x - nx} y1={b.y - ny} x2={b.x + nx} y2={b.y + ny} strokeWidth={sw} />
             <DimLine x1={a.x} y1={a.y} x2={b.x} y2={b.y} strokeWidth={sw} />
             <DimText x={p.labelX} y={p.labelY} label={mm(p.offsetMm)} fontSize={p.font} fill={DRAW_DIM} />
+            <WorldDim
+              label={mm(p.offsetMm)}
+              x0={innerLeft + p.startX}
+              y0={p.yy}
+              z0={p.flat ? leftoverDepth : za}
+              x1={innerLeft + p.endX}
+              y1={p.yy}
+              z1={p.flat ? leftoverDepth : zb}
+            />
           </g>
         )
       })}
@@ -3050,20 +3078,61 @@ function Front3DView({
       )}
 
       {!suppressOuter.height && <DimText x={heightX} y={heightY} label={mm(H)} fontSize={font} rotate={-90} />}
+      {!suppressOuter.height && <WorldDim label={mm(H)} x0={-36} y0={topY} z0={0} x1={-36} y1={botY} z1={0} />}
       <DimText x={depthMx} y={depthMy} label={mm(D)} fontSize={font} rotate={depthRot} />
+      <WorldDim label={mm(D)} x0={W + 36} y0={topY} z0={0} x1={W + 36} y1={topY} z1={D} />
       {!suppressOuter.width && <DimText x={backMx} y={backMy} label={mm(W)} fontSize={font} />}
+      {!suppressOuter.width && <WorldDim label={mm(W)} x0={0} y0={topY - 110} z0={0} x1={W} y1={topY - 110} z1={0} />}
       {p.topStyle === 'rails' &&
         layout.columns.map((col, i) => {
         const pt = view.proj(T + col.x0 + col.innerW / 2, topY + T / 2, zRailFront + R / 2)
-        return <DimText key={`rail-dim-${i}`} x={pt.x} y={pt.y} label={mm(col.innerW)} fontSize={railFont} />
+        return (
+          <g key={`rail-dim-${i}`}>
+            <DimText x={pt.x} y={pt.y} label={mm(col.innerW)} fontSize={railFont} />
+            <WorldDim
+              label={mm(col.innerW)}
+              x0={T + col.x0}
+              y0={topY + T / 2}
+              z0={zRailFront + R / 2}
+              x1={T + col.x0 + col.innerW}
+              y1={topY + T / 2}
+              z1={zRailFront + R / 2}
+            />
+          </g>
+        )
       })}
       {p.topStyle === 'fascia' &&
         layout.columns.map((col, i) => {
           const pt = view.proj(T + col.x0 + col.innerW / 2, topY + R / 2, FASCIA_SETBACK_MM + T / 2)
-          return <DimText key={`fascia-dim-${i}`} x={pt.x} y={pt.y} label={mm(R)} fontSize={railFont} />
+          return (
+            <g key={`fascia-dim-${i}`}>
+              <DimText x={pt.x} y={pt.y} label={mm(R)} fontSize={railFont} />
+              <WorldDim
+                label={mm(R)}
+                x0={T + col.x0 + col.innerW / 2}
+                y0={topY}
+                z0={FASCIA_SETBACK_MM + T / 2}
+                x1={T + col.x0 + col.innerW / 2}
+                y1={topY + R}
+                z1={FASCIA_SETBACK_MM + T / 2}
+              />
+            </g>
+          )
         })}
       {drawFeet && !suppressOuter.height && <DimText x={legLabelX} y={legLabelY} label={mm(L)} fontSize={legFont} rotate={-90} />}
+      {drawFeet && !suppressOuter.height && (
+        <WorldDim
+          label={mm(L)}
+          x0={legInset + legW / 2}
+          y0={floor - L}
+          z0={legZFront + legD / 2}
+          x1={legInset + legW / 2}
+          y1={floor}
+          z1={legZFront + legD / 2}
+        />
+      )}
       <DimText x={sideLabelX} y={sideLabelY} label={mm(m.sideH)} fontSize={font} rotate={-90} />
+      <WorldDim label={mm(m.sideH)} x0={W + 12} y0={topY} z0={D * 0.45} x1={W + 12} y1={topY + m.sideH} z1={D * 0.45} />
       {shelfLabelPt && (
         <DimText
           x={shelfLabelPt.x}
@@ -3071,6 +3140,25 @@ function Front3DView({
           label={mm(shelfDepth)}
           fontSize={railFont}
           rotate={depthRot}
+        />
+      )}
+      {shelfLabelPt && (
+        <WorldDim
+          label={mm(shelfDepth)}
+          x0={W / 2}
+          y0={
+            layout.shelves.length > 0
+              ? innerFloorY - layout.shelves[layout.shelves.length - 1].yTop
+              : innerFloorY - topShelfOff - T
+          }
+          z0={zShelfFront}
+          x1={W / 2}
+          y1={
+            layout.shelves.length > 0
+              ? innerFloorY - layout.shelves[layout.shelves.length - 1].yTop
+              : innerFloorY - topShelfOff - T
+          }
+          z1={zShelfFront + shelfDepth}
         />
       )}
 
@@ -3466,14 +3554,28 @@ function WallFront3DView({
       )}
 
       {!suppressOuter.height && <DimText x={heightX} y={heightY} label={mm(H)} fontSize={font} rotate={-90} />}
+      {!suppressOuter.height && <WorldDim label={mm(H)} x0={-36} y0={topY} z0={0} x1={-36} y1={floor} z1={0} />}
       <DimText x={depthMx} y={depthMy} label={mm(D)} fontSize={font} rotate={depthRot} />
+      <WorldDim label={mm(D)} x0={W + 36} y0={topY} z0={0} x1={W + 36} y1={topY} z1={D} />
       {!suppressOuter.width && <DimText x={backMx} y={backMy} label={mm(W)} fontSize={font} />}
+      {!suppressOuter.width && <WorldDim label={mm(W)} x0={0} y0={topY - 110} z0={0} x1={W} y1={topY - 110} z1={0} />}
       {bottomHole && (
         <DimText
           x={view.proj(T + m.bottomW / 2, innerFloorY, D / 2).x}
           y={view.proj(T + m.bottomW / 2, innerFloorY, D / 2).y}
           label={bottomHole.kind === 'round' ? `Ø${mm(bottomHole.diameter)}` : `${mm(bottomHole.width)}×${mm(bottomHole.height)}`}
           fontSize={small}
+        />
+      )}
+      {bottomHole && (
+        <WorldDim
+          label={bottomHole.kind === 'round' ? `Ø${mm(bottomHole.diameter)}` : `${mm(bottomHole.width)}×${mm(bottomHole.height)}`}
+          x0={T + m.bottomW / 2}
+          y0={innerFloorY}
+          z0={D / 2}
+          x1={T + m.bottomW / 2}
+          y1={innerFloorY}
+          z1={D / 2}
         />
       )}
 
@@ -4671,9 +4773,21 @@ function PlinthBoxFront3DView({
         )
       })()}
       {!suppressOuter.height && <DimText x={heightX} y={heightY} label={mm(H)} fontSize={font} rotate={-90} />}
+      {!suppressOuter.height && <WorldDim label={mm(H)} x0={-36} y0={topY} z0={0} x1={-36} y1={floor} z1={0} />}
       <DimText x={depthMx} y={depthMy} label={mm(D)} fontSize={font} rotate={depthRot} />
+      <WorldDim label={mm(D)} x0={W + 36} y0={topY} z0={0} x1={W + 36} y1={topY} z1={D} />
       {!suppressOuter.width && <DimText x={backMx} y={backMy} label={mm(W)} fontSize={font} />}
+      {!suppressOuter.width && <WorldDim label={mm(W)} x0={0} y0={topY - 110} z0={zSide} x1={W} y1={topY - 110} z1={zSide} />}
       <DimText x={sideDepthLabel.x + 10} y={sideDepthLabel.y} label={mm(m.sideD)} fontSize={small} rotate={depthRot} />
+      <WorldDim
+        label={mm(m.sideD)}
+        x0={W + 16}
+        y0={sideY + m.sideH * 0.4}
+        z0={zSide}
+        x1={W + 16}
+        y1={sideY + m.sideH * 0.4}
+        z1={zSide + m.sideD}
+      />
       {partitionDepthDim && (
         <g stroke={DRAW_DIM} fill={DRAW_DIM}>
           <DimLine
@@ -4690,15 +4804,46 @@ function PlinthBoxFront3DView({
             rotate={depthRot}
             fill={DRAW_DIM}
           />
+          <WorldDim
+            label={mm(m.partitionD)}
+            x0={T + layout.partitions[layout.partitions.length - 1]!.xRight}
+            y0={leftInnerY + Math.max(56, leftInnerH * 0.16)}
+            z0={zPartition}
+            x1={T + layout.partitions[layout.partitions.length - 1]!.xRight}
+            y1={leftInnerY + Math.max(56, leftInnerH * 0.16)}
+            z1={zPartition + m.partitionD}
+          />
         </g>
       )}
       {!splitBottom && <DimText x={bottomLabelX} y={bottomFrontLabel.y} label={mm(m.bottomW)} fontSize={small} />}
+      {!splitBottom && (
+        <WorldDim
+          label={mm(m.bottomW)}
+          x0={T}
+          y0={bottomY + T / 2}
+          z0={zSide}
+          x1={T + m.bottomW}
+          y1={bottomY + T / 2}
+          z1={zSide}
+        />
+      )}
       {kneeSpan && (
         <DimText
           x={view.proj(kneeSpan.x + kneeSpan.w / 2, (sideY + floor) / 2, zSide).x}
           y={view.proj(kneeSpan.x + kneeSpan.w / 2, (sideY + floor) / 2, zSide).y}
           label={`отвор ${mm(kneeSpan.w)}`}
           fontSize={small}
+        />
+      )}
+      {kneeSpan && (
+        <WorldDim
+          label={`отвор ${mm(kneeSpan.w)}`}
+          x0={kneeSpan.x}
+          y0={(sideY + floor) / 2}
+          z0={zSide}
+          x1={kneeSpan.x + kneeSpan.w}
+          y1={(sideY + floor) / 2}
+          z1={zSide}
         />
       )}
       <g stroke={DRAW_DIM} fill={DRAW_DIM}>
@@ -4725,6 +4870,7 @@ function PlinthBoxFront3DView({
           rotate={-90}
           fill={DRAW_DIM}
         />
+        <WorldDim label={mm(supportH)} x0={-28} y0={floor - supportH} z0={legZ} x1={-28} y1={floor} z1={legZ} />
       </g>
 
       {showDimLines && (

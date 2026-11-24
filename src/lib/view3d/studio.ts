@@ -19,6 +19,8 @@ import {
   Vector2,
 } from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+import { CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js'
+import { addDimensions } from '@/lib/view3d/dimensions'
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
 import type { DecorSheet } from '@/lib/finish-photo'
 import type { SceneSolid } from '@/lib/cabinets/scene-solids'
@@ -89,7 +91,14 @@ export function mountCabinetStudio(
   renderer.domElement.style.height = '100%'
   renderer.domElement.style.display = 'block'
   renderer.domElement.style.touchAction = 'none'
+  if (getComputedStyle(host).position === 'static') host.style.position = 'relative'
   host.appendChild(renderer.domElement)
+
+  const labels = new CSS2DRenderer()
+  labels.domElement.style.position = 'absolute'
+  labels.domElement.style.inset = '0'
+  labels.domElement.style.pointerEvents = 'none'
+  host.appendChild(labels.domElement)
   renderer.setSize(host.clientWidth || 640, host.clientHeight || 520, false)
   renderer.setClearColor(0xe6dfd4)
 
@@ -168,6 +177,7 @@ export function mountCabinetStudio(
     const width = host.clientWidth || 640
     const height = host.clientHeight || 520
     renderer.setSize(width, height, false)
+    labels.setSize(width, height)
     camera.aspect = width / Math.max(1, height)
     camera.updateProjectionMatrix()
   }
@@ -320,6 +330,7 @@ export function mountCabinetStudio(
     if (moving) applyMotion()
     controls.update()
     renderer.render(scene, camera)
+    labels.render(scene, camera)
   }
   frame = requestAnimationFrame(tick)
 
@@ -330,6 +341,7 @@ export function mountCabinetStudio(
       bin = []
       root.clear()
       const built = buildCabinet(root, solids, sheets, anisotropy, bin)
+      addDimensions(root, solids, bin)
       doors = built.doors
       drawers = built.drawers
       for (const door of doors) {
@@ -362,6 +374,7 @@ export function mountCabinetStudio(
       env.dispose()
       renderer.dispose()
       if (renderer.domElement.parentElement === host) host.removeChild(renderer.domElement)
+      if (labels.domElement.parentElement === host) host.removeChild(labels.domElement)
     },
   }
 }

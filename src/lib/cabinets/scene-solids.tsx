@@ -52,6 +52,17 @@ export type SceneSolid =
       z1: number
       color: string
     }
+  | {
+      kind: 'dim'
+      label: string
+      /** Drawing space: y grows downward, z toward the back. */
+      x0: number
+      y0: number
+      z0: number
+      x1: number
+      y1: number
+      z1: number
+    }
 
 export type CaptureStore = {
   add: (solid: SceneSolid) => number
@@ -106,6 +117,9 @@ function placeSolid(solid: SceneSolid, place: { x: number; y: number; localLeft:
   const dx = place.x - place.localLeft
   const dy = place.y - place.localTop
   if (dx === 0 && dy === 0) return solid
+  if (solid.kind === 'dim') {
+    return { ...solid, x0: solid.x0 + dx, y0: solid.y0 + dy, x1: solid.x1 + dx, y1: solid.y1 + dy }
+  }
   if (solid.kind === 'door') return { ...solid, hingeX: solid.hingeX + dx, y: solid.y + dy }
   const moved = { ...solid, x: solid.x + dx, y: solid.y + dy }
   if (moved.kind === 'box' && moved.slide) {

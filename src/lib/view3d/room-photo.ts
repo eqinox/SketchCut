@@ -28,6 +28,8 @@ import {
   WebGLRenderer,
 } from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+import { CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js'
+import { addDimensions } from '@/lib/view3d/dimensions'
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
 import type { DecorSheet } from '@/lib/finish-photo'
 import type { SceneSolid } from '@/lib/cabinets/scene-solids'
@@ -66,7 +68,12 @@ export type RoomHit =
   | { kind: 'busy' }
 
 export type RoomStudio = {
-  setRoom(room: RoomPlan, placements: RoomPlacement[], sheets: ReadonlyMap<string, DecorSheet>): void
+  setRoom(
+    room: RoomPlan,
+    placements: RoomPlacement[],
+    sheets: ReadonlyMap<string, DecorSheet>,
+    focusId?: string,
+  ): void
   /** Opens a shut door or drawer, and shuts an open one. */
   toggle(id: string): void
   fronts(): RoomFront[]
@@ -165,7 +172,13 @@ export function mountRoomStudio(host: HTMLElement): RoomStudio {
   renderer.domElement.style.height = '100%'
   renderer.domElement.style.display = 'block'
   renderer.domElement.style.touchAction = 'none'
+  if (getComputedStyle(host).position === 'static') host.style.position = 'relative'
   host.appendChild(renderer.domElement)
+  const labels = new CSS2DRenderer()
+  labels.domElement.style.position = 'absolute'
+  labels.domElement.style.inset = '0'
+  labels.domElement.style.pointerEvents = 'none'
+  host.appendChild(labels.domElement)
   renderer.setSize(host.clientWidth || 960, host.clientHeight || 640, false)
   renderer.setClearColor(0xc5d4e0)
 
@@ -346,6 +359,7 @@ export function mountRoomStudio(host: HTMLElement): RoomStudio {
     const width = host.clientWidth || 960
     const height = host.clientHeight || 640
     renderer.setSize(width, height, false)
+    labels.setSize(width, height)
     camera.aspect = width / Math.max(1, height)
     camera.updateProjectionMatrix()
   }
@@ -386,6 +400,7 @@ export function mountRoomStudio(host: HTMLElement): RoomStudio {
     if (moving) applyMotion()
     controls.update()
     renderer.render(scene, camera)
+    labels.render(scene, camera)
   }
   frame = requestAnimationFrame(tick)
 
@@ -452,6 +467,7 @@ export function mountRoomStudio(host: HTMLElement): RoomStudio {
     const local = new Box3().setFromObject(root)
     if (local.isEmpty()) return
     root.position.set(-local.min.x, -local.min.y, -local.max.z)
+    addDimensions(root, solids, bin)
     const stand = new Group()
     stand.add(root)
     stand.scale.z = -1
@@ -763,7 +779,7 @@ export function mountRoomStudio(host: HTMLElement): RoomStudio {
   }
 
   return {
-    setRoom(room, placements, sheets) {
+    setRoom(room, placements, sheets, focusId) {
       const { width, depth, height } = room
       const tex = floorTexture(room.floorColor)
       floorMat.map = tex
@@ -804,10 +820,20 @@ export function mountRoomStudio(host: HTMLElement): RoomStudio {
 
       controls.maxDistance = span * 1.4
       if (!userMoved) {
+        const focus = focusId ? placements.find((piece) => piece.id === focusId) : undefined
         const eye = new Vector3(width * 0.5, Math.min(1500, height - 200), Math.min(700, depth * 0.2))
         let atX = width * 0.5
         let atZ = depth * 0.62
-        if (placements.length > 0) {
+        let atY = Math.min(720, height * 0.3)
+        if (focus) {
+          atX = focus.x + focus.w / 2
+          atZ = focus.y + focus.d / 2
+          atY = Math.min(height - 200, focus.lift + 420)
+          // Stand near the front of the room so the walls, the floor and this cabinet are all in view.
+          eye.x = width * 0.5
+          eye.y = Math.min(1500, height - 200)
+          eye.z = Math.min(900, depth * 0.22)
+        } else if (placements.length > 0) {
           const n = placements.length
           const frontZ = Math.min(...placements.map((piece) => piece.y))
           atX = placements.reduce((sum, piece) => sum + piece.x + piece.w / 2, 0) / n
@@ -818,7 +844,7 @@ export function mountRoomStudio(host: HTMLElement): RoomStudio {
           eye.z = frontZ - 1800
         }
         camera.position.set(-eye.x, eye.y, eye.z)
-        controls.target.set(-atX, Math.min(720, height * 0.3), atZ)
+        controls.target.set(-atX, atY, atZ)
         controls.update()
       }
       notify()
@@ -881,6 +907,7 @@ export function mountRoomStudio(host: HTMLElement): RoomStudio {
       rightWall.geometry.dispose()
       env.dispose()
       renderer.dispose()
+      if (labels.domElement.parentElement === host) host.removeChild(labels.domElement)
       if (renderer.domElement.parentElement === host) host.removeChild(renderer.domElement)
     },
   }

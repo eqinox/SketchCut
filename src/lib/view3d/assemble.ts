@@ -241,6 +241,7 @@ export function buildCabinet(
   const drawers: AnimatedDrawer[] = []
   const buckets = new Map<string, { travel: number; parts: Extract<SceneSolid, { kind: 'box' }>[] }>()
   for (const solid of solids) {
+    if (solid.kind === 'dim') continue
     const sheet = solid.kind === 'rail' ? undefined : sheets.get(solid.color.toLowerCase())
     if (solid.kind === 'box' && solid.slide) {
       const bucket = buckets.get(solid.slide.id) ?? { travel: solid.slide.travel, parts: [] }
@@ -248,7 +249,7 @@ export function buildCabinet(
       buckets.set(solid.slide.id, bucket)
     } else if (solid.kind === 'box') addBox(parent, solid, sheet, anisotropy, bin)
     else if (solid.kind === 'door') doors.push(addDoor(parent, solid, sheet, anisotropy, bin))
-    else addRail(parent, solid, bin)
+    else if (solid.kind === 'rail') addRail(parent, solid, bin)
   }
   for (const [id, bucket] of buckets) {
     drawers.push(addDrawer(parent, id, bucket.travel, bucket.parts, sheets, anisotropy, bin))

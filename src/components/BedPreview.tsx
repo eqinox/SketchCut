@@ -5,6 +5,7 @@ import {
   BOX_FACES,
   DRAW_STROKE,
   DimText,
+  WorldDim,
   SIDE_LEFT_BODY,
   SIDE_RIGHT,
   SketchSvg,
@@ -244,13 +245,32 @@ export function BedPreview({ params, showDims }: { params: BedParams; showDims: 
       {showDims && (
         <>
           <DimText x={widthPt.x} y={widthPt.y} label={formatMm(m.width)} fontSize={font} />
+          <WorldDim label={formatMm(m.width)} x0={0} y0={bottomTop + T + 24} z0={0} x1={m.width} y1={bottomTop + T + 24} z1={0} />
           <DimText x={lengthPt.x} y={lengthPt.y} label={formatMm(m.length)} fontSize={font} />
+          <WorldDim
+            label={formatMm(m.length)}
+            x0={m.width + 28}
+            y0={bottomTop - m.sideHeight * 0.35}
+            z0={0}
+            x1={m.width + 28}
+            y1={bottomTop - m.sideHeight * 0.35}
+            z1={m.length}
+          />
           <DimText
             x={padL - font * 0.85}
             y={bottomTop - m.sideHeight / 2}
             label={formatMm(m.sideHeight)}
             fontSize={font * 0.72}
             rotate={-90}
+          />
+          <WorldDim
+            label={formatMm(m.sideHeight)}
+            x0={-28}
+            y0={bottomTop - m.sideHeight}
+            z0={0}
+            x1={-28}
+            y1={bottomTop}
+            z1={0}
           />
           <DimText
             x={view.proj(m.width / 2, bottomTop - m.sideHeight * 0.55, zSide + 30).x}

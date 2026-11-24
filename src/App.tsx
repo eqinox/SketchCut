@@ -601,6 +601,7 @@ function App() {
           applyRemove={handleRemoveCabinet}
           onSaveGroup={handleSaveGroup}
           onClear={clearCabinets}
+          room={room}
         />
 
         <RoomPlanView
