@@ -13,7 +13,7 @@ import {
   spanFrontBox,
 } from '@/lib/cabinets/compose'
 import { decorSheetFor, type DecorSheet } from '@/lib/finish-photo'
-import type { BoardFinish } from '@/lib/board-finishes'
+import { finishById, type BoardFinish } from '@/lib/board-finishes'
 import { mountRoomStudio, type FloorRect, type RoomFront, type RoomStudio } from '@/lib/view3d/room-photo'
 import { pieceSpan, type RoomPlan } from '@/lib/room'
 import {
@@ -38,7 +38,8 @@ import { Button } from '@/components/ui/button'
 import type { CabinetInstance } from '@/types'
 
 function finishOf(finishes: BoardFinish[], id: unknown): BoardFinish | undefined {
-  return typeof id === 'string' ? finishes.find((finish) => finish.id === id) : undefined
+  // Also boards that are only in the Kronospan catalogue, not in this device's saved list.
+  return typeof id === 'string' ? finishById(finishes, id) : undefined
 }
 
 function MemberPreview({

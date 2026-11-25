@@ -19,7 +19,7 @@ import {
   type CaptureStore,
   type SceneSolid,
 } from '@/lib/cabinets/scene-solids'
-import type { BoardFinish } from '@/lib/board-finishes'
+import { finishById, type BoardFinish } from '@/lib/board-finishes'
 import { decorSheetFor, type DecorSheet } from '@/lib/finish-photo'
 import type { ProjectRoom } from '@/lib/project-room'
 import { defaultLift, pieceSpan, type RoomPiece } from '@/lib/room'
@@ -27,7 +27,8 @@ import { mountRoomStudio, type RoomPlacement, type RoomStudio } from '@/lib/view
 import type { CabinetInstance } from '@/types'
 
 function finishOf(finishes: BoardFinish[], id: unknown): BoardFinish | undefined {
-  return typeof id === 'string' ? finishes.find((finish) => finish.id === id) : undefined
+  // Also boards that are only in the Kronospan catalogue, not in this device's saved list.
+  return typeof id === 'string' ? finishById(finishes, id) : undefined
 }
 
 function MemberPreview({

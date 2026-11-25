@@ -1,6 +1,6 @@
 import { FileDown, Printer, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import type { BoardFinish } from '@/lib/board-finishes'
+import { finishById, type BoardFinish } from '@/lib/board-finishes'
 import { decorSheetFor, type DecorSheet } from '@/lib/finish-photo'
 import { SheetSvg, formatDim, labelableWasteRects, type SheetGrain } from '@/lib/layout-drawing'
 import { updatePackingResultPart } from '@/lib/layout-edit'
@@ -17,7 +17,7 @@ interface CuttingLayoutProps {
 }
 
 function finishOf(sheet: PackedSheet, finishes: BoardFinish[]): BoardFinish | undefined {
-  if (sheet.finishId) return finishes.find((finish) => finish.id === sheet.finishId)
+  if (sheet.finishId) return finishById(finishes, sheet.finishId)
   if (sheet.boardName) return finishes.find((finish) => finish.name === sheet.boardName)
   return undefined
 }

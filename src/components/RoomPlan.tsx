@@ -1183,7 +1183,13 @@ export function RoomPlanView({
               </button>
             ))}
           </div>
-          <Button type="button" size="sm" className="ml-auto" onClick={() => setStudio(false)}>
+          {/* On a phone the bar scrolls sideways; the close button stays pinned at its right end. */}
+          <Button
+            type="button"
+            size="sm"
+            className="sticky right-0 z-10 ml-auto shadow-[-8px_0_8px_var(--color-card)] md:static md:shadow-none"
+            onClick={() => setStudio(false)}
+          >
             Затвори
           </Button>
         </header>

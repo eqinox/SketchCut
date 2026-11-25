@@ -10,6 +10,7 @@ import {
   usedBoardCostEur,
 } from '@/lib/cabinets/materials'
 import { parseHexColor } from '@/lib/cabinets/colors'
+import { resolveBoardFinish } from '@/lib/kronospan-color'
 import type { GeneratedPanel, PanelRole } from '@/lib/cabinets/types'
 import { generateId } from '@/lib/utils'
 
@@ -68,7 +69,9 @@ export function parseBoardFinishes(raw: unknown): BoardFinish[] {
 
 export function finishById(finishes: BoardFinish[], id: string | undefined): BoardFinish | undefined {
   if (!id) return undefined
-  return finishes.find((finish) => finish.id === id)
+  // A Kronospan board picked on another device may not be in this device's saved list yet;
+  // the catalogue still knows its colour, photo and price.
+  return finishes.find((finish) => finish.id === id) ?? resolveBoardFinish([], id)
 }
 
 /** One drawn piece points at a board from the workshop list, not at a free colour. */
