@@ -481,6 +481,7 @@ export function mountRoomStudio(host: HTMLElement): RoomStudio {
 
   // The selected cabinet gets an orange box around it. It is rebuilt with the furniture.
   let pickedId: string | null = null
+  let pickedAtWall = false
   let pickedBox: Box3Helper | null = null
   const pickListeners = new Set<(id: string | null) => void>()
   const outlinePicked = () => {
@@ -500,7 +501,8 @@ export function mountRoomStudio(host: HTMLElement): RoomStudio {
     const inverse = furniture.matrixWorld.clone().invert()
     box.applyMatrix4(inverse)
     box.expandByScalar(12)
-    pickedBox = new Box3Helper(box, new Color('#ea580c'))
+    // Green while the back stands against a wall, orange otherwise.
+    pickedBox = new Box3Helper(box, new Color(pickedAtWall ? '#16a34a' : '#ea580c'))
     pickedBox.renderOrder = 10
     ;(pickedBox.material as { depthTest: boolean }).depthTest = false
     furniture.add(pickedBox)
@@ -556,6 +558,68 @@ export function mountRoomStudio(host: HTMLElement): RoomStudio {
       }
   let floorDrag: FloorDrag | null = null
   let roomSize = { width: 0, depth: 0 }
+
+  // ── Against the wall ────────────────────────────────────────────────────────
+  // Near a wall the cabinet is pulled onto it, and a green strip on the wall shows the back touches.
+  const WALL_PULL_MM = 80
+  type Foot = { w: number; d: number; h: number }
+  const footOf = (stand: Object3D): Foot | null => {
+    const foot = stand.userData.roomFoot as Foot | undefined
+    return foot && foot.w > 0 && foot.d > 0 ? foot : null
+  }
+  /** Pulls a spot onto the walls it is close to, and keeps the cabinet inside the room. */
+  const pullToWalls = (spot: { x: number; y: number }, foot: Foot) => {
+    const maxX = Math.max(0, roomSize.width - foot.w)
+    const maxY = Math.max(0, roomSize.depth - foot.d)
+    let x = Math.max(0, Math.min(maxX, spot.x))
+    let y = Math.max(0, Math.min(maxY, spot.y))
+    if (x <= WALL_PULL_MM) x = 0
+    else if (maxX - x <= WALL_PULL_MM) x = maxX
+    if (y <= WALL_PULL_MM) y = 0
+    else if (maxY - y <= WALL_PULL_MM) y = maxY
+    return { x: Math.round(x), y: Math.round(y) }
+  }
+  /** Which wall the back of the cabinet is against, if any. Turn 0 has its back to the back wall. */
+  const wallBehind = (spot: { x: number; y: number }, foot: Foot, turn: number): 'back' | 'right' | 'front' | 'left' | null => {
+    const near = (a: number, b: number) => Math.abs(a - b) < 1.5
+    if (turn === 0 && near(spot.y + foot.d, roomSize.depth)) return 'back'
+    if (turn === 1 && near(spot.x + foot.w, roomSize.width)) return 'right'
+    if (turn === 2 && near(spot.y, 0)) return 'front'
+    if (turn === 3 && near(spot.x, 0)) return 'left'
+    return null
+  }
+  const wallMat = new MeshBasicMaterial({ color: '#16a34a', transparent: true, opacity: 0.35, depthWrite: false })
+  const wallMark = new Mesh(new BoxGeometry(1, 1, 1), wallMat)
+  wallMark.visible = false
+  wallMark.renderOrder = 6
+  view.add(wallMark)
+  /** Shows (or hides) the green strip behind a cabinet whose back touches a wall. */
+  const markWall = (stand: Object3D | undefined, spot: { x: number; y: number } | undefined) => {
+    const foot = stand ? footOf(stand) : null
+    const turn = Number(stand?.userData.roomTurn ?? 0)
+    const wall = foot && spot ? wallBehind(spot, foot, turn) : null
+    pickedAtWall = wall != null
+    if (!wall || !foot || !spot) {
+      wallMark.visible = false
+      return
+    }
+    const lift = Number(stand?.userData.roomLift ?? 0)
+    const tall = foot.h + 40
+    const y = lift + tall / 2 - 20
+    const skin = 8
+    wallMark.visible = true
+    if (wall === 'back' || wall === 'front') {
+      wallMark.scale.set(foot.w, tall, skin)
+      wallMark.position.set(spot.x + foot.w / 2, y, wall === 'back' ? roomSize.depth - skin / 2 : skin / 2)
+    } else {
+      wallMark.scale.set(skin, tall, foot.d)
+      wallMark.position.set(wall === 'right' ? roomSize.width - skin / 2 : skin / 2, y, spot.y + foot.d / 2)
+    }
+  }
+  const markPickedWall = () => {
+    const stand = pickedId ? furniture.children.find((child) => child.userData.roomPiece === pickedId) : undefined
+    markWall(stand, stand?.userData.roomSpot as { x: number; y: number } | undefined)
+  }
   const clampRoom = (p: { x: number; y: number }) => ({
     x: Math.max(0, Math.min(roomSize.width, snap10(p.x))),
     y: Math.max(0, Math.min(roomSize.depth, snap10(p.y))),
@@ -611,8 +675,10 @@ export function mountRoomStudio(host: HTMLElement): RoomStudio {
       showSketchRect(held.rect)
       return
     }
-    const x = snap10(at.x - held.grab.x)
-    const y = snap10(at.y - held.grab.y)
+    const foot = footOf(held.stand)
+    const loose = { x: snap10(at.x - held.grab.x), y: snap10(at.y - held.grab.y) }
+    const { x, y } = foot ? pullToWalls(loose, foot) : loose
+    markWall(held.stand, { x, y })
     held.moved = Math.max(held.moved, Math.abs(x - held.from.x), Math.abs(y - held.from.y))
     held.at = { x, y }
     held.stand.position.set(held.startPos.x + (x - held.from.x), held.startPos.y, held.startPos.z + (y - held.from.y))
@@ -629,6 +695,7 @@ export function mountRoomStudio(host: HTMLElement): RoomStudio {
     }
     // Put it back: the room is rebuilt at the new spot only if the plan accepts the move.
     held.stand.position.copy(held.startPos)
+    markPickedWall()
     outlinePicked()
     if (held.moved >= 10) for (const listener of movedListeners) listener(held.id, held.at.x, held.at.y)
   }
@@ -686,24 +753,41 @@ export function mountRoomStudio(host: HTMLElement): RoomStudio {
     const stand = new Group()
     stand.userData.roomPiece = piece.id
     stand.userData.roomSpot = { x: piece.x, y: piece.y }
+    stand.userData.roomTurn = piece.turn
+    stand.userData.roomLift = piece.lift
     stand.add(root)
-    const dims = piece.dims ?? 'outer'
-    if (dims === 'detail') {
-      addDimensions(root, solids, bin)
-    } else if (dims === 'outer') {
-      // In the room only the outer width, height and depth are written, not every inner size.
-      root.updateMatrixWorld(true)
-      const outer = new Box3().setFromObject(root)
-      const span = outer.getSize(new Vector3())
-      addOverallDimensions(stand, outer, piece.size ?? { w: span.x, h: span.y, d: span.z }, bin)
-    }
+    root.updateMatrixWorld(true)
+    const outer = new Box3().setFromObject(root)
     stand.scale.z = -1
     // Scale Z turns the door face toward the front wall. A positive quarter
     // turn then matches the plan: front, left, back, right.
     stand.rotation.y = piece.turn * (Math.PI / 2)
     stand.updateMatrixWorld(true)
+    // Measured before the size lines are added: they stand off the cabinet and would push it
+    // away from the wall it is meant to touch.
     const bounds = new Box3().setFromObject(stand)
-    stand.position.set(piece.x - bounds.min.x, piece.lift + 1 - bounds.min.y, piece.y - bounds.min.z)
+    // The plan's footprint is the carcass with its doors. Handles stick out in front of it, so the
+    // cabinet is lined up by its back: when the plan says the back is at the wall, so does the picture.
+    const turn = piece.turn
+    const span = piece.size
+      ? turn % 2 === 1
+        ? { w: piece.size.d, d: piece.size.w }
+        : { w: piece.size.w, d: piece.size.d }
+      : { w: bounds.max.x - bounds.min.x, d: bounds.max.z - bounds.min.z }
+    stand.userData.roomFoot = { w: span.w, d: span.d, h: bounds.max.y - bounds.min.y }
+    let px = piece.x - bounds.min.x
+    let pz = piece.y - bounds.min.z
+    if (piece.size && turn === 0) pz = piece.y + span.d - bounds.max.z
+    if (piece.size && turn === 1) px = piece.x + span.w - bounds.max.x
+    stand.position.set(px, piece.lift + 1 - bounds.min.y, pz)
+    const dims = piece.dims ?? 'outer'
+    if (dims === 'detail') {
+      addDimensions(root, solids, bin)
+    } else if (dims === 'outer') {
+      // In the room only the outer width, height and depth are written, not every inner size.
+      const span = outer.getSize(new Vector3())
+      addOverallDimensions(stand, outer, piece.size ?? { w: span.x, h: span.y, d: span.z }, bin)
+    }
     for (const door of built.doors) {
       const id = `${piece.id}:${door.key}`
       keepAngle(id, 'door')
@@ -1045,6 +1129,7 @@ export function mountRoomStudio(host: HTMLElement): RoomStudio {
         if (!movers.some((mover) => mover.id === id)) angles.delete(id)
       }
       applyMotion()
+      markPickedWall()
       outlinePicked()
 
       controls.maxDistance = span * 1.4
@@ -1104,6 +1189,7 @@ export function mountRoomStudio(host: HTMLElement): RoomStudio {
     setPicked(id) {
       if (id === pickedId) return
       pickedId = id
+      markPickedWall()
       outlinePicked()
     },
     onPick(listener) {
@@ -1153,6 +1239,8 @@ export function mountRoomStudio(host: HTMLElement): RoomStudio {
       window.removeEventListener('pointercancel', onFloorUp)
       sketchMesh.geometry.dispose()
       sketchMat.dispose()
+      wallMark.geometry.dispose()
+      wallMat.dispose()
       pickedId = null
       outlinePicked()
       controls.dispose()

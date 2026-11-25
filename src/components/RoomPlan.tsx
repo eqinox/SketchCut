@@ -1018,6 +1018,7 @@ export function RoomPlanView({
     <PieceEditor
       row={selectedRow}
       roomWidth={room.width}
+      roomDepth={room.depth}
       onPatch={(patch) => patchPiece(selected, patch)}
       onEdit={onEditCabinet}
       onRemove={removeSelected}
@@ -1667,12 +1668,14 @@ function FrontMark({ turn, x, y, w, h }: { turn: 0 | 1 | 2 | 3; x: number; y: nu
 function PieceEditor({
   row,
   roomWidth,
+  roomDepth,
   onPatch,
   onEdit,
   onRemove,
 }: {
   row: Placed | null
   roomWidth: number
+  roomDepth: number
   onPatch: (patch: Partial<RoomPiece>) => void
   onEdit?: (cabinetId: string) => void
   onRemove: () => void
@@ -1681,6 +1684,9 @@ function PieceEditor({
   if (!row) return null
   const nudge = (patch: Partial<RoomPiece>) => onPatch(patch)
   const { x, y, lift } = row.piece
+  // The back of the cabinet: turn 0 has it toward the back wall, then right, front, left.
+  const gap = [roomDepth - (y + row.d), roomWidth - (x + row.w), y, x][row.piece.turn] ?? 0
+  const backGap = Math.round(gap)
   const field = (label: string, value: number, key: 'x' | 'y' | 'lift') => (
     <div className="w-28">
       <Label>{label}</Label>
@@ -1692,6 +1698,17 @@ function PieceEditor({
       <div className="flex w-full flex-wrap items-center gap-2">
         <p className="text-sm font-medium">
           {row.name} · {formatMm(row.w)} × {formatMm(row.d)} × {formatMm(row.h)} мм. Челото сочи {FACING[row.piece.turn]}
+        </p>
+        <p
+          className={`w-full rounded px-2 py-1 text-sm font-medium ${
+            backGap === 0 ? 'bg-emerald-600/15 text-emerald-700' : 'bg-[var(--color-muted)] text-[var(--color-muted-foreground)]'
+          }`}
+        >
+          {backGap === 0
+            ? '✓ Гърбът е до стената'
+            : backGap > 0
+              ? `Гърбът е на ${formatMm(backGap)} мм от стената`
+              : `Гърбът влиза ${formatMm(-backGap)} мм в стената`}
         </p>
         {onEdit && (
           <Button type="button" size="sm" onClick={() => onEdit(row.piece.cabinetId)}>
