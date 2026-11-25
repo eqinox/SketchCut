@@ -1030,7 +1030,7 @@ export function RoomPlanView({
     const show3d = view !== '2d'
     return (
       <div
-        className="fixed inset-0 z-40 flex flex-col bg-[var(--color-background)] text-[var(--color-foreground)]"
+        className="fixed inset-0 z-40 flex flex-col pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] bg-[var(--color-background)] text-[var(--color-foreground)]"
         role="region"
         aria-label="Проектиране"
       >

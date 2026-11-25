@@ -544,7 +544,7 @@ function App() {
   return (
     <div className="flex min-h-dvh flex-col">
       <DbErrorBanner error={dbError} onDismiss={() => setDbError(null)} />
-      <header className="sticky top-0 z-40 border-b border-[var(--color-border)] bg-[var(--color-background)]/95 backdrop-blur supports-[backdrop-filter]:bg-[var(--color-background)]/80">
+      <header className="sticky top-0 z-40 border-b pt-[env(safe-area-inset-top)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] border-[var(--color-border)] bg-[var(--color-background)]/95 backdrop-blur supports-[backdrop-filter]:bg-[var(--color-background)]/80">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3">
           <div className="flex min-w-0 items-center gap-3">
             <div className="flex shrink-0 items-center gap-2">
