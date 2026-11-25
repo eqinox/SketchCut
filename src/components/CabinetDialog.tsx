@@ -3250,31 +3250,24 @@ function CabinetDialogForm({
             Изглед
             <select
               className="h-8 rounded-md border border-[var(--color-border)] bg-transparent px-2"
-              value={drawStyle}
+              value={drawStyle === 'model' ? (withRoom ? 'room' : 'model') : drawStyle}
+              aria-label="Изглед"
               onChange={(e) => {
                 const next = e.target.value
-                setDrawStyle(next === 'color' || next === 'model' ? next : 'line')
+                if (next === 'room' || next === 'model') {
+                  setDrawStyle('model')
+                  changeWithRoom(next === 'room')
+                  return
+                }
+                setDrawStyle(next === 'color' ? 'color' : 'line')
               }}
             >
-              <option value="model">3D</option>
+              <option value="room">3D в стаята</option>
+              <option value="model">3D само шкафа</option>
               <option value="color">Цветен</option>
               <option value="line">Чертеж</option>
             </select>
           </label>
-          {drawStyle === 'model' && (
-            <label className="flex items-center gap-2 text-sm">
-              Покажи
-              <select
-                className="h-8 rounded-md border border-[var(--color-border)] bg-transparent px-2"
-                value={withRoom ? 'room' : 'cabinet'}
-                aria-label="Покажи шкафа сам или в стаята"
-                onChange={(event) => changeWithRoom(event.target.value === 'room')}
-              >
-                <option value="room">Шкафа в стаята</option>
-                <option value="cabinet">Само шкафа</option>
-              </select>
-            </label>
-          )}
           <label className="flex items-center gap-2 text-sm">
             Дръжка
             <select
