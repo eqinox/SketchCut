@@ -141,7 +141,9 @@ export function DecorTextureProvider({
     // `key` already carries the colour and the photo, so a new array does not rebuild the sheet.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key])
-  return <DecorSheetContext.Provider value={sheets}>{children}</DecorSheetContext.Provider>
+  // With no photos of its own it passes on whatever the outer picture already loaded.
+  const outer = useContext(DecorSheetContext)
+  return <DecorSheetContext.Provider value={key ? sheets : outer}>{children}</DecorSheetContext.Provider>
 }
 
 function polyPts(...pts: DrawPt[]) {

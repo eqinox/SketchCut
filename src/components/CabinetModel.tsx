@@ -5,7 +5,8 @@ import { SceneCaptureContext, createCaptureStore, type CaptureStore } from '@/li
 import { CabinetRoom } from '@/components/CabinetRoom'
 import { ProjectRoomContext } from '@/lib/project-room'
 import { PieceColorChoiceContext } from '@/lib/piece-color-choice'
-import { KronospanFinishOptions } from '@/components/KronospanColors'
+import { KronospanColorGrid, KronospanFinishOptions } from '@/components/KronospanColors'
+import { kronospanBoardId, kronospanCodeFromFinish } from '@/lib/kronospan-color'
 import { mountCabinetStudio, type CabinetStudio, type StudioPick } from '@/lib/view3d/studio'
 
 export function CabinetModel({ store }: { store: CaptureStore }) {
@@ -36,8 +37,8 @@ export function CabinetModel({ store }: { store: CaptureStore }) {
             return
           }
           const rect = host.getBoundingClientRect()
-          const left = Math.min(Math.max(8, pick.clientX - rect.left), Math.max(8, rect.width - 220))
-          const top = Math.min(Math.max(8, pick.clientY - rect.top), Math.max(8, rect.height - 220))
+          const left = Math.min(Math.max(8, pick.clientX - rect.left), Math.max(8, rect.width - 330))
+          const top = Math.min(Math.max(8, pick.clientY - rect.top), Math.max(8, rect.height - 470))
           setOpened(pick.open)
           setMenu({ ...pick, left, top })
         },
@@ -71,7 +72,7 @@ export function CabinetModel({ store }: { store: CaptureStore }) {
         <div
           role="menu"
           aria-label={title}
-          className="absolute z-20 flex w-60 flex-col gap-2 rounded-md border border-neutral-300 bg-white p-2 text-sm text-neutral-900 shadow-lg"
+          className="absolute z-20 flex w-80 flex-col gap-2 rounded-md border border-neutral-300 bg-white p-2 text-sm text-neutral-900 shadow-lg"
           style={{ left: menu.left, top: menu.top }}
           onPointerDown={(event) => event.stopPropagation()}
           onContextMenu={(event) => event.preventDefault()}
@@ -121,15 +122,14 @@ export function CabinetModel({ store }: { store: CaptureStore }) {
           )}
           {/* The back is always white fibreboard for now, so it has no colour choice. */}
           {menu.piece && pieceColors && !menu.piece.startsWith('back') && (
-            <label className="flex flex-col gap-1 text-xs text-neutral-600">
-              Цвят само на този детайл
+            <div className="flex flex-col gap-1 text-xs text-neutral-600">
+              <span>Цвят само на този детайл</span>
               <select
                 aria-label="Цвят само на този детайл"
                 className="h-8 rounded border border-neutral-300 bg-white px-1 text-sm text-neutral-900"
                 value={ownColor}
                 onChange={(event) => {
                   if (menu.piece) pieceColors.choose(menu.piece, event.target.value)
-                  setMenu(null)
                 }}
               >
                 <option value="">Като останалите</option>
@@ -140,7 +140,18 @@ export function CabinetModel({ store }: { store: CaptureStore }) {
                   ? '🔒 Свой цвят: остава такъв, дори да смениш корпуса или вратите.'
                   : 'Избери цвят и той ще остане такъв, дори да смениш корпуса или вратите.'}
               </span>
-            </label>
+              {/* The same colour squares as in "Цветове", for this one piece. */}
+              <div className="max-h-64 overflow-y-auto rounded border border-neutral-200 p-1.5 text-neutral-900">
+                <KronospanColorGrid
+                  finishes={pieceColors.finishes}
+                  selectedCode={kronospanCodeFromFinish({ id: ownColor })}
+                  selectedId={ownColor}
+                  onPick={(board) => {
+                    if (menu.piece) pieceColors.choose(menu.piece, kronospanBoardId(board))
+                  }}
+                />
+              </div>
+            </div>
           )}
         </div>
       )}

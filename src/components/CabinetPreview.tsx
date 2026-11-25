@@ -542,7 +542,7 @@ function WithDecor({
   entries: { color: string; image: string }[]
   children: ReactNode
 }) {
-  if (entries.length === 0) return children
+  // Always the same wrapper: adding or dropping it would rebuild the 3D picture and close its menu.
   return <DecorTextureProvider entries={entries}>{children}</DecorTextureProvider>
 }
 
