@@ -223,8 +223,8 @@ export function RoomPlanView({
   const [selectedOpening, setSelectedOpening] = useState<string | null>(null)
   const [pick, setPick] = useState('')
   const [note, setNote] = useState('')
-  // Plan and 3D side by side, like PRO100. The picture starts on as soon as something stands in the room.
-  const [showPhoto, setShowPhoto] = useState(() => room.pieces.length > 0)
+  // Plan and 3D side by side, like PRO100. The 3D starts hidden: it keeps the computer busy while it is on.
+  const [showPhoto, setShowPhoto] = useState(false)
   // Full-screen design mode: the same room and cabinets, laid out like a drawing program.
   const [studio, setStudio] = useState(false)
   // Arrow keys, Page Up/Down and Delete act on the selected cabinet. Filled in after each render.
