@@ -6689,19 +6689,6 @@ function CabinetDialogForm({
                         className="w-32"
                       />
                     </div>
-                    <MirrorFields
-                      id="board-mirror"
-                      spec={boardMirror}
-                      onChange={setBoardMirror}
-                      wholeLabel="На цялата плоскост"
-                      allowHalo
-                      perM2={settings.hardware.mirrorEurPerM2}
-                      edgePerM={settings.hardware.mirrorEdgeEurPerM}
-                      sample={(() => {
-                        const board = result?.panels.find((panel) => isMirrorBoard(panel))
-                        return board ? { width: board.width, height: board.height, quantity: board.quantity } : null
-                      })()}
-                    />
                     <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
                       {(() => {
                         const opening = vanityOpening({
@@ -6735,6 +6722,36 @@ function CabinetDialogForm({
                     Без отвор тоалетката е едно шкафче по цялата широчина, с цокъл или с крачета.
                   </p>
                 )}
+              </FormSection>
+            )}
+            {typeId === 'vanity' && (
+              <FormSection
+                defaultOpen
+                title="Огледало"
+                summary={
+                  boardMirror.enabled
+                    ? boardMirror.halo
+                      ? `с осветление · ${MIRROR_HALO_LABEL[boardMirror.halo].toLowerCase()} светлина`
+                      : 'без осветление'
+                    : 'няма'
+                }
+              >
+                <p className="mt-0.5 text-xs text-[var(--color-muted-foreground)]">
+                  Огледалото е на плоскостта зад тоалетката, над плота. Може да е с осветление отзад (ореол).
+                </p>
+                <MirrorFields
+                  id="board-mirror"
+                  spec={boardMirror}
+                  onChange={setBoardMirror}
+                  wholeLabel="На цялата плоскост"
+                  allowHalo
+                  perM2={settings.hardware.mirrorEurPerM2}
+                  edgePerM={settings.hardware.mirrorEdgeEurPerM}
+                  sample={(() => {
+                    const board = result?.panels.find((panel) => isMirrorBoard(panel))
+                    return board ? { width: board.width, height: board.height, quantity: board.quantity } : null
+                  })()}
+                />
               </FormSection>
             )}
 
