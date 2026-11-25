@@ -55,7 +55,7 @@ export interface HardwareSettings {
   slidingLinks: SlidingHardwareLinks
   /** Clothes hanging rail, EUR per metre. */
   clothesRailEurPerM: number
-  /** Bought slat base for a bed, EUR each. A 200×160 cm frame is 112.40. */
+  /** Bought slat base for a bed, EUR each. A 200×160 cm frame is 120. */
   bedSlatFrameEur: number
   /** 3 mm mirror glass, EUR per square metre. */
   mirrorEurPerM2: number
@@ -160,11 +160,11 @@ export const DEFAULT_HARDWARE_SETTINGS: HardwareSettings = {
   slidingCapSkus: DEFAULT_SLIDING_CAP_SKUS.map((sku) => ({ ...sku })),
   slidingLinks: { ...DEFAULT_SLIDING_LINKS },
   clothesRailEurPerM: 1,
-  bedSlatFrameEur: 112.4,
+  bedSlatFrameEur: 120,
   mirrorEurPerM2: 38.4,
   mirrorEdgeEurPerM: 1.79,
   mirrorSiliconeEur: 5,
-  bedLiftMechanismEur: 0,
+  bedLiftMechanismEur: 25,
   edgeMm2Eur: 0.7,
   edgeMm05Eur: 0.35,
   billWholeSheets: true,
@@ -205,6 +205,11 @@ function mergePriceMap(defaults: PriceByLength, raw: unknown): PriceByLength {
   return out
 }
 
+/** A saved price that is one of the old built-in ones gives way to the current one. */
+function newerPrice(saved: number, old: number[], current: number): number {
+  return old.includes(saved) ? current : saved
+}
+
 /** Normalize stored/DB JSON into a full settings object. */
 export function parseHardwareSettings(raw: unknown): HardwareSettings {
   const src = raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {}
@@ -233,11 +238,13 @@ export function parseHardwareSettings(raw: unknown): HardwareSettings {
     slidingCapSkus: parseSlidingSkuList(src.slidingCapSkus, d.slidingCapSkus),
     slidingLinks: parseSlidingLinks(src.slidingLinks),
     clothesRailEurPerM: num(src, 'clothesRailEurPerM', d.clothesRailEurPerM),
-    bedSlatFrameEur: num(src, 'bedSlatFrameEur', d.bedSlatFrameEur) || d.bedSlatFrameEur,
+    // 112.4 was the old price that came with the program. It went up to 120, so the old one is replaced.
+    bedSlatFrameEur: newerPrice(num(src, 'bedSlatFrameEur', d.bedSlatFrameEur), [0, 112.4], d.bedSlatFrameEur),
     mirrorEurPerM2: num(src, 'mirrorEurPerM2', d.mirrorEurPerM2),
     mirrorEdgeEurPerM: num(src, 'mirrorEdgeEurPerM', d.mirrorEdgeEurPerM),
     mirrorSiliconeEur: num(src, 'mirrorSiliconeEur', d.mirrorSiliconeEur),
-    bedLiftMechanismEur: num(src, 'bedLiftMechanismEur', d.bedLiftMechanismEur),
+    // 0 meant the price was never set. The mechanism with dampers costs 25 €.
+    bedLiftMechanismEur: newerPrice(num(src, 'bedLiftMechanismEur', d.bedLiftMechanismEur), [0], d.bedLiftMechanismEur),
     edgeMm2Eur: num(src, 'edgeMm2Eur', d.edgeMm2Eur),
     edgeMm05Eur: num(src, 'edgeMm05Eur', d.edgeMm05Eur),
     billWholeSheets: flag(src, 'billWholeSheets', d.billWholeSheets),

@@ -852,7 +852,7 @@ export function SettingsDialog({
                 onChange={(e) => setBedLiftPrice(e.target.value)}
               />
               <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
-                Рамка 200×160 см е 112,40 €. Рамката е 20 мм и се кантира. Механизмът е един за ляво и дясно.
+                Рамка 200×160 см е 120 €. Рамката е 20 мм и се кантира. Механизмът с амортисьори е 25 € — един за ляво и дясно.
               </p>
             </div>
             <div className="rounded-md border border-[var(--color-border)] p-4 sm:col-span-2">
