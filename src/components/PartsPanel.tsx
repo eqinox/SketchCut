@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
 import type { Part, Sheet } from '@/types'
-import { partMayTurn } from '@/lib/sheet-sync'
+import { partOnSmoothBoard } from '@/lib/sheet-sync'
 import { generateId } from '@/lib/utils'
 import { reorderItems } from '@/lib/reorder'
 
@@ -270,7 +270,7 @@ export function PartsPanel({ parts, onChange, onClear, sheets = [] }: PartsPanel
                   <td className="py-2 pr-1">
                     {(() => {
                       // Cut from a board without grain it looks the same either way, so it always turns.
-                      const smooth = !part.canRotate && partMayTurn(part, sheets)
+                      const smooth = partOnSmoothBoard(part, sheets)
                       const turns = part.canRotate || smooth
                       return (
                     <Button

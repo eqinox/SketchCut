@@ -32,16 +32,20 @@ export function syncSheets(sheets: Sheet[], parts: Part[], finishes: BoardFinish
     return usesPlain || chipParts.length === 0
   })
   return kept.map((sheet) => {
-    if (sheetKind(sheet) !== 'chipboard' || !sheet.finishId || sheet.grainByHand) return sheet
+    if (sheet.grainByHand) return sheet
+    // Фазер is the same all over, so its parts turn freely.
+    if (sheetKind(sheet) === 'hardboard') return sheet.hasGrain === false ? sheet : { ...sheet, hasGrain: false }
+    if (!sheet.finishId) return sheet
     const grain = finishHasGrain(sheet.finishId)
     return grain === undefined || grain === sheet.hasGrain ? sheet : { ...sheet, hasGrain: grain }
   })
 }
 
-/** Whether a part may be turned when cut: always when its board has no grain. */
-export function partMayTurn(part: Part, sheets: Sheet[]): boolean {
-  if (part.canRotate) return true
+/** True when the part's board has no grain: then it turns either way, whatever its own setting says. */
+export function partOnSmoothBoard(part: Part, sheets: Sheet[]): boolean {
   const kind = partKind(part)
-  const board = sheets.find((sheet) => sheetKind(sheet) === kind && (sheet.finishId ?? '') === (part.finishId ?? ''))
+  const board = sheets.find(
+    (sheet) => sheetKind(sheet) === kind && (kind === 'hardboard' || (sheet.finishId ?? '') === (part.finishId ?? '')),
+  )
   return board?.hasGrain === false
 }
