@@ -369,6 +369,46 @@ function App() {
     setHardboardResult(null)
   }
 
+  // Undo and redo for the design view: moves, new and removed cabinets, edits and colour swaps.
+  // Each step keeps the whole room and cabinet list as it was, so going back is exact.
+  type Snapshot = { room: RoomPlan; cabinets: CabinetInstance[]; parts: Part[]; edgeBanding: PartEdgeBanding[]; sheets: Sheet[] }
+  const [past, setPast] = useState<Snapshot[]>([])
+  const [future, setFuture] = useState<Snapshot[]>([])
+  // A drag or a held arrow key sends many small changes. They become one step.
+  const lastStep = useRef(0)
+  const snapshot = (): Snapshot => ({ room, cabinets, parts, edgeBanding, sheets })
+  const remember = () => {
+    const now = Date.now()
+    const joined = now - lastStep.current < 600
+    lastStep.current = now
+    if (joined) return
+    setPast((steps) => [...steps.slice(-99), snapshot()])
+    setFuture([])
+  }
+  const restore = (step: Snapshot) => {
+    setRoom(step.room)
+    setCabinets(step.cabinets)
+    setParts(step.parts)
+    setEdgeBanding(step.edgeBanding)
+    setSheets(step.sheets)
+    resetPacking()
+    lastStep.current = 0
+  }
+  const handleUndo = () => {
+    const step = past[past.length - 1]
+    if (!step) return
+    setPast(past.slice(0, -1))
+    setFuture([...future, snapshot()])
+    restore(step)
+  }
+  const handleRedo = () => {
+    const step = future[future.length - 1]
+    if (!step) return
+    setFuture(future.slice(0, -1))
+    setPast([...past, snapshot()])
+    restore(step)
+  }
+
   const clearChipboardSheets = () => {
     setSheets((prev) => prev.filter((s) => sheetKind(s) !== 'chipboard'))
     setPackingResult(null)
@@ -432,6 +472,7 @@ function App() {
     input: { typeId: string; params: Record<string, unknown> },
     piece: Omit<RoomPiece, 'cabinetId'>,
   ) => {
+    remember()
     const before = new Set(cabinetState.cabinets.map((cabinet) => cabinet.id))
     const next = addCabinetAndLabel(cabinetState, { ...input, quantity: 1 }, { hardware: settings, assemblyTime: assemblyTimeSettings })
     const made = next.cabinets.find((cabinet) => !before.has(cabinet.id))
@@ -448,6 +489,7 @@ function App() {
     cabinetId: string,
     input: { typeId: string; params: Record<string, unknown>; quantity: number },
   ) => {
+    remember()
     const next = updateCabinetAndLabel(cabinetState, cabinetId, input, { hardware: settings, assemblyTime: assemblyTimeSettings })
     setCabinets(next.cabinets)
     setParts(next.parts)
@@ -470,6 +512,7 @@ function App() {
   }
 
   const handleRemoveCabinet = (cabinetId: string) => {
+    remember()
     const next = removeCabinetAndLabel(cabinetState, cabinetId, { hardware: settings, assemblyTime: assemblyTimeSettings })
     setCabinets(next.cabinets)
     setParts(next.parts)
@@ -489,6 +532,7 @@ function App() {
 
   /** Puts `to` everywhere the project uses `from`: carcasses, doors and single pieces. */
   const handleSwapColor = (from: string, to: string) => {
+    remember()
     let hardware = settings
     const board = to ? kronospanBoardByFinishId(to) : undefined
     if (board) {
@@ -697,7 +741,13 @@ function App() {
           cabinets={cabinets}
           finishes={settings.boardFinishes}
           userId={user?.uid ?? null}
-          onChange={setRoom}
+          onChange={(next) => {
+            remember()
+            setRoom(next)
+          }}
+          onUndo={past.length > 0 ? handleUndo : undefined}
+          onRedo={future.length > 0 ? handleRedo : undefined}
+          undoCount={past.length}
           onEditCabinet={(cabinetId) => setEditRequest({ cabinetId, nonce: Date.now() })}
           onCreateCabinet={handleDrawCabinet}
           onRemoveCabinet={handleRemoveCabinet}

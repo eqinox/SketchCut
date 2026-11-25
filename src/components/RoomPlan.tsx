@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent, type ReactNode } from 'react'
-import { Palette } from 'lucide-react'
+import { Palette, Redo2, Undo2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ProjectColors } from '@/components/ProjectColors'
 import { Label } from '@/components/ui/label'
@@ -209,6 +209,9 @@ export function RoomPlanView({
   onRemoveCabinet,
   onSwapColor,
   projectPriceEur,
+  onUndo,
+  onRedo,
+  undoCount = 0,
 }: {
   room: RoomPlan
   cabinets: CabinetInstance[]
@@ -225,6 +228,12 @@ export function RoomPlanView({
   onSwapColor?: (from: string, to: string) => void
   /** The whole project's price, so a colour change shows what it costs. */
   projectPriceEur?: number | null
+  /** Steps back one change. Missing when there is nothing to undo. */
+  onUndo?: () => void
+  /** Puts back a change that was undone. Missing when there is nothing to redo. */
+  onRedo?: () => void
+  /** How many steps can be undone, shown on the button. */
+  undoCount?: number
 }) {
   const [pen, setPen] = useState<RoomOpeningKind | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
@@ -969,6 +978,18 @@ export function RoomPlanView({
     studioKey.current = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null
       if (target && (target.isContentEditable || ['INPUT', 'SELECT', 'TEXTAREA'].includes(target.tagName))) return
+      // Ctrl+Z steps back, Ctrl+Y or Ctrl+Shift+Z steps forward again.
+      if (event.ctrlKey || event.metaKey) {
+        // By the key's place, not its letter, so it also works with the Bulgarian keyboard on.
+        const isZ = event.code === 'KeyZ'
+        const isY = event.code === 'KeyY'
+        if (isZ || isY) {
+          event.preventDefault()
+          if (isY || event.shiftKey) onRedo?.()
+          else onUndo?.()
+          return
+        }
+      }
       if (!selectedRow) return
       const step = event.shiftKey ? 100 : 10
       const { x, y, lift } = selectedRow.piece
@@ -1092,6 +1113,30 @@ export function RoomPlanView({
             Редактирай шкафа
           </Button>
           <span className="mx-1 h-6 w-px bg-[var(--color-border)]" aria-hidden />
+          <div className="flex overflow-hidden rounded-md border border-[var(--color-border)]" role="group" aria-label="История">
+            <button
+              type="button"
+              className="flex items-center gap-1 px-2.5 py-1.5 text-sm hover:bg-[var(--color-muted)] disabled:opacity-40 disabled:hover:bg-transparent"
+              disabled={!onUndo}
+              onClick={() => onUndo?.()}
+              title="Върни последната промяна (Ctrl+Z)"
+              aria-label={`Отмени${undoCount > 0 ? `, ${undoCount} стъпки` : ''}`}
+            >
+              <Undo2 className="h-4 w-4" />
+              Отмени{undoCount > 0 ? <span className="text-xs opacity-70">({undoCount})</span> : null}
+            </button>
+            <button
+              type="button"
+              className="flex items-center gap-1 border-l border-[var(--color-border)] px-2.5 py-1.5 text-sm hover:bg-[var(--color-muted)] disabled:opacity-40 disabled:hover:bg-transparent"
+              disabled={!onRedo}
+              onClick={() => onRedo?.()}
+              title="Пусни пак върнатата промяна (Ctrl+Y)"
+              aria-label="Повтори"
+            >
+              <Redo2 className="h-4 w-4" />
+              Повтори
+            </button>
+          </div>
           {onSwapColor && (
             <Button
               type="button"
