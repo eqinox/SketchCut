@@ -196,7 +196,6 @@ export function mountCabinetStudio(
   // Keep drawing for a short while after anything happens (a click, a drag, new content).
   let drawUntil = 0
   let lastDraw = 0
-  let frameNo = 0
   // Until when shadows are worked out again: after new content or a moved cabinet.
   let shadowUntil = performance.now() + 2000
   const invalidate = (ms = 600) => {
@@ -387,9 +386,8 @@ export function mountCabinetStudio(
     const turned = controls.update()
     if (moving || turned || now < drawUntil || now - lastDraw > 1000) {
       if (moving || now < shadowUntil) renderer.shadowMap.needsUpdate = true
-      // While the view turns, mirrors refresh every third frame; still, every frame.
-      frameNo += 1
-      mirrorRefresh.live = !turned || frameNo % 3 === 0
+      // Mirrors follow the camera on every drawn frame, so the reflection is right from any angle.
+      mirrorRefresh.live = true
       renderer.render(scene, camera)
       labels.render(scene, camera)
       lastDraw = now

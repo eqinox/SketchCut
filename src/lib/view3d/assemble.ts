@@ -63,9 +63,9 @@ function addReflection(
 ) {
   if (!(width > 1 && height > 1)) return
   const geo = new PlaneGeometry(width, height)
-  // About 0.6 texture pixels per millimetre and at most 640 across: sharp enough on screen,
-  // light enough that a room with several mirrors stays smooth.
-  const scale = Math.min(0.6, 640 / Math.max(width, height))
+  // About 0.8 texture pixels per millimetre and at most 1024 across: sharp on screen, and still
+  // light because the picture is only drawn while something changes.
+  const scale = Math.min(0.8, 1024 / Math.max(width, height))
   const mirror = new Reflector(geo, {
     textureWidth: Math.max(128, Math.round(width * scale)),
     textureHeight: Math.max(128, Math.round(height * scale)),
