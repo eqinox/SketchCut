@@ -14,7 +14,7 @@ import {
   type DrawCam,
 } from '@/lib/cabinets/draw-3d'
 import { BED_FRAME_HEIGHT_MM, measureBed, type BedParams } from '@/lib/cabinets/bed'
-import { useCaptureSolid, type SceneSolid } from '@/lib/cabinets/scene-solids'
+import { STEEL, useCaptureSolid, type SceneSolid } from '@/lib/cabinets/scene-solids'
 import { formatMm } from '@/lib/utils'
 
 type ScreenPt = { x: number; y: number }
@@ -179,11 +179,27 @@ export function BedPreview({ params, showDims }: { params: BedParams; showDims: 
   const frameTop = innerY - BED_FRAME_HEIGHT_MM
   const frame = slatFrameParts(T, m.topWidth, zSide, sideD, frameTop)
   const lifts = params.liftMechanism && liftD > 40
-  // Gas springs: fixed low on the mechanism panel, the other end on the frame further toward the foot.
-  const strutAt = (x: number) => ({
-    a: [x, innerY + m.innerHeight * 0.55, zEnd - T - liftD * 0.25] as [number, number, number],
-    b: [x, innerY - 10, Math.max(zSide + 80, zEnd - T - liftD - 120)] as [number, number, number],
-  })
+  // The bought lift mechanism, one on each side, like the usual black steel kit:
+  // a base bar screwed to the mechanism panel, a top bar screwed under the frame, a short arm
+  // by the head, a long diagonal arm in the middle, and the gas spring toward the foot.
+  const panelFoot = zEnd - T - liftD
+  const panelHead = zEnd - T
+  const baseY = innerY + m.innerHeight * 0.6
+  const topY = innerY + 14
+  const pin = (x: number, y: number, z: number) => [x, y, z] as [number, number, number]
+  const mechanism = (x: number) => {
+    const base = { x: x - 2.5, y: baseY - 15, z: panelFoot + 20, w: 5, h: 30, d: liftD - 40, color: STEEL }
+    const topBar = { x: x - 2.5, y: innerY + 2, z: panelFoot - 60, w: 5, h: 26, d: liftD + 40, color: STEEL }
+    const arms = [
+      // Short arm by the head.
+      { a: pin(x, baseY, panelHead - 40), b: pin(x, topY, panelHead - 20) },
+      // Long diagonal arm.
+      { a: pin(x, baseY, panelFoot + liftD * 0.62), b: pin(x, topY, panelFoot + liftD * 0.3) },
+    ]
+    const strut = { a: pin(x, baseY, panelFoot + 45), b: pin(x, topY, panelFoot - 35) }
+    return { base, topBar, arms, strut }
+  }
+  const sides = [mechanism(3 * T + 4), mechanism(m.width - 3 * T - 4)]
   const liftSolid: Extract<SceneSolid, { kind: 'lift' }> | null = lifts
     ? {
         kind: 'lift',
@@ -191,8 +207,10 @@ export function BedPreview({ params, showDims }: { params: BedParams; showDims: 
         pivotY: innerY,
         pivotZ: zEnd,
         openDeg: LIFT_OPEN_DEG,
-        parts: frame,
-        struts: params.liftDampers ? [strutAt(3 * T + 15), strutAt(m.width - 3 * T - 15)] : [],
+        parts: [...frame, ...sides.map((side) => side.topBar)],
+        base: sides.map((side) => side.base),
+        arms: sides.flatMap((side) => side.arms),
+        struts: params.liftDampers ? sides.map((side) => side.strut) : [],
       }
     : null
 

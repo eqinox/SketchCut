@@ -1,6 +1,9 @@
 import { createContext, useContext, useLayoutEffect, useRef } from 'react'
 import type { PullSku } from '@/lib/cabinets/pulls'
 
+/** Colour a drawing gives bought steel (a bed's lift mechanism). 3D draws it as dark painted metal. */
+export const STEEL = '#1c1c1e'
+
 /** A piece in the same millimetre space as the drawing. y grows downward, z toward the back. */
 export type SceneSolid =
   | {
@@ -58,6 +61,10 @@ export type SceneSolid =
       openDeg: number
       parts: { x: number; y: number; z: number; w: number; h: number; d: number; color: string }[]
       struts: { a: [number, number, number]; b: [number, number, number] }[]
+      /** Steel that stays on the bed: the mechanism's base bar screwed to the side. */
+      base?: { x: number; y: number; z: number; w: number; h: number; d: number; color: string }[]
+      /** Steel arms of the mechanism, from a pin on the base bar (`a`) to a pin on the frame (`b`). */
+      arms?: { a: [number, number, number]; b: [number, number, number] }[]
     }
   | {
       kind: 'rail'
@@ -146,6 +153,8 @@ function placeSolid(solid: SceneSolid, place: { x: number; y: number; localLeft:
       pivotY: solid.pivotY + dy,
       parts: solid.parts.map((part) => ({ ...part, x: part.x + dx, y: part.y + dy })),
       struts: solid.struts.map((strut) => ({ a: shift(strut.a), b: shift(strut.b) })),
+      base: solid.base?.map((part) => ({ ...part, x: part.x + dx, y: part.y + dy })),
+      arms: solid.arms?.map((arm) => ({ a: shift(arm.a), b: shift(arm.b) })),
     }
   }
   const moved = { ...solid, x: solid.x + dx, y: solid.y + dy }

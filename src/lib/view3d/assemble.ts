@@ -7,7 +7,7 @@ import {
   Vector3,
 } from 'three'
 import type { DecorSheet } from '@/lib/finish-photo'
-import type { SceneSolid } from '@/lib/cabinets/scene-solids'
+import { STEEL, type SceneSolid } from '@/lib/cabinets/scene-solids'
 import { boardMaterials, metalMaterial, type Disposable } from '@/lib/view3d/materials'
 import { doorKey, doorMatrix, type DoorSolid } from '@/lib/view3d/door-pose'
 import { addEuropeanHinge, type HingeRig } from '@/lib/view3d/hinge'
@@ -233,6 +233,7 @@ function addDrawer(
 }
 
 const X_AXIS = new Vector3(1, 0, 0)
+
 const UP = new Vector3(0, 1, 0)
 
 /** Drawing millimetres (y down, z into the cabinet) to the 3D picture's space. */
@@ -253,22 +254,37 @@ function addLift(
   const group = new Group()
   group.position.copy(pivot)
   parent.add(group)
-  for (const part of solid.parts) {
+  const steel = metalMaterial('#1c1c1e', bin, 0.5)
+  const addPart = (into: Group, part: { x: number; y: number; z: number; w: number; h: number; d: number; color: string }, shift: Vector3) => {
     const geo = new BoxGeometry(part.w, part.h, part.d)
-    const mat = new MeshStandardMaterial({ color: part.color, roughness: 0.7, metalness: 0 })
+    const isSteel = part.color === STEEL
+    const mat = isSteel ? steel : new MeshStandardMaterial({ color: part.color, roughness: 0.7, metalness: 0 })
     const mesh = new Mesh(geo, mat)
-    mesh.position.set(part.x + part.w / 2, -(part.y + part.h / 2), -(part.z + part.d / 2)).sub(pivot)
+    mesh.position.set(part.x + part.w / 2, -(part.y + part.h / 2), -(part.z + part.d / 2)).sub(shift)
     mesh.castShadow = true
     mesh.receiveShadow = true
-    group.add(mesh)
-    bin.push({ dispose: () => geo.dispose() }, { dispose: () => mat.dispose() })
+    into.add(mesh)
+    bin.push({ dispose: () => geo.dispose() })
+    if (!isSteel) bin.push({ dispose: () => (mat as MeshStandardMaterial).dispose() })
   }
+  for (const part of solid.parts) addPart(group, part, pivot)
+  // The base bar stays on the bed side; it is not part of what lifts.
+  for (const part of solid.base ?? []) addPart(parent, part, new Vector3())
   // A gas spring: a thick black body from the bed, a thin shiny rod to the frame.
   const bodyGeo = new CylinderGeometry(11, 11, 1, 16)
   const rodGeo = new CylinderGeometry(4.5, 4.5, 1, 12)
   const bodyMat = metalMaterial('#1f2937', bin, 0.45)
   const rodMat = metalMaterial('#cbd5e1', bin, 0.2)
   bin.push({ dispose: () => bodyGeo.dispose() }, { dispose: () => rodGeo.dispose() })
+  // Flat steel arms between a pin on the base bar and a pin on the frame's bar.
+  const armGeo = new BoxGeometry(1, 1, 1)
+  bin.push({ dispose: () => armGeo.dispose() })
+  const arms = (solid.arms ?? []).map((arm) => {
+    const mesh = new Mesh(armGeo, steel)
+    mesh.castShadow = true
+    parent.add(mesh)
+    return { a: scenePoint(arm.a), b: scenePoint(arm.b).sub(pivot), mesh }
+  })
   const struts = solid.struts.map((strut) => {
     const body = new Mesh(bodyGeo, bodyMat)
     const rod = new Mesh(rodGeo, rodMat)
@@ -294,6 +310,15 @@ function addLift(
     const angle = -(openDeg * Math.PI) / 180
     group.rotation.x = angle
     group.updateMatrixWorld(true)
+    for (const arm of arms) {
+      const end = arm.b.clone().applyAxisAngle(X_AXIS, angle).add(pivot)
+      const dir = end.clone().sub(arm.a)
+      const length = Math.max(1, dir.length())
+      arm.mesh.quaternion.setFromUnitVectors(UP, dir.multiplyScalar(1 / length))
+      // 5 mm steel, 24 mm wide, laid flat against the side.
+      arm.mesh.scale.set(5, length + 24, 24)
+      arm.mesh.position.copy(arm.a).add(end).multiplyScalar(0.5)
+    }
     for (const strut of struts) {
       const end = strut.b.clone().applyAxisAngle(X_AXIS, angle).add(pivot)
       const span = end.distanceTo(strut.a)
