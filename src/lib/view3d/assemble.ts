@@ -1,7 +1,9 @@
-import { Reflector } from 'three/addons/objects/Reflector.js'
 import {
   BoxGeometry,
-  PlaneGeometry,
+  CubeCamera,
+  Object3D,
+  Scene,
+  WebGLRenderer,
   CylinderGeometry,
   Group,
   Mesh,
@@ -34,11 +36,13 @@ export type AnimatedDrawer = {
 
 function mirrorFace(bin: Disposable[]) {
   const mat = new MeshStandardMaterial({
-    color: '#f7fcff',
-    metalness: 0.94,
-    roughness: 0.06,
-    envMapIntensity: 1.4,
+    color: '#eef3f5',
+    metalness: 1,
+    roughness: 0.02,
+    envMapIntensity: 1,
   })
+  // The studio puts the room picture on every material marked like this.
+  mat.userData.mirror = true
   bin.push({ dispose: () => mat.dispose() })
   return mat
 }
@@ -48,57 +52,42 @@ function mirrorFace(bin: Disposable[]) {
  * the floor). It sits a hair in front of the glass board, facing `outward` (+1 or -1 along z).
  */
 /**
- * Whether mirrors redraw their reflection on this frame. The render loop turns it off on most
- * frames while the camera is moving, so turning the view stays smooth; when it stops they catch up.
+ * Mirrors show a picture of the room taken all round (a cube map). The studio takes it again
+ * whenever the room changes and hands it over here; between changes nothing extra is drawn, so a
+ * mirror costs nothing while the view turns, and it reflects from any angle.
  */
-export const mirrorRefresh = { live: true, moving: false }
-
-/**
- * What a scene shows only inside mirrors (the far sides of its walls, a room around a lone
- * cabinet). `before` runs just before a mirror draws its reflection, `after` right after.
- */
-const reflectionHooks = new WeakMap<object, { before(): void; after(): void }>()
-export function setReflectionHooks(scene: object, hooks: { before(): void; after(): void }) {
-  reflectionHooks.set(scene, hooks)
-}
-
-function addReflection(
-  into: Group,
-  width: number,
-  height: number,
-  at: Vector3,
-  outward: 1 | -1,
-  bin: Disposable[],
-) {
-  if (!(width > 1 && height > 1)) return
-  const geo = new PlaneGeometry(width, height)
-  // Sharp when the picture stands still (up to 2048 across), a third of that while it turns so
-  // turning stays smooth. The size is switched on the fly.
-  const scale = Math.min(1.8, 2048 / Math.max(width, height))
-  const sharp = { w: Math.max(128, Math.round(width * scale)), h: Math.max(128, Math.round(height * scale)) }
-  const rough = { w: Math.max(96, Math.round(sharp.w / 3)), h: Math.max(96, Math.round(sharp.h / 3)) }
-  const mirror = new Reflector(geo, {
-    textureWidth: sharp.w,
-    textureHeight: sharp.h,
-    // A touch of grey-blue: real mirror glass does not give back all the light.
-    color: 0xc4ccd0,
-    clipBias: 0.003,
+export function refreshMirrors(
+  scene: Object3D,
+  renderer: WebGLRenderer,
+  cube: CubeCamera,
+  showDuring: Object3D[] = [],
+): boolean {
+  const mirrors: MeshStandardMaterial[] = []
+  const hidden: Object3D[] = []
+  scene.traverse((object) => {
+    const material = (object as Mesh).material
+    const list = Array.isArray(material) ? material : material ? [material] : []
+    const glass = list.filter((item): item is MeshStandardMaterial => item.userData.mirror === true)
+    if (glass.length === 0) return
+    for (const item of glass) if (!mirrors.includes(item)) mirrors.push(item)
+    // A mirror must not be in its own picture.
+    if (object.visible) {
+      object.visible = false
+      hidden.push(object)
+    }
   })
-  mirror.position.copy(at)
-  if (outward === -1) mirror.rotation.y = Math.PI
-  const reflect = mirror.onBeforeRender.bind(mirror)
-  const target = mirror.getRenderTarget()
-  mirror.onBeforeRender = (...args) => {
-    if (!mirrorRefresh.live) return
-    const want = mirrorRefresh.moving ? rough : sharp
-    if (target.width !== want.w || target.height !== want.h) target.setSize(want.w, want.h)
-    const hooks = reflectionHooks.get(args[1])
-    hooks?.before()
-    reflect(...args)
-    hooks?.after()
+  if (mirrors.length === 0) return false
+  for (const object of showDuring) object.visible = true
+  cube.update(renderer, scene as Scene)
+  for (const object of showDuring) object.visible = false
+  for (const object of hidden) object.visible = true
+  for (const material of mirrors) {
+    if (material.envMap !== cube.renderTarget.texture) {
+      material.envMap = cube.renderTarget.texture
+      material.needsUpdate = true
+    }
   }
-  into.add(mirror)
-  bin.push({ dispose: () => mirror.dispose() }, { dispose: () => geo.dispose() })
+  return true
 }
 
 function mirrorFaces(bin: Disposable[]) {
@@ -129,7 +118,6 @@ function addBox(
   parent.add(mesh)
   bin.push({ dispose: () => geo.dispose() })
   // The front face (larger three.js z) of a mirror board shows the room.
-  if (solid.mirrorGlass) addReflection(parent, solid.w, solid.h, mesh.position.clone().setZ(mesh.position.z + solid.d / 2 + 0.4), 1, bin)
   if (solid.pull && !solid.slide) addFrontHandle(parent, solid, bin)
 }
 
@@ -190,7 +178,6 @@ function addDoor(
     glassMesh.castShadow = true
     group.add(glassMesh)
     bin.push({ dispose: () => glassGeo.dispose() })
-    addReflection(group, glass.width, glass.height, new Vector3(cx, cy, -solid.thickness / 2 - depth - 0.4), -1, bin)
   }
 
   const hinges = (solid.hingeFromTop ?? []).map((fromTop) =>

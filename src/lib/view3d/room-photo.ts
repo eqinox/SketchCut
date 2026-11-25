@@ -1,6 +1,8 @@
 import {
   ACESFilmicToneMapping,
-  BackSide,
+  CubeCamera,
+  HalfFloatType,
+  WebGLCubeRenderTarget,
   Box3,
   Box3Helper,
   BoxGeometry,
@@ -45,7 +47,7 @@ import {
   type RoomOpening,
   type RoomWall,
 } from '@/lib/room-openings'
-import { buildCabinet, mirrorRefresh, setReflectionHooks } from '@/lib/view3d/assemble'
+import { buildCabinet, refreshMirrors } from '@/lib/view3d/assemble'
 import type { Disposable } from '@/lib/view3d/materials'
 
 export type RoomPlacement = {
@@ -335,25 +337,13 @@ export function mountRoomStudio(host: HTMLElement): RoomStudio {
     right: rightWall,
   }
   for (const name of Object.keys(wallOf) as RoomWall[]) wallOf[name].userData.roomWall = name
-  // The walls and ceiling are seen from inside only, so the camera outside the room looks in.
-  // A mirror looks at them from another side; for its reflection their far sides are shown too,
-  // otherwise it would show empty space where a wall should be.
-  const farSides = [ceiling, backWall, frontWall, leftWall, rightWall].map((mesh) => {
-    const material = (mesh.material as MeshStandardMaterial).clone()
-    material.side = BackSide
-    const far = new Mesh(mesh.geometry, material)
-    far.visible = false
-    mesh.add(far)
-    return far
-  })
-  setReflectionHooks(scene, {
-    before: () => {
-      for (const far of farSides) far.visible = true
-    },
-    after: () => {
-      for (const far of farSides) far.visible = false
-    },
-  })
+  // Mirrors show a picture of the room taken all round from its middle (see refreshMirrors).
+  // From inside the room every wall and the ceiling face the camera, so the picture is whole.
+  const mirrorShot = new WebGLCubeRenderTarget(512, { type: HalfFloatType })
+  const mirrorCamera = new CubeCamera(20, 40000, mirrorShot)
+  scene.add(mirrorCamera)
+  let mirrorsDirty = true
+  let mirrorsAgainAt = 0
   const features = new Group()
   shell.add(features)
   let featureBin: Disposable[] = []
@@ -477,8 +467,15 @@ export function mountRoomStudio(host: HTMLElement): RoomStudio {
       if (moving || now < shadowUntil) renderer.shadowMap.needsUpdate = true
       // Mirrors follow the camera on every drawn frame, so the reflection is right from any angle;
       // lighter while the view moves, full sharpness on the frame after it stops.
-      mirrorRefresh.live = true
-      mirrorRefresh.moving = moving || turned
+      if (mirrorsDirty || (mirrorsAgainAt && now > mirrorsAgainAt)) {
+        // Stand in the middle of the room at about eye height, then photograph all round.
+        const middle = view.localToWorld(new Vector3(roomSize.width / 2, 1300, roomSize.depth / 2))
+        mirrorCamera.position.copy(middle)
+        refreshMirrors(scene, renderer, mirrorCamera)
+        // Once more a moment later, when the board photos have loaded.
+        mirrorsAgainAt = mirrorsDirty ? now + 1500 : 0
+        mirrorsDirty = false
+      }
       renderer.render(scene, camera)
       labels.render(scene, camera)
       lastDraw = now
@@ -1182,6 +1179,7 @@ export function mountRoomStudio(host: HTMLElement): RoomStudio {
         api[key] = ((...args: unknown[]) => {
           invalidate(1200)
           shadowUntil = performance.now() + 1200
+          mirrorsDirty = true
           return (value as (...a: unknown[]) => unknown)(...args)
         }) as T[keyof T]
       }
@@ -1343,7 +1341,7 @@ export function mountRoomStudio(host: HTMLElement): RoomStudio {
       pickedId = null
       outlinePicked()
       controls.dispose()
-      for (const far of farSides) (far.material as MeshStandardMaterial).dispose()
+      mirrorShot.dispose()
       window.removeEventListener('pointerup', wake)
       for (const item of bin) item.dispose()
       floor.geometry.dispose()

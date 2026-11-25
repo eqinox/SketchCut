@@ -51,7 +51,8 @@ function faceTexture(sheet: DecorSheet, faceW: number, faceH: number, anisotropy
 function laminate(color: string, map: Texture | undefined, bin: Disposable[]) {
   const mat = new MeshPhysicalMaterial({
     color: map ? '#ffffff' : color,
-    map,
+    // Only with a photo: three.js warns on every board given `map: undefined`, thousands of times.
+    ...(map ? { map } : {}),
     roughness: 0.38,
     metalness: 0.03,
     clearcoat: 0.2,

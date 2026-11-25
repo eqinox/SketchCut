@@ -7,6 +7,9 @@ import {
   Mesh,
   MeshStandardMaterial,
   BackSide,
+  CubeCamera,
+  HalfFloatType,
+  WebGLCubeRenderTarget,
   BoxGeometry,
   Object3D,
   PCFSoftShadowMap,
@@ -26,7 +29,7 @@ import { addDimensions } from '@/lib/view3d/dimensions'
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
 import type { DecorSheet } from '@/lib/finish-photo'
 import type { SceneSolid } from '@/lib/cabinets/scene-solids'
-import { buildCabinet, mirrorRefresh, setReflectionHooks, type AnimatedDoor, type AnimatedDrawer } from '@/lib/view3d/assemble'
+import { buildCabinet, refreshMirrors, type AnimatedDoor, type AnimatedDrawer } from '@/lib/view3d/assemble'
 import type { Disposable } from '@/lib/view3d/materials'
 
 type Angle = {
@@ -183,19 +186,16 @@ export function mountCabinetStudio(
   sideWall.rotation.y = Math.PI / 2
   scene.add(sideWall)
   // Here the cabinet stands with just a floor and two walls. A mirror would then show empty
-  // space behind the viewer, so its reflection gets a whole room around the cabinet.
+  // space behind the viewer, so the picture mirrors use is taken inside a whole room.
   const mirrorRoomMat = new MeshStandardMaterial({ color: 0xece7de, roughness: 0.96, metalness: 0, side: BackSide })
   const mirrorRoom = new Mesh(new BoxGeometry(1, 1, 1), mirrorRoomMat)
   mirrorRoom.visible = false
   scene.add(mirrorRoom)
-  setReflectionHooks(scene, {
-    before: () => {
-      mirrorRoom.visible = true
-    },
-    after: () => {
-      mirrorRoom.visible = false
-    },
-  })
+  const mirrorShot = new WebGLCubeRenderTarget(512, { type: HalfFloatType })
+  const mirrorCamera = new CubeCamera(20, 40000, mirrorShot)
+  scene.add(mirrorCamera)
+  let mirrorsDirty = true
+  let mirrorsAgainAt = 0
 
   const raycaster = new Raycaster()
   const pointer = new Vector2()
@@ -411,8 +411,18 @@ export function mountCabinetStudio(
       if (moving || now < shadowUntil) renderer.shadowMap.needsUpdate = true
       // Mirrors follow the camera on every drawn frame, so the reflection is right from any angle;
       // lighter while the view moves, full sharpness on the frame after it stops.
-      mirrorRefresh.live = true
-      mirrorRefresh.moving = moving || turned
+      if (mirrorsDirty || (mirrorsAgainAt && now > mirrorsAgainAt)) {
+        // Photograph the room all round from a spot in front of the cabinet, at its middle height.
+        const box = new Box3().setFromObject(root)
+        if (!box.isEmpty()) {
+          const middle = box.getCenter(new Vector3())
+          const size = box.getSize(new Vector3())
+          mirrorCamera.position.set(middle.x, middle.y, box.max.z + Math.max(500, size.z))
+          refreshMirrors(scene, renderer, mirrorCamera, [mirrorRoom])
+        }
+        mirrorsAgainAt = mirrorsDirty ? now + 1500 : 0
+        mirrorsDirty = false
+      }
       renderer.render(scene, camera)
       labels.render(scene, camera)
       lastDraw = now
@@ -427,6 +437,7 @@ export function mountCabinetStudio(
         api[key] = ((...args: unknown[]) => {
           invalidate(1200)
           shadowUntil = performance.now() + 1200
+          mirrorsDirty = true
           return (value as (...a: unknown[]) => unknown)(...args)
         }) as T[keyof T]
       }
@@ -466,6 +477,7 @@ export function mountCabinetStudio(
       controls.removeEventListener('start', onOrbitStart)
       controls.dispose()
       mirrorRoom.geometry.dispose()
+      mirrorShot.dispose()
       mirrorRoomMat.dispose()
       window.removeEventListener('pointerup', wake)
       for (const item of bin) item.dispose()
