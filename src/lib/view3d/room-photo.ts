@@ -1,5 +1,6 @@
 import {
   ACESFilmicToneMapping,
+  BackSide,
   Box3,
   Box3Helper,
   BoxGeometry,
@@ -44,7 +45,7 @@ import {
   type RoomOpening,
   type RoomWall,
 } from '@/lib/room-openings'
-import { buildCabinet, mirrorRefresh } from '@/lib/view3d/assemble'
+import { buildCabinet, mirrorRefresh, setReflectionHooks } from '@/lib/view3d/assemble'
 import type { Disposable } from '@/lib/view3d/materials'
 
 export type RoomPlacement = {
@@ -334,6 +335,25 @@ export function mountRoomStudio(host: HTMLElement): RoomStudio {
     right: rightWall,
   }
   for (const name of Object.keys(wallOf) as RoomWall[]) wallOf[name].userData.roomWall = name
+  // The walls and ceiling are seen from inside only, so the camera outside the room looks in.
+  // A mirror looks at them from another side; for its reflection their far sides are shown too,
+  // otherwise it would show empty space where a wall should be.
+  const farSides = [ceiling, backWall, frontWall, leftWall, rightWall].map((mesh) => {
+    const material = (mesh.material as MeshStandardMaterial).clone()
+    material.side = BackSide
+    const far = new Mesh(mesh.geometry, material)
+    far.visible = false
+    mesh.add(far)
+    return far
+  })
+  setReflectionHooks(scene, {
+    before: () => {
+      for (const far of farSides) far.visible = true
+    },
+    after: () => {
+      for (const far of farSides) far.visible = false
+    },
+  })
   const features = new Group()
   shell.add(features)
   let featureBin: Disposable[] = []
@@ -390,6 +410,7 @@ export function mountRoomStudio(host: HTMLElement): RoomStudio {
 
   // Keep drawing for a short while after anything happens (a click, a drag, new content).
   let drawUntil = 0
+  let wasBusy = false
   let lastDraw = 0
   // Until when shadows are worked out again: after new content or a moved cabinet.
   let shadowUntil = performance.now() + 2000
@@ -397,7 +418,8 @@ export function mountRoomStudio(host: HTMLElement): RoomStudio {
     drawUntil = Math.max(drawUntil, performance.now() + ms)
   }
   const wake = () => invalidate()
-  for (const type of ['pointerdown', 'pointermove', 'pointerup', 'wheel', 'keydown'] as const) {
+  // Not on every mouse move: only hovering changes nothing in the picture.
+  for (const type of ['pointerdown', 'pointerup', 'wheel', 'keydown'] as const) {
     host.addEventListener(type, wake, { passive: true })
   }
   window.addEventListener('pointerup', wake, { passive: true })
@@ -448,10 +470,15 @@ export function mountRoomStudio(host: HTMLElement): RoomStudio {
     // Draw only when something changed: the camera turned, a door is moving, or the picture was
     // touched or updated a moment ago. A still picture costs nothing, which matters with mirrors.
     const turned = controls.update()
+    const busy = moving || turned
+    if (wasBusy && !busy) invalidate(250)
+    wasBusy = busy
     if (moving || turned || now < drawUntil || now - lastDraw > 1000) {
       if (moving || now < shadowUntil) renderer.shadowMap.needsUpdate = true
-      // Mirrors follow the camera on every drawn frame, so the reflection is right from any angle.
+      // Mirrors follow the camera on every drawn frame, so the reflection is right from any angle;
+      // lighter while the view moves, full sharpness on the frame after it stops.
       mirrorRefresh.live = true
+      mirrorRefresh.moving = moving || turned
       renderer.render(scene, camera)
       labels.render(scene, camera)
       lastDraw = now
@@ -711,6 +738,7 @@ export function mountRoomStudio(host: HTMLElement): RoomStudio {
   const onFloorMove = (event: PointerEvent) => {
     const held = floorDrag
     if (!held || event.pointerId !== held.pointerId) return
+    invalidate(400)
     const at = floorAt(event.clientX, event.clientY)
     if (!at) return
     if (held.kind === 'sketch') {
@@ -1315,6 +1343,7 @@ export function mountRoomStudio(host: HTMLElement): RoomStudio {
       pickedId = null
       outlinePicked()
       controls.dispose()
+      for (const far of farSides) (far.material as MeshStandardMaterial).dispose()
       window.removeEventListener('pointerup', wake)
       for (const item of bin) item.dispose()
       floor.geometry.dispose()

@@ -51,7 +51,16 @@ function mirrorFace(bin: Disposable[]) {
  * Whether mirrors redraw their reflection on this frame. The render loop turns it off on most
  * frames while the camera is moving, so turning the view stays smooth; when it stops they catch up.
  */
-export const mirrorRefresh = { live: true }
+export const mirrorRefresh = { live: true, moving: false }
+
+/**
+ * What a scene shows only inside mirrors (the far sides of its walls, a room around a lone
+ * cabinet). `before` runs just before a mirror draws its reflection, `after` right after.
+ */
+const reflectionHooks = new WeakMap<object, { before(): void; after(): void }>()
+export function setReflectionHooks(scene: object, hooks: { before(): void; after(): void }) {
+  reflectionHooks.set(scene, hooks)
+}
 
 function addReflection(
   into: Group,
@@ -63,12 +72,14 @@ function addReflection(
 ) {
   if (!(width > 1 && height > 1)) return
   const geo = new PlaneGeometry(width, height)
-  // About 0.8 texture pixels per millimetre and at most 1024 across: sharp on screen, and still
-  // light because the picture is only drawn while something changes.
-  const scale = Math.min(0.8, 1024 / Math.max(width, height))
+  // Sharp when the picture stands still (up to 2048 across), a third of that while it turns so
+  // turning stays smooth. The size is switched on the fly.
+  const scale = Math.min(1.8, 2048 / Math.max(width, height))
+  const sharp = { w: Math.max(128, Math.round(width * scale)), h: Math.max(128, Math.round(height * scale)) }
+  const rough = { w: Math.max(96, Math.round(sharp.w / 3)), h: Math.max(96, Math.round(sharp.h / 3)) }
   const mirror = new Reflector(geo, {
-    textureWidth: Math.max(128, Math.round(width * scale)),
-    textureHeight: Math.max(128, Math.round(height * scale)),
+    textureWidth: sharp.w,
+    textureHeight: sharp.h,
     // A touch of grey-blue: real mirror glass does not give back all the light.
     color: 0xc4ccd0,
     clipBias: 0.003,
@@ -76,8 +87,15 @@ function addReflection(
   mirror.position.copy(at)
   if (outward === -1) mirror.rotation.y = Math.PI
   const reflect = mirror.onBeforeRender.bind(mirror)
+  const target = mirror.getRenderTarget()
   mirror.onBeforeRender = (...args) => {
-    if (mirrorRefresh.live) reflect(...args)
+    if (!mirrorRefresh.live) return
+    const want = mirrorRefresh.moving ? rough : sharp
+    if (target.width !== want.w || target.height !== want.h) target.setSize(want.w, want.h)
+    const hooks = reflectionHooks.get(args[1])
+    hooks?.before()
+    reflect(...args)
+    hooks?.after()
   }
   into.add(mirror)
   bin.push({ dispose: () => mirror.dispose() }, { dispose: () => geo.dispose() })

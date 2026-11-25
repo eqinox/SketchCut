@@ -6,6 +6,8 @@ import {
   HemisphereLight,
   Mesh,
   MeshStandardMaterial,
+  BackSide,
+  BoxGeometry,
   Object3D,
   PCFSoftShadowMap,
   PMREMGenerator,
@@ -24,7 +26,7 @@ import { addDimensions } from '@/lib/view3d/dimensions'
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
 import type { DecorSheet } from '@/lib/finish-photo'
 import type { SceneSolid } from '@/lib/cabinets/scene-solids'
-import { buildCabinet, mirrorRefresh, type AnimatedDoor, type AnimatedDrawer } from '@/lib/view3d/assemble'
+import { buildCabinet, mirrorRefresh, setReflectionHooks, type AnimatedDoor, type AnimatedDrawer } from '@/lib/view3d/assemble'
 import type { Disposable } from '@/lib/view3d/materials'
 
 type Angle = {
@@ -180,6 +182,20 @@ export function mountCabinetStudio(
   sideWall.receiveShadow = true
   sideWall.rotation.y = Math.PI / 2
   scene.add(sideWall)
+  // Here the cabinet stands with just a floor and two walls. A mirror would then show empty
+  // space behind the viewer, so its reflection gets a whole room around the cabinet.
+  const mirrorRoomMat = new MeshStandardMaterial({ color: 0xece7de, roughness: 0.96, metalness: 0, side: BackSide })
+  const mirrorRoom = new Mesh(new BoxGeometry(1, 1, 1), mirrorRoomMat)
+  mirrorRoom.visible = false
+  scene.add(mirrorRoom)
+  setReflectionHooks(scene, {
+    before: () => {
+      mirrorRoom.visible = true
+    },
+    after: () => {
+      mirrorRoom.visible = false
+    },
+  })
 
   const raycaster = new Raycaster()
   const pointer = new Vector2()
@@ -195,6 +211,7 @@ export function mountCabinetStudio(
 
   // Keep drawing for a short while after anything happens (a click, a drag, new content).
   let drawUntil = 0
+  let wasBusy = false
   let lastDraw = 0
   // Until when shadows are worked out again: after new content or a moved cabinet.
   let shadowUntil = performance.now() + 2000
@@ -202,7 +219,8 @@ export function mountCabinetStudio(
     drawUntil = Math.max(drawUntil, performance.now() + ms)
   }
   const wake = () => invalidate()
-  for (const type of ['pointerdown', 'pointermove', 'pointerup', 'wheel', 'keydown'] as const) {
+  // Not on every mouse move: only hovering changes nothing in the picture.
+  for (const type of ['pointerdown', 'pointerup', 'wheel', 'keydown'] as const) {
     host.addEventListener(type, wake, { passive: true })
   }
   window.addEventListener('pointerup', wake, { passive: true })
@@ -230,6 +248,8 @@ export function mountCabinetStudio(
     floor.position.set(center.x, bounds.min.y - 1, center.z)
     backWall.scale.set(span, span * 0.7, 1)
     backWall.position.set(center.x, bounds.min.y + span * 0.28, bounds.min.z - radius * 0.35)
+    mirrorRoom.scale.set(span, span * 0.7, span)
+    mirrorRoom.position.set(center.x, bounds.min.y - 1 + span * 0.35, center.z)
     sideWall.scale.set(span, span * 0.7, 1)
     sideWall.position.set(bounds.min.x - radius * 0.45, bounds.min.y + span * 0.28, center.z)
     sun.position.set(center.x + radius * 0.55, bounds.max.y + radius * 1.3, center.z + radius * 1.1)
@@ -384,10 +404,15 @@ export function mountCabinetStudio(
     // Draw only when something changed: the camera turned, a door is moving, or the picture was
     // touched or updated a moment ago. A still picture costs nothing, which matters with mirrors.
     const turned = controls.update()
+    const busy = moving || turned
+    if (wasBusy && !busy) invalidate(250)
+    wasBusy = busy
     if (moving || turned || now < drawUntil || now - lastDraw > 1000) {
       if (moving || now < shadowUntil) renderer.shadowMap.needsUpdate = true
-      // Mirrors follow the camera on every drawn frame, so the reflection is right from any angle.
+      // Mirrors follow the camera on every drawn frame, so the reflection is right from any angle;
+      // lighter while the view moves, full sharpness on the frame after it stops.
       mirrorRefresh.live = true
+      mirrorRefresh.moving = moving || turned
       renderer.render(scene, camera)
       labels.render(scene, camera)
       lastDraw = now
@@ -440,6 +465,8 @@ export function mountCabinetStudio(
       renderer.domElement.removeEventListener('pointermove', onMove)
       controls.removeEventListener('start', onOrbitStart)
       controls.dispose()
+      mirrorRoom.geometry.dispose()
+      mirrorRoomMat.dispose()
       window.removeEventListener('pointerup', wake)
       for (const item of bin) item.dispose()
       floorGeo.dispose()
