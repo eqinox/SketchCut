@@ -5,7 +5,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
-import type { Part } from '@/types'
+import type { Part, Sheet } from '@/types'
+import { partMayTurn } from '@/lib/sheet-sync'
 import { generateId } from '@/lib/utils'
 import { reorderItems } from '@/lib/reorder'
 
@@ -13,9 +14,11 @@ interface PartsPanelProps {
   parts: Part[]
   onChange: (parts: Part[]) => void
   onClear?: () => void
+  /** The boards. A part cut from a board without grain may always be turned. */
+  sheets?: Sheet[]
 }
 
-export function PartsPanel({ parts, onChange, onClear }: PartsPanelProps) {
+export function PartsPanel({ parts, onChange, onClear, sheets = [] }: PartsPanelProps) {
   const [width, setWidth] = useState('')
   const [height, setHeight] = useState('')
   const [quantity, setQuantity] = useState('')
@@ -265,22 +268,31 @@ export function PartsPanel({ parts, onChange, onClear }: PartsPanelProps) {
                     />
                   </td>
                   <td className="py-2 pr-1">
+                    {(() => {
+                      // Cut from a board without grain it looks the same either way, so it always turns.
+                      const smooth = !part.canRotate && partMayTurn(part, sheets)
+                      const turns = part.canRotate || smooth
+                      return (
                     <Button
                       variant="ghost"
                       size="icon"
                       className="relative h-7 w-7"
                       onClick={() => toggleRotate(part.id)}
-                      title={part.canRotate ? 'Може да се върти' : 'Без въртене'}
+                      disabled={smooth}
+                      aria-label={turns ? 'Може да се върти' : 'Без въртене'}
+                      title={smooth ? 'Плочата е без фладер, затова детайлът винаги може да се върти' : part.canRotate ? 'Може да се върти' : 'Без въртене'}
                     >
                       <RotateCw
-                        className={`h-4 w-4 ${part.canRotate ? 'text-[var(--color-primary)]' : 'text-[var(--color-muted-foreground)]'}`}
+                        className={`h-4 w-4 ${turns ? 'text-[var(--color-primary)]' : 'text-[var(--color-muted-foreground)]'}`}
                       />
-                      {!part.canRotate && (
+                      {!turns && (
                         <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
                           <span className="h-[2px] w-5 rotate-45 bg-[var(--color-destructive)]" />
                         </span>
                       )}
                     </Button>
+                      )
+                    })()}
                   </td>
                   <td className="py-2">
                     <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => removePart(part.id)}>

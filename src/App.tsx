@@ -29,7 +29,8 @@ import {
 import { subscribeAuth, saveProject, loadProjects, deleteProject, loadUserSettings, saveUserSettings, getFirebaseInitError } from '@/lib/firebase'
 import { saveDraft, readInitialDraft, setOpenProject, getOpenProject, type OpenProjectRef } from '@/lib/draft-storage'
 import { loadSettings, saveSettings, resetSettings, type HardwareSettings } from '@/lib/settings'
-import { ensureFinishSheets, ensurePackingSheets, finishById, type BoardFinish } from '@/lib/board-finishes'
+import { ensurePackingSheets, finishById, type BoardFinish } from '@/lib/board-finishes'
+import { syncSheets } from '@/lib/sheet-sync'
 import { kronospanBoardByFinishId, withKronospanBoard } from '@/lib/kronospan-color'
 import { swapColor } from '@/lib/project-colors'
 import { projectPriceEur } from '@/lib/project-price'
@@ -51,7 +52,10 @@ const initialDraft = readInitialDraft()
 
 function App() {
   const [user, setUser] = useState<User | null>(null)
-  const [sheets, setSheets] = useState<Sheet[]>(initialDraft.sheets)
+  // Only the boards the parts are cut from, and the фазер. Old unused boards fall away on load.
+  const [sheets, setSheets] = useState<Sheet[]>(() =>
+    syncSheets(initialDraft.sheets, initialDraft.parts, loadSettings().boardFinishes),
+  )
   const [parts, setParts] = useState<Part[]>(initialDraft.parts)
   const [edgeBanding, setEdgeBanding] = useState<PartEdgeBanding[]>(initialDraft.edgeBanding)
   const [cabinets, setCabinets] = useState<CabinetInstance[]>(initialDraft.cabinets)
@@ -115,7 +119,7 @@ function App() {
   }, [])
 
   const applyProjectData = useCallback((project: SavedProject) => {
-    setSheets(project.sheets.map(normalizeSheet))
+    setSheets(syncSheets(project.sheets.map(normalizeSheet), project.parts, loadSettings().boardFinishes))
     setParts(project.parts)
     setEdgeBanding(project.edgeBanding)
     setCabinets(project.cabinets ?? [])
@@ -258,10 +262,14 @@ function App() {
 
   const handleGenerate = () => {
     if (parts.length === 0) return
-    const stock = ensurePackingSheets(sheets, parts, settings.boardFinishes, {
-      chipboardPriceEur: settings.chipboardPriceEur,
-      hardboardPriceEur: settings.hardboardPriceEur,
-    })
+    const stock = syncSheets(
+      ensurePackingSheets(sheets, parts, settings.boardFinishes, {
+        chipboardPriceEur: settings.chipboardPriceEur,
+        hardboardPriceEur: settings.hardboardPriceEur,
+      }),
+      parts,
+      settings.boardFinishes,
+    )
     const chipboardParts = parts.filter((p) => partKind(p) === 'chipboard')
     const hardboardParts = parts.filter((p) => partKind(p) === 'hardboard')
     const chipboardSheets = stock.filter((s) => sheetKind(s) === 'chipboard')
@@ -463,7 +471,7 @@ function App() {
     setParts(next.parts)
     setEdgeBanding(next.edgeBanding)
     ensureHardboardSheet(input.params)
-    setSheets((prev) => ensureFinishSheets(prev, next.parts, settings.boardFinishes))
+    setSheets((prev) => syncSheets(prev, next.parts, settings.boardFinishes))
     resetPacking()
   }
 
@@ -480,7 +488,7 @@ function App() {
     setParts(next.parts)
     setEdgeBanding(next.edgeBanding)
     ensureHardboardSheet(input.params)
-    setSheets((prev) => ensureFinishSheets(prev, next.parts, settings.boardFinishes))
+    setSheets((prev) => syncSheets(prev, next.parts, settings.boardFinishes))
     resetPacking()
     if (made) setRoom((prev) => ({ ...prev, pieces: [...prev.pieces, { ...piece, cabinetId: made.id }] }))
   }
@@ -495,7 +503,7 @@ function App() {
     setParts(next.parts)
     setEdgeBanding(next.edgeBanding)
     ensureHardboardSheet(input.params)
-    setSheets((prev) => ensureFinishSheets(prev, next.parts, settings.boardFinishes))
+    setSheets((prev) => syncSheets(prev, next.parts, settings.boardFinishes))
     resetPacking()
     say(openProject ? 'Шкафът е записан. Натисни „Запази“ горе, за да влезе и в проекта.' : 'Шкафът е записан')
   }
@@ -507,7 +515,7 @@ function App() {
     setEdgeBanding(next.edgeBanding)
     ensureHardboardSheet(group.host.params)
     for (const guest of group.guests) ensureHardboardSheet(guest.params)
-    setSheets((prev) => ensureFinishSheets(prev, next.parts, settings.boardFinishes))
+    setSheets((prev) => syncSheets(prev, next.parts, settings.boardFinishes))
     resetPacking()
   }
 
@@ -562,7 +570,7 @@ function App() {
     setCabinets(state.cabinets)
     setParts(state.parts)
     setEdgeBanding(state.edgeBanding)
-    setSheets((prev) => ensureFinishSheets(prev, state.parts, hardware.boardFinishes))
+    setSheets((prev) => syncSheets(prev, state.parts, hardware.boardFinishes))
     resetPacking()
     say(count === 1 ? 'Цветът е сменен в 1 шкаф' : `Цветът е сменен в ${count} шкафа`)
   }
@@ -699,10 +707,12 @@ function App() {
             chipboardPriceEur={settings.chipboardPriceEur}
             hardboardPriceEur={settings.hardboardPriceEur}
             finishes={settings.boardFinishes}
+            parts={parts}
+            cabinets={cabinets}
             onClearChipboard={clearChipboardSheets}
             onClearHardboard={clearHardboardSheets}
           />
-          <PartsPanel parts={parts} onChange={setParts} onClear={clearParts} />
+          <PartsPanel parts={parts} onChange={setParts} onClear={clearParts} sheets={sheets} />
         </div>
 
         <CabinetsPanel

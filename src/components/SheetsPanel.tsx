@@ -3,7 +3,8 @@ import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import type { BoardKind, Sheet } from '@/types'
+import type { BoardKind, CabinetInstance, Part, Sheet } from '@/types'
+import { resolveBoardFinish } from '@/lib/kronospan-color'
 import type { BoardFinish } from '@/lib/board-finishes'
 import { generateId } from '@/lib/utils'
 import { reorderItems } from '@/lib/reorder'
@@ -16,6 +17,7 @@ import {
   DEFAULT_HARDBOARD_PRICE_EUR,
   DEFAULT_HARDBOARD_WIDTH,
   boardKindLabel,
+  partKind,
   sheetKind,
 } from '@/lib/cabinets'
 import { cn } from '@/lib/utils'
@@ -28,6 +30,29 @@ interface SheetsPanelProps {
   onClearChipboard?: () => void
   onClearHardboard?: () => void
   finishes?: BoardFinish[]
+  /** The parts, so each board can say what is cut from it. */
+  parts?: Part[]
+  /** The cabinets, to name parts Ш1, Ш2… */
+  cabinets?: CabinetInstance[]
+}
+
+/** "Ш1: Страница ×2, Дъно · Ш2: Врата ×2" — what is cut from one board. */
+function usedFor(sheet: Sheet, parts: Part[], cabinets: CabinetInstance[]): string {
+  const kind = sheetKind(sheet)
+  const mine = parts.filter((part) => partKind(part) === kind && (kind === 'hardboard' || (part.finishId ?? '') === (sheet.finishId ?? '')))
+  if (mine.length === 0) return ''
+  const groups = new Map<string, Map<string, number>>()
+  for (const part of mine) {
+    const index = part.cabinetId ? cabinets.findIndex((cabinet) => cabinet.id === part.cabinetId) : -1
+    const owner = index >= 0 ? `Ш${index + 1}` : 'Детайли'
+    const name = part.label.replace(/^Шd+s*[·-–]s*/, '') || 'Детайл'
+    const names = groups.get(owner) ?? new Map<string, number>()
+    names.set(name, (names.get(name) ?? 0) + part.quantity)
+    groups.set(owner, names)
+  }
+  return [...groups.entries()]
+    .map(([owner, names]) => `${owner}: ${[...names.entries()].map(([name, n]) => (n > 1 ? `${name} ×${n}` : name)).join(', ')}`)
+    .join(' · ')
 }
 
 export function SheetsPanel({
@@ -38,6 +63,8 @@ export function SheetsPanel({
   onClearChipboard,
   onClearHardboard,
   finishes = [],
+  parts = [],
+  cabinets = [],
 }: SheetsPanelProps) {
   const chipPrice = chipboardPriceEur ?? DEFAULT_CHIPBOARD_PRICE_EUR
   const hardPrice = hardboardPriceEur ?? DEFAULT_HARDBOARD_PRICE_EUR
@@ -249,7 +276,7 @@ export function SheetsPanel({
               onDrop={() => handleDrop(index)}
               onDragEnd={handleDragEnd}
               className={cn(
-                'flex items-center justify-between gap-2 rounded-md border border-[var(--color-border)] bg-[var(--color-background)] px-3 py-2',
+                'flex flex-wrap items-center justify-between gap-2 rounded-md border border-[var(--color-border)] bg-[var(--color-background)] px-3 py-2',
                 dragIndex === index ? 'opacity-40' : '',
                 dropIndex === index && dragIndex !== index ? 'ring-2 ring-[var(--color-primary)]' : '',
               )}
@@ -260,8 +287,10 @@ export function SheetsPanel({
                 <span className="shrink-0 text-xs text-[var(--color-muted-foreground)]">
                   {boardKindLabel(sheetKind(sheet))}
                   {sheet.finishId
-                    ? ` · ${finishes.find((finish) => finish.id === sheet.finishId)?.name ?? 'цвят'}`
-                    : ''}
+                    ? ` · ${resolveBoardFinish(finishes, sheet.finishId)?.name ?? sheet.finishId}`
+                    : sheetKind(sheet) === 'chipboard'
+                      ? ' · обикновена (без избран цвят)'
+                      : ''}
                 </span>
                 <span className="truncate text-sm text-[var(--color-muted-foreground)]">
                   {sheet.width} × {sheet.height} мм
@@ -269,7 +298,7 @@ export function SheetsPanel({
                 <label className="flex shrink-0 items-center gap-1.5 text-xs">
                   <Checkbox
                     checked={sheet.hasGrain !== false}
-                    onCheckedChange={(value) => updateSheet(sheet.id, { hasGrain: value === true })}
+                    onCheckedChange={(value) => updateSheet(sheet.id, { hasGrain: value === true, grainByHand: true })}
                     title="С фладер детайлите пазят посоката. Без фладер могат да се въртят."
                   />
                   Фладер
@@ -301,6 +330,11 @@ export function SheetsPanel({
                   <Trash2 className="h-4 w-4 text-[var(--color-destructive)]" />
                 </Button>
               </div>
+              {parts.length > 0 && (
+                <p className="basis-full text-xs text-[var(--color-muted-foreground)]">
+                  {usedFor(sheet, parts, cabinets) ? `За: ${usedFor(sheet, parts, cabinets)}` : 'Нищо не се реже от тази плоча.'}
+                </p>
+              )}
             </div>
           ))
         )}

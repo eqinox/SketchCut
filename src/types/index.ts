@@ -18,6 +18,8 @@ export interface Sheet {
    * A smooth board (white, for example) has none, so parts on it may be turned.
    */
   hasGrain?: boolean
+  /** True once the grain box was ticked by hand. Otherwise a decor board takes it from the decor. */
+  grainByHand?: boolean
 }
 
 export interface Part {
