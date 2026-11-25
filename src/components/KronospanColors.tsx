@@ -5,7 +5,6 @@ import {
   defaultKronospanBoard,
   kronospanBoardId,
   kronospanBoardsFor,
-  kronospanCodeFromFinish,
   kronospanColor,
   kronospanPriceLabel,
   type KronospanBoard,
@@ -78,21 +77,18 @@ export function KronospanFinishOptions({ finishes }: { finishes: BoardFinish[] }
 }
 
 export function KronospanColorGrid({
-  finishes,
   selectedCode,
   selectedId,
   note,
   onPick,
 }: {
+  /** Kept for callers. The tick now marks only the chosen colour, not every colour used before. */
   finishes: BoardFinish[]
   selectedCode?: string | null
   selectedId?: string
   note?: string
   onPick: (board: KronospanBoard) => void
 }) {
-  const added = new Set(
-    finishes.map((finish) => kronospanCodeFromFinish(finish)).filter((code): code is string => code != null),
-  )
   const seen = new Set<string>()
   const swatches: KronospanBoard[] = []
   for (const board of KRONOSPAN_BOARDS) {
@@ -120,7 +116,7 @@ export function KronospanColorGrid({
                   key={swatch.code}
                   swatch={swatch}
                   chosen={selectedCode === swatch.code}
-                  added={added.has(swatch.code)}
+                  added={selectedCode === swatch.code}
                   onPick={() => onPick(defaultKronospanBoard(swatch.code) ?? swatch)}
                 />
               ))}
