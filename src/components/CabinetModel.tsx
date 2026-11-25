@@ -28,6 +28,8 @@ export function CabinetModel({ store }: { store: CaptureStore }) {
         onGestureStart: () => setMenu(null),
         onPick: (pick) => {
           // Left click opens or closes the door at once. Right click (or a tap) asks what to do.
+          // The back has nothing to choose yet.
+          if (pick.kind === 'board' && (!pick.piece || pick.piece.startsWith('back'))) return
           if (!pick.menu && !pick.touch && pick.kind !== 'board') {
             studioRef.current?.toggle(pick.animKey)
             setMenu(null)
@@ -117,7 +119,8 @@ export function CabinetModel({ store }: { store: CaptureStore }) {
               </select>
             </label>
           )}
-          {menu.piece && pieceColors && (
+          {/* The back is always white fibreboard for now, so it has no colour choice. */}
+          {menu.piece && pieceColors && !menu.piece.startsWith('back') && (
             <label className="flex flex-col gap-1 text-xs text-neutral-600">
               Цвят само на този детайл
               <select

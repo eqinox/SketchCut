@@ -17,6 +17,7 @@ import {
   shelfFrontInsetMm,
   shelfPanelDepth,
   DEFAULT_HARDBOARD_COLOR,
+  HARDBOARD_RAW_COLOR,
   FASCIA_SETBACK_MM,
   kitchenClearInnerH,
   wallBottomHole,
@@ -104,7 +105,7 @@ interface CabinetPreviewProps {
   frontColor?: string
   carcassImage?: string
   frontImage?: string
-  /** Chosen back colour. Coloured view uses white when this is empty. */
+  /** Not used for now: the back is always white inside and bare fibreboard behind. */
   backColor?: string
   backImage?: string
   /** Drop this cabinet's own doors. A door across two cabinets is drawn outside. */
@@ -575,8 +576,6 @@ function CabinetPreviewView({
   frontColor,
   carcassImage,
   frontImage,
-  backColor,
-  backImage,
   finishes = [],
   hideDoors = false,
   hideFeet = false,
@@ -588,7 +587,8 @@ function CabinetPreviewView({
 }: CabinetPreviewProps) {
   const openDoors = doorView === 'open'
   const pictured = drawStyle === 'color' || drawStyle === 'model' || captureSolids
-  const backFill = pictured ? backColor || '#ffffff' : DEFAULT_HARDBOARD_COLOR
+  // The back is white on the inside and bare fibreboard behind. It has no other colours for now.
+  const backFill = pictured ? '#ffffff' : DEFAULT_HARDBOARD_COLOR
   const drawnParams =
     pictured && carcassColor
       ? {
@@ -608,7 +608,6 @@ function CabinetPreviewView({
       ? [
           ...(carcassColor && carcassImage ? [{ color: carcassColor, image: carcassImage }] : []),
           ...(doorColor && frontImage ? [{ color: doorColor, image: frontImage }] : []),
-          ...(backImage ? [{ color: backFill, image: backImage }] : []),
           ...paintForPieceFinishes(params.pieceFinishes, finishes).images,
         ]
       : []),
@@ -2879,7 +2878,7 @@ function Front3DView({
           h={Math.max(1, innerFloorY - cavityTopY)}
           d={1}
           color={backFill}
-          rearColor={DEFAULT_HARDBOARD_COLOR}
+          rearColor={HARDBOARD_RAW_COLOR}
           cam={view}
           faces={{ front: true }}
           strokeWidth={2.4}
@@ -3393,7 +3392,7 @@ function WallFront3DView({
           h={Math.max(1, innerFloorY - innerTopY)}
           d={1}
           color={backFill}
-          rearColor={DEFAULT_HARDBOARD_COLOR}
+          rearColor={HARDBOARD_RAW_COLOR}
           cam={view}
           faces={{ front: true }}
           strokeWidth={2.4}
@@ -4167,7 +4166,7 @@ function PlinthBoxFront3DView({
             h={Math.max(1, (p.useLegs ? H : H - p.plinthHeight) - (m.innerTopPanel || m.coveringTop ? T : 0) - T)}
             d={1}
             color={backFill}
-            rearColor={DEFAULT_HARDBOARD_COLOR}
+            rearColor={HARDBOARD_RAW_COLOR}
             cam={view}
             faces={{ front: true }}
             strokeWidth={2.4}

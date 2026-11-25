@@ -1780,15 +1780,12 @@ function CabinetDialogForm({
   )
   const [pickedPiece, setPickedPiece] = useState<string | null>(null)
   // What the colour squares below the lists paint: the carcass, the doors or the back.
-  const [swatchTarget, setSwatchTarget] = useState<'carcass' | 'front' | 'back'>('carcass')
+  const [swatchTarget, setSwatchTarget] = useState<'carcass' | 'front'>('carcass')
   const [carcassFinishId, setCarcassFinishId] = useState(
     typeof editing?.params.carcassFinishId === 'string' ? editing.params.carcassFinishId : '',
   )
   const [frontFinishId, setFrontFinishId] = useState(
     typeof editing?.params.frontFinishId === 'string' ? editing.params.frontFinishId : '',
-  )
-  const [backFinishId, setBackFinishId] = useState(
-    typeof editing?.params.backFinishId === 'string' ? editing.params.backFinishId : '',
   )
   const [drawStyle, setDrawStyle] = useState<'line' | 'color' | 'model'>('model')
   // The 3D picture shows the cabinet in its room or alone. The last choice is kept for next time.
@@ -2024,10 +2021,9 @@ function CabinetDialogForm({
       ...(Object.keys(pieceFinishes).length > 0 ? { pieceFinishes } : {}),
       ...(carcassFinishId ? { carcassFinishId } : {}),
       ...(frontFinishId ? { frontFinishId } : {}),
-      ...(backFinishId ? { backFinishId } : {}),
       ...(stampAttached && attached.length > 0 ? { attached } : {}),
     }),
-    [builtParams, pieceFinishes, carcassFinishId, frontFinishId, backFinishId, attached, stampAttached],
+    [builtParams, pieceFinishes, carcassFinishId, frontFinishId, attached, stampAttached],
   )
 
   const qty = Math.max(1, parseInt(quantity, 10) || 1)
@@ -2214,12 +2210,11 @@ function CabinetDialogForm({
     if (!next || next === settings.hardware.boardFinishes) return
     onHardwareSettingsChange?.({ ...settings.hardware, boardFinishes: next })
   }
-  const pickBoard = (board: KronospanBoard, target: 'carcass' | 'front' | 'back') => {
+  const pickBoard = (board: KronospanBoard, target: 'carcass' | 'front') => {
     rememberKronospan(kronospanBoardId(board))
     const id = kronospanBoardId(board)
     if (target === 'carcass') setCarcassFinishId(id)
-    else if (target === 'front') setFrontFinishId(id)
-    else setBackFinishId(id)
+    else setFrontFinishId(id)
   }
   const pickKronospan = (swatch: KronospanSwatch, target: 'carcass' | 'front') => {
     const id = kronospanFinishId(swatch.code)
@@ -2233,11 +2228,10 @@ function CabinetDialogForm({
     if (target === 'carcass') setCarcassFinishId(id)
     else setFrontFinishId(id)
   }
-  const chooseFinish = (id: string, target: 'carcass' | 'front' | 'back') => {
+  const chooseFinish = (id: string, target: 'carcass' | 'front') => {
     rememberKronospan(id)
     if (target === 'carcass') setCarcassFinishId(id)
-    else if (target === 'front') setFrontFinishId(id)
-    else setBackFinishId(id)
+    else setFrontFinishId(id)
   }
   const finishFor = (id: string | undefined) => resolveBoardFinish(settings.hardware.boardFinishes, id)
   const effectiveExternalDoors = projectExternalDoors || externalDoors
@@ -3392,8 +3386,6 @@ function CabinetDialogForm({
             frontImage={
               finishFor(frontFinishId || carcassFinishId)?.image
             }
-            backColor={finishFor(backFinishId)?.color}
-            backImage={finishFor(backFinishId)?.image}
             finishes={settings.hardware.boardFinishes}
           />
         ) : (
@@ -3412,7 +3404,7 @@ function CabinetDialogForm({
           <p className="text-xs text-[var(--color-muted-foreground)]">
             Кликни детайл на цветния изглед. Плочата се сменя само на него.
           </p>
-          {pickedPiece && (
+          {pickedPiece && !pickedPiece.startsWith('back') && (
             <label className="flex items-center gap-2 text-sm">
               {pieceColorLabel(pickedPiece)}
               <select
@@ -3456,8 +3448,6 @@ function CabinetDialogForm({
           frontImage={
             finishFor(frontFinishId || carcassFinishId)?.image
           }
-          backColor={finishFor(backFinishId)?.color}
-          backImage={finishFor(backFinishId)?.image}
           finishes={settings.hardware.boardFinishes}
         />
         </BoardPickContext.Provider>
@@ -6788,7 +6778,7 @@ function CabinetDialogForm({
           <p className="mt-0.5 text-xs text-[var(--color-muted-foreground)]">
             Корпусът и вратите могат да са от различни плочи. Всеки цвят се реже отделно и има своята цена.
             Кантът на корпуса е цветът на корпуса, кантът на вратите е цветът на вратите.
-            При цветен изглед гърбът е бял, докато не избереш друг цвят.
+            Гърбът е бял фазер: бял отвътре, а отзад е с цвета на самия фазер.
           </p>
           <div className="mt-2 grid gap-2 sm:grid-cols-2">
             <label className="flex flex-col gap-1 text-xs">
@@ -6813,17 +6803,12 @@ function CabinetDialogForm({
                 <KronospanFinishOptions finishes={settings.hardware.boardFinishes} />
               </select>
             </label>
-            <label className="flex flex-col gap-1 text-xs">
+            <div className="flex flex-col gap-1 text-xs">
               Гръб
-              <select
-                className="h-9 rounded-md border border-[var(--color-border)] bg-transparent px-2 text-sm"
-                value={backFinishId}
-                onChange={(e) => chooseFinish(e.target.value, 'back')}
-              >
-                <option value="">Бял</option>
-                <KronospanFinishOptions finishes={settings.hardware.boardFinishes} />
-              </select>
-            </label>
+              <span className="flex h-9 items-center rounded-md border border-[var(--color-border)] px-2 text-sm">
+                Бял фазер
+              </span>
+            </div>
           </div>
           <div className="mt-3 rounded-md border border-[var(--color-border)] p-2">
             <div className="flex flex-wrap items-center gap-2 text-sm">
@@ -6833,7 +6818,6 @@ function CabinetDialogForm({
                   [
                     ['carcass', 'Корпуса'],
                     ['front', 'Вратите и челата'],
-                    ['back', 'Гърба'],
                   ] as const
                 ).map(([key, name]) => (
                   <button
@@ -6858,9 +6842,9 @@ function CabinetDialogForm({
               <KronospanColorGrid
                 finishes={settings.hardware.boardFinishes}
                 selectedCode={kronospanCodeFromFinish({
-                  id: swatchTarget === 'carcass' ? carcassFinishId : swatchTarget === 'front' ? frontFinishId : backFinishId,
+                  id: swatchTarget === 'carcass' ? carcassFinishId : frontFinishId,
                 })}
-                selectedId={swatchTarget === 'carcass' ? carcassFinishId : swatchTarget === 'front' ? frontFinishId : backFinishId}
+                selectedId={swatchTarget === 'carcass' ? carcassFinishId : frontFinishId}
                 onPick={(board) => pickBoard(board, swatchTarget)}
               />
             </div>

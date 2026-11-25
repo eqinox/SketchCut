@@ -13,6 +13,8 @@ export const DEFAULT_WOOD_COLOR = '#c4a574'
 export const DEFAULT_LEG_COLOR = '#334155'
 /** Yellow-brown raw hardboard, the usual back. */
 export const DEFAULT_HARDBOARD_COLOR = '#c4a15a'
+/** The bare outer face of the back in 3D: fibreboard is a dark beige-brown behind the white coat. */
+export const HARDBOARD_RAW_COLOR = '#8a6a4a'
 
 export const DEFAULT_PART_COLORS: CabinetPartColors = {
   bottom: DEFAULT_WOOD_COLOR,
