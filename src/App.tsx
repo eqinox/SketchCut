@@ -68,6 +68,13 @@ function App() {
   const [projectDirty, setProjectDirty] = useState(false)
   const [projectSaving, setProjectSaving] = useState(false)
   const [projectSavedFlash, setProjectSavedFlash] = useState(false)
+  // A short line at the bottom of the screen that says a save went through, or why it did not.
+  const [notice, setNotice] = useState<{ text: string; ok: boolean; id: number } | null>(null)
+  const say = useCallback((text: string, ok = true) => {
+    const id = Date.now()
+    setNotice({ text, ok, id })
+    window.setTimeout(() => setNotice((now) => (now?.id === id ? null : now)), ok ? 2500 : 6000)
+  }, [])
   const projectBaseline = useRef<string | null>(null)
   const [savedProjects, setSavedProjects] = useState<SavedProject[]>([])
   const [dbError, setDbError] = useState<DbErrorDetails | null>(null)
@@ -296,9 +303,11 @@ function App() {
       await loadUserProjects()
       setDbError(null)
       setProjectSavedFlash(true)
-      window.setTimeout(() => setProjectSavedFlash(false), 2000)
+      window.setTimeout(() => setProjectSavedFlash(false), 2500)
+      say(`Проектът „${name}“ е записан`)
     } catch (e) {
       showDbError('Грешка при запазване в Firestore', formatFirebaseError(e), 'saveProject')
+      say(`Проектът не се записа: ${formatFirebaseError(e)}`, false)
       throw e
     } finally {
       setProjectSaving(false)
@@ -311,7 +320,8 @@ function App() {
       setProjectOpen(true)
       return
     }
-    void handleSaveProject(openProject.name, openProject.id)
+    // The error is already on screen; nothing else waits for this promise.
+    handleSaveProject(openProject.name, openProject.id).catch(() => {})
   }
 
   const handleDeleteProject = async (id: string) => {
@@ -436,6 +446,7 @@ function App() {
     ensureHardboardSheet(input.params)
     setSheets((prev) => ensureFinishSheets(prev, next.parts, settings.boardFinishes))
     resetPacking()
+    say(openProject ? 'Шкафът е записан. Натисни „Запази“ горе, за да влезе и в проекта.' : 'Шкафът е записан')
   }
 
   const handleSaveGroup = (group: Parameters<typeof saveCabinetGroup>[1]) => {
@@ -544,6 +555,19 @@ function App() {
   return (
     <div className="flex min-h-dvh flex-col">
       <DbErrorBanner error={dbError} onDismiss={() => setDbError(null)} />
+      {notice && (
+        <div
+          role="status"
+          aria-live="polite"
+          className={`fixed left-1/2 z-[60] max-w-[90vw] -translate-x-1/2 rounded-md px-4 py-2 text-sm font-medium shadow-lg ${
+            notice.ok ? 'bg-emerald-600 text-white' : 'bg-red-600 text-white'
+          }`}
+          style={{ bottom: 'calc(16px + env(safe-area-inset-bottom))' }}
+        >
+          {notice.ok ? '✓ ' : '✕ '}
+          {notice.text}
+        </div>
+      )}
       <header className="sticky top-0 z-40 border-b pt-[env(safe-area-inset-top)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] border-[var(--color-border)] bg-[var(--color-background)]/95 backdrop-blur supports-[backdrop-filter]:bg-[var(--color-background)]/80">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3">
           <div className="flex min-w-0 items-center gap-3">

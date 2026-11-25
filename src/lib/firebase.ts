@@ -119,10 +119,16 @@ export function subscribeAuth(callback: (user: User | null) => void): () => void
 export async function saveProject(userId: string, project: SavedProject): Promise<void> {
   await ensureAuthReady(userId)
   const ref = doc(requireDb(), 'users', userId, 'projects', project.id)
-  await setDoc(ref, {
-    ...project,
-    updatedAt: Date.now(),
-  })
+  // Firestore refuses a field that is `undefined`, and newer cabinet and room data can carry such
+  // fields. The project is plain data, so a JSON round trip drops them.
+  const clean = JSON.parse(JSON.stringify({ ...project, updatedAt: Date.now() })) as SavedProject
+  // Without a connection setDoc waits for ever and the button would just keep spinning.
+  await Promise.race([
+    setDoc(ref, clean),
+    new Promise<never>((_, reject) =>
+      window.setTimeout(() => reject(new Error('Няма връзка със сървъра. Провери интернета и опитай пак.')), 20000),
+    ),
+  ])
 }
 
 export async function loadProjects(userId: string): Promise<SavedProject[]> {

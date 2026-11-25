@@ -311,7 +311,8 @@ export function HeaderActions({
             title={openProjectName ? `Запази в ${openProjectName}` : 'Запази проект'}
           >
             <Save className="h-4 w-4" />
-            <span className="hidden sm:inline">{saveLabel}</span>
+            {/* On a phone only the icon shows, except while saving and right after, so the result is seen. */}
+            <span className={projectSaving || projectSaved ? 'inline' : 'hidden sm:inline'}>{saveLabel}</span>
           </Button>
           {openProjectName && (
             <Button variant="ghost" size="sm" onClick={onSaveAsClick} disabled={projectSaving}>
