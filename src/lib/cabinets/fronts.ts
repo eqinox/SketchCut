@@ -1556,7 +1556,11 @@ function billCabinetHandles(
   notes: string[],
   hardwareSettings: HardwareSettings,
 ) {
-  const frontCount = doorCount + drawerCount
+  // Doors that carry a mirror may be left without a handle.
+  const mirror = fittings.doorMirror
+  const bareDoors =
+    mirror?.enabled && mirror.noPull ? Math.min(doorCount, mirror.on ? mirror.on.length : doorCount) : 0
+  const frontCount = doorCount - bareDoors + drawerCount
   if (frontCount <= 0) return
   const chosen = Object.values(fittings.handleOverrides).slice(0, frontCount)
   const rest = Math.max(0, frontCount - chosen.length)

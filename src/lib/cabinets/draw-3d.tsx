@@ -534,6 +534,7 @@ export function HingedDoor({
   inset = false,
   pick,
   mirror,
+  noPull = false,
 }: {
   hingeX: number
   y: number
@@ -549,6 +550,8 @@ export function HingedDoor({
   pick?: string
   /** Glass on the outer face. x and y are from the top-left of the door, y downward. */
   mirror?: { x: number; y: number; width: number; height: number }
+  /** No handle on this door, whatever the cabinet's handle choice (a door with a mirror). */
+  noPull?: boolean
 }) {
   const paint = usePiecePaint(pick, color)
   const tone = paint.color
@@ -557,7 +560,7 @@ export function HingedDoor({
   const hingeFromTop = hingeOffsetsFromTop(height)
   const pulls = useContext(PullChoiceContext)
   const pullKey = doorKey({ hingeX, y, z, width, height, side })
-  const sku = pulls?.skuFor(pullKey) ?? 'none'
+  const sku = noPull ? 'none' : (pulls?.skuFor(pullKey) ?? 'none')
   useCaptureSolid({
     kind: 'door',
     hingeX,

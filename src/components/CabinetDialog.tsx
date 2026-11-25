@@ -1421,6 +1421,12 @@ function MirrorFields({
             <Checkbox checked={spec.polished} onCheckedChange={(c) => set({ polished: c === true })} />
             Полиран кант
           </label>
+          {doors && doors.length > 0 && (
+            <label className="mt-2 flex cursor-pointer items-center gap-2 text-sm">
+              <Checkbox checked={spec.noPull === true} onCheckedChange={(c) => set({ noPull: c === true ? true : undefined })} />
+              Без дръжка на вратата с огледало
+            </label>
+          )}
           {doors && doors.length > 1 && (
             <div className="mt-3">
               <p className="text-sm">На коя врата?</p>
@@ -6205,7 +6211,12 @@ function CabinetDialogForm({
           </label>
           <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
             {(() => {
-              const n = counts.doorCount + counts.drawerCount
+              // Doors with a mirror may go without a handle.
+              const bareDoors =
+                doorMirror.enabled && doorMirror.noPull
+                  ? Math.min(counts.doorCount, doorMirror.on ? doorMirror.on.length : counts.doorCount)
+                  : 0
+              const n = counts.doorCount - bareDoors + counts.drawerCount
               const tara = taraPull(handleSku)
               const name = pullName(handleSku)
               if (n === 0) {
@@ -6218,7 +6229,7 @@ function CabinetDialogForm({
               const mixed = Object.keys(handleOverrides).length > 0
               return mixed
                 ? 'На някои врати и чекмеджета дръжката е сменена от 3D изгледа.'
-                : `${n} бр. ${name} · по 1 на врата и на чекмедже · ${formatEur(unit)}/бр. = ${formatEur(n * unit)}`
+                : `${n} бр. ${name} · по 1 на врата и на чекмедже${bareDoors > 0 ? ` (без ${bareDoors} с огледало)` : ''} · ${formatEur(unit)}/бр. = ${formatEur(n * unit)}`
             })()}
           </p>
             </>

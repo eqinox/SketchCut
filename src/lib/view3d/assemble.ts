@@ -1,5 +1,7 @@
+import { Reflector } from 'three/addons/objects/Reflector.js'
 import {
   BoxGeometry,
+  PlaneGeometry,
   CylinderGeometry,
   Group,
   Mesh,
@@ -41,6 +43,35 @@ function mirrorFace(bin: Disposable[]) {
   return mat
 }
 
+/**
+ * A real mirror: a surface that shows what stands in front of it (the room, other cabinets,
+ * the floor). It sits a hair in front of the glass board, facing `outward` (+1 or -1 along z).
+ */
+function addReflection(
+  into: Group,
+  width: number,
+  height: number,
+  at: Vector3,
+  outward: 1 | -1,
+  bin: Disposable[],
+) {
+  if (!(width > 1 && height > 1)) return
+  const geo = new PlaneGeometry(width, height)
+  // About 1.2 texture pixels per millimetre, capped so a big mirror stays light to draw.
+  const scale = Math.min(1.2, 1400 / Math.max(width, height))
+  const mirror = new Reflector(geo, {
+    textureWidth: Math.max(128, Math.round(width * scale)),
+    textureHeight: Math.max(128, Math.round(height * scale)),
+    // A touch of grey-blue: real mirror glass does not give back all the light.
+    color: 0xc4ccd0,
+    clipBias: 0.003,
+  })
+  mirror.position.copy(at)
+  if (outward === -1) mirror.rotation.y = Math.PI
+  into.add(mirror)
+  bin.push({ dispose: () => mirror.dispose() }, { dispose: () => geo.dispose() })
+}
+
 function mirrorFaces(bin: Disposable[]) {
   const face = mirrorFace(bin)
   const edge = new MeshStandardMaterial({ color: '#8ea0aa', metalness: 0.65, roughness: 0.28 })
@@ -68,6 +99,8 @@ function addBox(
   if (solid.piece) mesh.userData.piece = solid.piece
   parent.add(mesh)
   bin.push({ dispose: () => geo.dispose() })
+  // The front face (larger three.js z) of a mirror board shows the room.
+  if (solid.mirrorGlass) addReflection(parent, solid.w, solid.h, mesh.position.clone().setZ(mesh.position.z + solid.d / 2 + 0.4), 1, bin)
   if (solid.pull && !solid.slide) addFrontHandle(parent, solid, bin)
 }
 
@@ -128,6 +161,7 @@ function addDoor(
     glassMesh.castShadow = true
     group.add(glassMesh)
     bin.push({ dispose: () => glassGeo.dispose() })
+    addReflection(group, glass.width, glass.height, new Vector3(cx, cy, -solid.thickness / 2 - depth - 0.4), -1, bin)
   }
 
   const hinges = (solid.hingeFromTop ?? []).map((fromTop) =>

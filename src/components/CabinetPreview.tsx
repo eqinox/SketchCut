@@ -2282,6 +2282,7 @@ function FrontsOnCabinet({
             inset={innerDoors}
             pick={id}
             mirror={glass ? { x: glass.x, y: glass.y, width: glass.width, height: glass.height } : undefined}
+            noPull={Boolean(glass && doorMirror?.noPull)}
           />,
         )
       })

@@ -36,6 +36,8 @@ export interface MirrorSpec {
    * An empty list means none. Ids match the drawing: `door-full-0`, `door-slide-1`.
    */
   on?: string[]
+  /** The doors with glass get no handle: the glass leaves no good place for one. */
+  noPull?: boolean
 }
 
 export const EMPTY_MIRROR: MirrorSpec = {
@@ -68,6 +70,7 @@ export function parseMirrorSpec(raw: unknown): MirrorSpec {
     top: mm(src.top, 0),
     bottom: mm(src.bottom, 0),
     on: Array.isArray(src.on) ? src.on.filter((item): item is string => typeof item === 'string') : undefined,
+    ...(src.noPull === true ? { noPull: true } : {}),
   }
 }
 
