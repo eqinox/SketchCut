@@ -1072,7 +1072,7 @@ export function RoomPlanView({
         aria-label="Проектиране"
       >
         <header className="flex shrink-0 items-center gap-2 overflow-x-auto border-b border-[var(--color-border)] bg-[var(--color-card)] px-3 py-2 md:flex-wrap md:overflow-visible [&>*]:shrink-0">
-          <span className="mr-2 text-base font-semibold">Проектиране</span>
+          <span className="order-[-2] mr-2 text-base font-semibold md:order-none">Проектиране</span>
           {onCreateCabinet && (
             <Button
               type="button"
@@ -1149,7 +1149,14 @@ export function RoomPlanView({
               size="sm"
               variant={showColors ? 'default' : 'outline'}
               aria-pressed={showColors}
-              onClick={() => setShowColors((on) => !on)}
+              // On a phone it comes right after the title, so it is seen without scrolling the bar.
+              className="order-[-1] md:order-none"
+              onClick={() => {
+                const next = !showColors
+                setShowColors(next)
+                // On a phone the panel is folded; open it, or the colours would stay out of sight.
+                if (next) setPanelOpen(true)
+              }}
             >
               <Palette className="h-4 w-4" />
               Цветове
