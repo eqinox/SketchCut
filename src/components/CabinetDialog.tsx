@@ -2941,6 +2941,11 @@ function CabinetDialogForm({
         )
       } else {
         const cur = zoneOf(zoneUi, target)
+        // This opening is full; the others may still take one.
+        if (cur.drawerFrontHeights.length >= MAX_DRAWERS) {
+          setPendingAdd(null)
+          return
+        }
         const hasDoor = isSlidingCabinet ? false : doorSpan === 'zones' && cur.doorCount > 0
         const zone = layout.zones.find((z) => z.id === target)
         const n = cur.drawerFrontHeights.length + 1
@@ -3057,6 +3062,11 @@ function CabinetDialogForm({
     setPendingAdd(null)
   }
 
+  // At most MAX_DRAWERS drawers in one opening, not in the whole cabinet: a vanity with a middle
+  // drawer, four on the left and more on the right is fine.
+  const drawerRoomLeft =
+    drawerFrontHeights.length < MAX_DRAWERS ||
+    (hasSplit && !layout.error && layout.zones.some((z) => zoneOf(zoneUi, z.id).drawerFrontHeights.length < MAX_DRAWERS))
   const startAdd = (next: PendingAdd) => {
     if (next.kind === 'rail-even') {
       if (hasSplit && !layout.error) {
@@ -6342,7 +6352,8 @@ function CabinetDialogForm({
               type="button"
               size="sm"
               variant={pendingAdd?.kind === 'drawer' ? 'default' : 'outline'}
-              disabled={counts.drawerCount >= MAX_DRAWERS}
+              disabled={!drawerRoomLeft}
+              title={drawerRoomLeft ? undefined : `Във всяко отделение вече има по ${MAX_DRAWERS} чекмеджета`}
               onClick={() => startAdd({ kind: 'drawer' })}
             >
               <Plus className="h-4 w-4" />
