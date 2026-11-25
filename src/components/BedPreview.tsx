@@ -13,7 +13,8 @@ import {
   usePiecePaint,
   type DrawCam,
 } from '@/lib/cabinets/draw-3d'
-import { measureBed, type BedParams } from '@/lib/cabinets/bed'
+import { BED_FRAME_HEIGHT_MM, measureBed, type BedParams } from '@/lib/cabinets/bed'
+import { useCaptureSolid, type SceneSolid } from '@/lib/cabinets/scene-solids'
 import { formatMm } from '@/lib/utils'
 
 type ScreenPt = { x: number; y: number }
@@ -88,6 +89,53 @@ function MiddleToBottom({
   )
 }
 
+type FramePart = Extract<SceneSolid, { kind: 'lift' }>['parts'][number]
+
+const FRAME_RAIL = '#b88a55'
+const FRAME_SLAT = '#d9b77e'
+/** How far the foot end of the frame comes up on the lift mechanism. */
+const LIFT_OPEN_DEG = 42
+
+/**
+ * The bought slat frame: a wooden rim, a middle rail on wide beds, and slats across it.
+ * It lies on the inner sides, inside the outer ones.
+ */
+function slatFrameParts(x0: number, w: number, z0: number, d: number, top: number): FramePart[] {
+  const H = BED_FRAME_HEIGHT_MM
+  const rail = 50
+  const parts: FramePart[] = [
+    { x: x0, y: top, z: z0, w: rail, h: H, d, color: FRAME_RAIL },
+    { x: x0 + w - rail, y: top, z: z0, w: rail, h: H, d, color: FRAME_RAIL },
+    { x: x0 + rail, y: top, z: z0, w: w - 2 * rail, h: H, d: rail, color: FRAME_RAIL },
+    { x: x0 + rail, y: top, z: z0 + d - rail, w: w - 2 * rail, h: H, d: rail, color: FRAME_RAIL },
+  ]
+  if (w > 1200) {
+    parts.push({ x: x0 + w / 2 - rail / 2, y: top + 8, z: z0 + rail, w: rail, h: H - 8, d: d - 2 * rail, color: FRAME_RAIL })
+  }
+  const slat = 53
+  const run = d - 2 * rail
+  const count = Math.max(1, Math.floor(run / (slat + 35)))
+  const pitch = run / count
+  for (let i = 0; i < count; i++) {
+    parts.push({
+      x: x0 + rail,
+      y: top,
+      z: z0 + rail + i * pitch + (pitch - slat) / 2,
+      w: w - 2 * rail,
+      h: 8,
+      d: slat,
+      color: FRAME_SLAT,
+    })
+  }
+  return parts
+}
+
+/** In 3D the frame on a lift mechanism is one piece that rises at the foot end. */
+function LiftingFrame({ solid }: { solid: Extract<SceneSolid, { kind: 'lift' }> }) {
+  useCaptureSolid(solid)
+  return null
+}
+
 /** A little higher than the cabinet view, so the long bed reads from above. */
 const BED_DEPTH_ANGLE = 58
 
@@ -128,6 +176,25 @@ export function BedPreview({ params, showDims }: { params: BedParams; showDims: 
 
   const liftD = Math.min(m.liftLength, Math.max(0, rearRun - 2 * T))
   const liftZ = zEnd - T - liftD
+  const frameTop = innerY - BED_FRAME_HEIGHT_MM
+  const frame = slatFrameParts(T, m.topWidth, zSide, sideD, frameTop)
+  const lifts = params.liftMechanism && liftD > 40
+  // Gas springs: fixed low on the mechanism panel, the other end on the frame further toward the foot.
+  const strutAt = (x: number) => ({
+    a: [x, innerY + m.innerHeight * 0.55, zEnd - T - liftD * 0.25] as [number, number, number],
+    b: [x, innerY - 10, Math.max(zSide + 80, zEnd - T - liftD - 120)] as [number, number, number],
+  })
+  const liftSolid: Extract<SceneSolid, { kind: 'lift' }> | null = lifts
+    ? {
+        kind: 'lift',
+        key: 'bed-frame',
+        pivotY: innerY,
+        pivotZ: zEnd,
+        openDeg: LIFT_OPEN_DEG,
+        parts: frame,
+        struts: params.liftDampers ? [strutAt(3 * T + 15), strutAt(m.width - 3 * T - 15)] : [],
+      }
+    : null
 
   return (
     <SketchSvg vbW={vbW} vbH={vbH} height={460} label="Легло, вътрешните страници на кръст">
@@ -208,6 +275,24 @@ export function BedPreview({ params, showDims }: { params: BedParams; showDims: 
       />
       <Board x={leftSupportX} y={innerY} z={zCross} w={half} h={m.innerHeight} d={T} color={wood.shelf} pick="support-left" cam={view} faces={BETWEEN_FACES} />
       <Board x={rightSupportX} y={innerY} z={zCross} w={half} h={m.innerHeight} d={T} color={wood.shelf} pick="support-right" cam={view} faces={BETWEEN_FACES} />
+      {/* The slat frame. With a lift mechanism the 3D picture builds it as one piece that rises. */}
+      {frame.map((part, i) => (
+        <Board
+          key={`frame-${i}`}
+          x={part.x}
+          y={part.y}
+          z={part.z}
+          w={part.w}
+          h={part.h}
+          d={part.d}
+          color={part.color}
+          cam={view}
+          faces={{ top: true, front: true }}
+          strokeWidth={0.8}
+          capture={!lifts}
+        />
+      ))}
+      {liftSolid && <LiftingFrame solid={liftSolid} />}
       <Board
         x={m.width - T}
         y={bottomTop - m.sideHeight}

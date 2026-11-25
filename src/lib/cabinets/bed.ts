@@ -48,6 +48,8 @@ export interface BedParams {
   sideHeight: number
   thickness: number
   liftMechanism: boolean
+  /** The lift mechanism has gas springs (амортисьори). Drawn in 3D; on by default. */
+  liftDampers: boolean
   headboard: boolean
   headboardHeight: number
   /** Outer width, mattress width + 50. Kept so the room and the badge use the real bed. */
@@ -79,6 +81,7 @@ export const DEFAULT_BED_PARAMS: BedParams = {
   sideHeight: 400,
   thickness: 18,
   liftMechanism: false,
+  liftDampers: true,
   headboard: false,
   headboardHeight: BED_HEADBOARD_HEIGHT_MM,
   width: 1650,
@@ -157,6 +160,7 @@ export function parseBedParams(raw: Record<string, unknown>): BedParams {
   const thickness = num('thickness', d.thickness)
   const headboard = raw.headboard === true
   const liftMechanism = raw.liftMechanism === true
+  const liftDampers = raw.liftDampers !== false
   const headboardHeight = num('headboardHeight', d.headboardHeight)
   const measured = measureBed({
     mattressLength,
@@ -172,6 +176,7 @@ export function parseBedParams(raw: Record<string, unknown>): BedParams {
     sideHeight,
     thickness,
     liftMechanism,
+    liftDampers,
     headboard,
     headboardHeight,
     width: measured.width,
@@ -331,7 +336,11 @@ export function generateBed(raw: Record<string, unknown>, settings?: unknown): C
   if (parsed.liftMechanism) {
     hardware.push(
       pricedLine(
-        { id: 'bed-lift', name: 'Механизъм за повдигане', unitPriceEur: hw.bedLiftMechanismEur },
+        {
+          id: 'bed-lift',
+          name: parsed.liftDampers ? 'Механизъм за повдигане с амортисьори' : 'Механизъм за повдигане',
+          unitPriceEur: hw.bedLiftMechanismEur,
+        },
         1,
         'Ляв и десен. Цената се слага в Настройки.',
       ),

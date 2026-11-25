@@ -350,6 +350,7 @@ export function Board({
   pull,
   pick,
   mirrorGlass,
+  capture = true,
 }: {
   x: number
   y: number
@@ -372,11 +373,13 @@ export function Board({
   pick?: string
   /** Shiny mirror, not a chipboard face. */
   mirrorGlass?: boolean
+  /** False when the 3D picture builds this part another way (a bed frame that lifts). */
+  capture?: boolean
 }) {
   const piece = usePiecePaint(pick, color)
   const chosen = piece.chosen
   useCaptureSolid(
-    w > 0.4 && h > 0.4 && d > 0.2
+    capture && w > 0.4 && h > 0.4 && d > 0.2
       ? { kind: 'box', x, y, z, w, h, d, color: piece.color, rearColor, slide, pull, ...(mirrorGlass ? { mirrorGlass: true } : {}), ...(pick ? { piece: pick } : {}) }
       : null,
   )

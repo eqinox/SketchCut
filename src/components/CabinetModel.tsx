@@ -64,7 +64,15 @@ export function CabinetModel({ store }: { store: CaptureStore }) {
 
   const current = menu && menu.kind !== 'board' ? (pulls?.skuFor(menu.pullKey) ?? 'normal') : 'none'
   const ownColor = menu?.piece && pieceColors ? pieceColors.current(menu.piece) : ''
-  const title = menu?.piece && pieceColors ? pieceColors.label(menu.piece) : menu?.kind === 'drawer' ? 'Чекмедже' : 'Врата'
+  // A bed's slat frame on a lift mechanism opens like a door but has no handle.
+  const isLift = Boolean(menu?.animKey.includes('lift:'))
+  const title = isLift
+    ? 'Подматрачна рамка'
+    : menu?.piece && pieceColors
+      ? pieceColors.label(menu.piece)
+      : menu?.kind === 'drawer'
+        ? 'Чекмедже'
+        : 'Врата'
   return (
     <div className="relative h-[520px] w-full">
       <div ref={hostRef} className="h-full w-full" />
@@ -97,10 +105,10 @@ export function CabinetModel({ store }: { store: CaptureStore }) {
                 setMenu(null)
               }}
             >
-              {opened ? 'Затвори' : 'Отвори'}
+              {isLift ? (opened ? 'Свали' : 'Повдигни') : opened ? 'Затвори' : 'Отвори'}
             </button>
           )}
-          {menu.kind !== 'board' && pulls?.choose && (
+          {menu.kind !== 'board' && !isLift && pulls?.choose && (
             <label className="flex flex-col gap-1 text-xs text-neutral-600">
               Дръжка
               <select

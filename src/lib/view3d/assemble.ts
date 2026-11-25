@@ -232,6 +232,95 @@ function addDrawer(
   }
 }
 
+const X_AXIS = new Vector3(1, 0, 0)
+const UP = new Vector3(0, 1, 0)
+
+/** Drawing millimetres (y down, z into the cabinet) to the 3D picture's space. */
+function scenePoint([x, y, z]: [number, number, number]) {
+  return new Vector3(x, -y, -z)
+}
+
+/**
+ * The slat frame of a bed. It behaves like a door that opens upward: one click lifts the foot
+ * end, the next lowers it. The gas springs stretch with it.
+ */
+function addLift(
+  parent: Group,
+  solid: Extract<SceneSolid, { kind: 'lift' }>,
+  bin: Disposable[],
+): AnimatedDoor {
+  const pivot = new Vector3(0, -solid.pivotY, -solid.pivotZ)
+  const group = new Group()
+  group.position.copy(pivot)
+  parent.add(group)
+  for (const part of solid.parts) {
+    const geo = new BoxGeometry(part.w, part.h, part.d)
+    const mat = new MeshStandardMaterial({ color: part.color, roughness: 0.7, metalness: 0 })
+    const mesh = new Mesh(geo, mat)
+    mesh.position.set(part.x + part.w / 2, -(part.y + part.h / 2), -(part.z + part.d / 2)).sub(pivot)
+    mesh.castShadow = true
+    mesh.receiveShadow = true
+    group.add(mesh)
+    bin.push({ dispose: () => geo.dispose() }, { dispose: () => mat.dispose() })
+  }
+  // A gas spring: a thick black body from the bed, a thin shiny rod to the frame.
+  const bodyGeo = new CylinderGeometry(11, 11, 1, 16)
+  const rodGeo = new CylinderGeometry(4.5, 4.5, 1, 12)
+  const bodyMat = metalMaterial('#1f2937', bin, 0.45)
+  const rodMat = metalMaterial('#cbd5e1', bin, 0.2)
+  bin.push({ dispose: () => bodyGeo.dispose() }, { dispose: () => rodGeo.dispose() })
+  const struts = solid.struts.map((strut) => {
+    const body = new Mesh(bodyGeo, bodyMat)
+    const rod = new Mesh(rodGeo, rodMat)
+    body.castShadow = true
+    parent.add(body, rod)
+    return { a: scenePoint(strut.a), b: scenePoint(strut.b).sub(pivot), body, rod }
+  })
+  const place = (mesh: Mesh, from: Vector3, to: Vector3) => {
+    const dir = to.clone().sub(from)
+    const length = Math.max(1, dir.length())
+    mesh.scale.set(1, length, 1)
+    mesh.quaternion.setFromUnitVectors(UP, dir.multiplyScalar(1 / length))
+    mesh.position.copy(from).add(to).multiplyScalar(0.5)
+  }
+  const key = `lift:${solid.key}`
+  group.userData.doorKey = key
+  group.userData.pullKey = key
+  group.traverse((child) => {
+    child.userData.doorKey = key
+    child.userData.pullKey = key
+  })
+  const apply = (openDeg: number) => {
+    const angle = -(openDeg * Math.PI) / 180
+    group.rotation.x = angle
+    group.updateMatrixWorld(true)
+    for (const strut of struts) {
+      const end = strut.b.clone().applyAxisAngle(X_AXIS, angle).add(pivot)
+      const span = end.distanceTo(strut.a)
+      // The body keeps its length; the rod makes up the rest as the frame rises.
+      const bodyLength = Math.min(span * 0.62, 260)
+      const split = strut.a.clone().lerp(end, bodyLength / Math.max(1, span))
+      place(strut.body, strut.a, split)
+      place(strut.rod, split, end)
+    }
+  }
+  apply(0)
+  // The studio only needs the open angle from a door; the rest of the shape does not apply here.
+  const asDoor = {
+    kind: 'door',
+    hingeX: 0,
+    y: 0,
+    z: 0,
+    width: 0,
+    height: 0,
+    thickness: 0,
+    side: 'left',
+    openDeg: solid.openDeg,
+    color: '',
+  } as DoorSolid
+  return { key, solid: asDoor, group, hinges: [], apply }
+}
+
 export function buildCabinet(
   parent: Group,
   solids: SceneSolid[],
@@ -244,6 +333,10 @@ export function buildCabinet(
   const buckets = new Map<string, { travel: number; parts: Extract<SceneSolid, { kind: 'box' }>[] }>()
   for (const solid of solids) {
     if (solid.kind === 'dim') continue
+    if (solid.kind === 'lift') {
+      doors.push(addLift(parent, solid, bin))
+      continue
+    }
     const sheet = solid.kind === 'rail' ? undefined : sheets.get(solid.color.toLowerCase())
     if (solid.kind === 'box' && solid.slide) {
       const bucket = buckets.get(solid.slide.id) ?? { travel: solid.slide.travel, parts: [] }

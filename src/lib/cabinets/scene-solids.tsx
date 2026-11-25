@@ -46,6 +46,20 @@ export type SceneSolid =
       piece?: string
     }
   | {
+      /**
+       * A bed's slat frame on a lift mechanism. It turns about a line across the bed at
+       * (pivotY, pivotZ), so the foot end rises. Struts are the gas springs, drawn when the
+       * mechanism has them: `a` is fixed to the bed, `b` rides on the frame (closed pose).
+       */
+      kind: 'lift'
+      key: string
+      pivotY: number
+      pivotZ: number
+      openDeg: number
+      parts: { x: number; y: number; z: number; w: number; h: number; d: number; color: string }[]
+      struts: { a: [number, number, number]; b: [number, number, number] }[]
+    }
+  | {
       kind: 'rail'
       x: number
       y: number
@@ -125,6 +139,15 @@ function placeSolid(solid: SceneSolid, place: { x: number; y: number; localLeft:
     return { ...solid, x0: solid.x0 + dx, y0: solid.y0 + dy, x1: solid.x1 + dx, y1: solid.y1 + dy }
   }
   if (solid.kind === 'door') return { ...solid, hingeX: solid.hingeX + dx, y: solid.y + dy }
+  if (solid.kind === 'lift') {
+    const shift = ([x, y, z]: [number, number, number]): [number, number, number] => [x + dx, y + dy, z]
+    return {
+      ...solid,
+      pivotY: solid.pivotY + dy,
+      parts: solid.parts.map((part) => ({ ...part, x: part.x + dx, y: part.y + dy })),
+      struts: solid.struts.map((strut) => ({ a: shift(strut.a), b: shift(strut.b) })),
+    }
+  }
   const moved = { ...solid, x: solid.x + dx, y: solid.y + dy }
   if (moved.kind === 'box' && moved.slide) {
     return {

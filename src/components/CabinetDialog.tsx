@@ -1614,6 +1614,7 @@ function CabinetDialogForm({
   const [bedMattressWidth, setBedMattressWidth] = useState(String(initialBed.mattressWidth))
   const [bedSideHeight, setBedSideHeight] = useState(String(initialBed.sideHeight))
   const [bedLift, setBedLift] = useState(initialBed.liftMechanism)
+  const [bedLiftDampers, setBedLiftDampers] = useState(initialBed.liftDampers)
   const [bedHeadboard, setBedHeadboard] = useState(initialBed.headboard)
   const [bedHeadboardHeight, setBedHeadboardHeight] = useState(String(initialBed.headboardHeight))
   const [width, setWidth] = useState(String(editing?.params.width ?? DEFAULT_KITCHEN_BASE_PARAMS.width))
@@ -1815,6 +1816,7 @@ function CabinetDialogForm({
         sideHeight: parseInt(bedSideHeight, 10),
         thickness: parseInt(thickness, 10),
         liftMechanism: bedLift,
+        liftDampers: bedLiftDampers,
         headboard: bedHeadboard,
         headboardHeight: parseInt(bedHeadboardHeight, 10),
         colors,
@@ -2013,7 +2015,7 @@ function CabinetDialogForm({
       colors,
       ...fittings,
     })
-  }, [typeId, width, height, depth, depthMode, thickness, legHeight, shelfCount, movableShelves, hasBack, nailBack, clothesRails, doorCount, doorStyle, slidingDoorCount, slidingEdges, slidingUpperTrackColor, slidingLowerTrackColor, slidingHandleSkuId, slidingCapSkuId, slidingSoftCloseLeft, slidingSoftCloseRight, drawerFrontHeights, cutFromOneBoard, includeHandles, handleSku, handleOverrides, slideKind, slideLength, useLegs, plinthCount, plinthHeight, colors, topStyle, hasHood, hoodShape, hoodDiameter, hoodRectW, hoodRectD, fixedShelves, partitions, doorSpan, zoneUi, externalDoors, innerDrawerFronts, innerDoors, dimFontScale, shelfFrontInset, knee, kneeWidth, legSide, backRailHeight, doorMirror, boardMirror, bedMattressLength, bedMattressWidth, bedSideHeight, bedLift, bedHeadboard, bedHeadboardHeight])
+  }, [typeId, width, height, depth, depthMode, thickness, legHeight, shelfCount, movableShelves, hasBack, nailBack, clothesRails, doorCount, doorStyle, slidingDoorCount, slidingEdges, slidingUpperTrackColor, slidingLowerTrackColor, slidingHandleSkuId, slidingCapSkuId, slidingSoftCloseLeft, slidingSoftCloseRight, drawerFrontHeights, cutFromOneBoard, includeHandles, handleSku, handleOverrides, slideKind, slideLength, useLegs, plinthCount, plinthHeight, colors, topStyle, hasHood, hoodShape, hoodDiameter, hoodRectW, hoodRectD, fixedShelves, partitions, doorSpan, zoneUi, externalDoors, innerDrawerFronts, innerDoors, dimFontScale, shelfFrontInset, knee, kneeWidth, legSide, backRailHeight, doorMirror, boardMirror, bedMattressLength, bedMattressWidth, bedSideHeight, bedLift, bedLiftDampers, bedHeadboard, bedHeadboardHeight])
 
   const params = useMemo(
     () => ({
@@ -3470,6 +3472,7 @@ function CabinetDialogForm({
                   setBedMattressWidth(String(d.mattressWidth))
                   setBedSideHeight(String(d.sideHeight))
                   setBedLift(false)
+                  setBedLiftDampers(true)
                   setBedHeadboard(false)
                   setBedHeadboardHeight(String(d.headboardHeight))
                   setThickness(String(d.thickness))
@@ -3679,6 +3682,8 @@ function CabinetDialogForm({
             <BedOptions
               lift={bedLift}
               onLift={setBedLift}
+              dampers={bedLiftDampers}
+              onDampers={setBedLiftDampers}
               headboard={bedHeadboard}
               onHeadboard={setBedHeadboard}
               headHeight={bedHeadboardHeight}
@@ -7883,6 +7888,8 @@ function bedHint(
 function BedOptions({
   lift,
   onLift,
+  dampers,
+  onDampers,
   headboard,
   onHeadboard,
   headHeight,
@@ -7891,6 +7898,8 @@ function BedOptions({
 }: {
   lift: boolean
   onLift: (next: boolean) => void
+  dampers: boolean
+  onDampers: (next: boolean) => void
   headboard: boolean
   onHeadboard: (next: boolean) => void
   headHeight: string
@@ -7903,6 +7912,11 @@ function BedOptions({
         <Button type="button" size="sm" variant={lift ? 'default' : 'outline'} onClick={() => onLift(!lift)}>
           Механизъм за повдигане
         </Button>
+        {lift && (
+          <Button type="button" size="sm" variant={dampers ? 'default' : 'outline'} onClick={() => onDampers(!dampers)}>
+            С амортисьори
+          </Button>
+        )}
         <Button type="button" size="sm" variant={headboard ? 'default' : 'outline'} onClick={() => onHeadboard(!headboard)}>
           Табла
         </Button>

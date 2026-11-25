@@ -685,6 +685,10 @@ function FrontButtons({
     const n = (counts.get(bucket) ?? 0) + 1
     counts.set(bucket, n)
     const name = placed.find((row) => row.piece.id === pieceId)?.cabinet.name || 'Мебел'
+    // A bed's slat frame lifts like a door opens.
+    if (front.id.includes(':lift:')) {
+      return { ...front, label: `${name} · Подматрачна рамка`, action: front.open ? 'Свали' : 'Повдигни' }
+    }
     const what = front.kind === 'door' ? 'Врата' : 'Чекмедже'
     return { ...front, label: `${name} · ${what} ${n}`, action: front.open ? 'Затвори' : 'Отвори' }
   })
