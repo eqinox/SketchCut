@@ -148,6 +148,9 @@ export function SettingsDialog({
   const [mirrorPerM2, setMirrorPerM2] = useState('')
   const [mirrorEdge, setMirrorEdge] = useState('')
   const [mirrorSilicone, setMirrorSilicone] = useState('')
+  const [ledStrip, setLedStrip] = useState('')
+  const [ledDriver, setLedDriver] = useState('')
+  const [ledSwitch, setLedSwitch] = useState('')
   const [clothesRailPrice, setClothesRailPrice] = useState('')
   const [slidingUpperTrack, setSlidingUpperTrack] = useState<Record<SlidingTrackColor, string>>(
     Object.fromEntries(SLIDING_TRACK_COLOR_IDS.map((id) => [id, ''])) as Record<SlidingTrackColor, string>,
@@ -260,6 +263,9 @@ export function SettingsDialog({
     setMirrorPerM2(String(s.mirrorEurPerM2))
     setMirrorEdge(String(s.mirrorEdgeEurPerM))
     setMirrorSilicone(String(s.mirrorSiliconeEur))
+    setLedStrip(String(s.ledStripEurPerM))
+    setLedDriver(String(s.ledDriverEur))
+    setLedSwitch(String(s.ledSwitchEur))
     setClothesRailPrice(String(s.clothesRailEurPerM))
     setSlidingUpperTrack(
       Object.fromEntries(SLIDING_TRACK_COLOR_IDS.map((id) => [id, String(s.slidingUpperTrackEur[id])])) as Record<
@@ -393,6 +399,9 @@ export function SettingsDialog({
       mirrorEurPerM2: Math.max(0, parseFloat(mirrorPerM2) || 0),
       mirrorEdgeEurPerM: Math.max(0, parseFloat(mirrorEdge) || 0),
       mirrorSiliconeEur: Math.max(0, parseFloat(mirrorSilicone) || 0),
+      ledStripEurPerM: Math.max(0, parseFloat(ledStrip) || 0),
+      ledDriverEur: Math.max(0, parseFloat(ledDriver) || 0),
+      ledSwitchEur: Math.max(0, parseFloat(ledSwitch) || 0),
       slidingHandleEurPerM: DEFAULT_HARDWARE_SETTINGS.slidingHandleEurPerM,
       slidingCapEurPerM: DEFAULT_HARDWARE_SETTINGS.slidingCapEurPerM,
       slidingUpperTrackEur: Object.fromEntries(
@@ -827,6 +836,16 @@ export function SettingsDialog({
               />
               <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
                 Цената е лицето по квадратния метър. Полираният кант е обиколката по метъра. Слагането на едно огледало е 30 мин и една бутилка силикон.
+              </p>
+              <h4 className="mt-4 text-sm font-medium">Осветление отзад (ореол)</h4>
+              <Label htmlFor="led-strip" className="mt-2">LED лента (€/м)</Label>
+              <Input id="led-strip" type="number" step="0.01" min="0" value={ledStrip} onChange={(e) => setLedStrip(e.target.value)} />
+              <Label htmlFor="led-driver" className="mt-3">Захранване / трафо (€/бр.)</Label>
+              <Input id="led-driver" type="number" step="0.01" min="0" value={ledDriver} onChange={(e) => setLedDriver(e.target.value)} />
+              <Label htmlFor="led-switch" className="mt-3">Ключ (€/бр.)</Label>
+              <Input id="led-switch" type="number" step="0.01" min="0" value={ledSwitch} onChange={(e) => setLedSwitch(e.target.value)} />
+              <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
+                Лентата върви отзад по обиколката на огледалото, на 4 см навътре от ръба. На огледало: 1 захранване и 1 ключ.
               </p>
             </div>
             <div className="rounded-md border border-[var(--color-border)] p-4">

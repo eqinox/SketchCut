@@ -67,6 +67,20 @@ export type SceneSolid =
       arms?: { a: [number, number, number]; b: [number, number, number] }[]
     }
   | {
+      /**
+       * Light behind a mirror: a soft glow on the board around the glass. (x, y, z, w, h) is the
+       * glass, z the board's face. Clicking it in 3D switches it off and on.
+       */
+      kind: 'glow'
+      key: string
+      x: number
+      y: number
+      z: number
+      w: number
+      h: number
+      color: string
+    }
+  | {
       kind: 'rail'
       x: number
       y: number
@@ -146,6 +160,7 @@ function placeSolid(solid: SceneSolid, place: { x: number; y: number; localLeft:
     return { ...solid, x0: solid.x0 + dx, y0: solid.y0 + dy, x1: solid.x1 + dx, y1: solid.y1 + dy }
   }
   if (solid.kind === 'door') return { ...solid, hingeX: solid.hingeX + dx, y: solid.y + dy }
+  if (solid.kind === 'glow') return { ...solid, x: solid.x + dx, y: solid.y + dy }
   if (solid.kind === 'lift') {
     const shift = ([x, y, z]: [number, number, number]): [number, number, number] => [x + dx, y + dy, z]
     return {

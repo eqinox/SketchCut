@@ -1,6 +1,11 @@
 import {
   BoxGeometry,
+  AdditiveBlending,
+  CanvasTexture,
   CubeCamera,
+  MeshBasicMaterial,
+  PlaneGeometry,
+  SRGBColorSpace,
   Object3D,
   Scene,
   WebGLRenderer,
@@ -396,6 +401,63 @@ function addLift(
   return { key, solid: asDoor, group, hinges: [], apply }
 }
 
+/** How far the glow spreads on the board past the glass edge. */
+const GLOW_SPREAD_MM = 150
+
+/**
+ * The halo of an LED strip behind a mirror: a soft light on the board around the glass. It is
+ * switched like a door opens: lit when "closed" (the usual state), dark when "open".
+ */
+function addGlow(parent: Group, solid: Extract<SceneSolid, { kind: 'glow' }>, bin: Disposable[]): AnimatedDoor {
+  const w = solid.w + 2 * GLOW_SPREAD_MM
+  const h = solid.h + 2 * GLOW_SPREAD_MM
+  const scale = 512 / Math.max(w, h)
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.max(16, Math.round(w * scale))
+  canvas.height = Math.max(16, Math.round(h * scale))
+  const ctx = canvas.getContext('2d')
+  if (ctx) {
+    const s = GLOW_SPREAD_MM * scale
+    // The strip is a little in from the glass edge; its light blurs outward onto the board.
+    ctx.shadowColor = 'rgba(255,255,255,1)'
+    ctx.shadowBlur = s * 0.9
+    ctx.fillStyle = 'rgba(255,255,255,0.9)'
+    const inset = 30 * scale
+    ctx.fillRect(s + inset, s + inset, canvas.width - 2 * (s + inset), canvas.height - 2 * (s + inset))
+    ctx.shadowBlur = s * 0.35
+    ctx.fillRect(s + inset, s + inset, canvas.width - 2 * (s + inset), canvas.height - 2 * (s + inset))
+  }
+  const map = new CanvasTexture(canvas)
+  map.colorSpace = SRGBColorSpace
+  const mat = new MeshBasicMaterial({
+    map,
+    color: solid.color,
+    transparent: true,
+    blending: AdditiveBlending,
+    depthWrite: false,
+    toneMapped: false,
+  })
+  const geo = new PlaneGeometry(w, h)
+  const glow = new Mesh(geo, mat)
+  // Just in front of the board face, facing the room (+z in three.js is toward the viewer).
+  glow.position.set(solid.x + solid.w / 2, -(solid.y + solid.h / 2), -solid.z + 0.6)
+  glow.renderOrder = 3
+  parent.add(glow)
+  bin.push({ dispose: () => geo.dispose() }, { dispose: () => mat.dispose() }, { dispose: () => map.dispose() })
+  const key = `light:${solid.key}`
+  glow.userData.doorKey = key
+  glow.userData.pullKey = key
+  const openDeg = 90
+  const apply = (deg: number) => {
+    const on = 1 - Math.min(1, Math.max(0, deg / openDeg))
+    // Stays in the scene when dark, so a click can switch it on again.
+    mat.opacity = on
+  }
+  apply(0)
+  const asDoor = { kind: 'door', hingeX: 0, y: 0, z: 0, width: 0, height: 0, thickness: 0, side: 'left', openDeg, color: '' } as DoorSolid
+  return { key, solid: asDoor, group: glow as unknown as Group, hinges: [], apply }
+}
+
 export function buildCabinet(
   parent: Group,
   solids: SceneSolid[],
@@ -410,6 +472,10 @@ export function buildCabinet(
     if (solid.kind === 'dim') continue
     if (solid.kind === 'lift') {
       doors.push(addLift(parent, solid, bin))
+      continue
+    }
+    if (solid.kind === 'glow') {
+      doors.push(addGlow(parent, solid, bin))
       continue
     }
     const sheet = solid.kind === 'rail' ? undefined : sheets.get(solid.color.toLowerCase())

@@ -63,6 +63,12 @@ export interface HardwareSettings {
   mirrorEdgeEurPerM: number
   /** One bottle of silicone per fitted mirror. */
   mirrorSiliconeEur: number
+  /** LED strip behind a lit mirror, EUR per metre. */
+  ledStripEurPerM: number
+  /** Power supply for the LED strip, EUR each. */
+  ledDriverEur: number
+  /** Switch for the mirror light, EUR each. */
+  ledSwitchEur: number
   /** Mattress lift mechanism for a bed, EUR each. */
   bedLiftMechanismEur: number
 
@@ -164,6 +170,9 @@ export const DEFAULT_HARDWARE_SETTINGS: HardwareSettings = {
   mirrorEurPerM2: 38.4,
   mirrorEdgeEurPerM: 1.79,
   mirrorSiliconeEur: 5,
+  ledStripEurPerM: 6,
+  ledDriverEur: 12,
+  ledSwitchEur: 8,
   bedLiftMechanismEur: 25,
   edgeMm2Eur: 0.7,
   edgeMm05Eur: 0.35,
@@ -243,6 +252,9 @@ export function parseHardwareSettings(raw: unknown): HardwareSettings {
     mirrorEurPerM2: num(src, 'mirrorEurPerM2', d.mirrorEurPerM2),
     mirrorEdgeEurPerM: num(src, 'mirrorEdgeEurPerM', d.mirrorEdgeEurPerM),
     mirrorSiliconeEur: num(src, 'mirrorSiliconeEur', d.mirrorSiliconeEur),
+    ledStripEurPerM: num(src, 'ledStripEurPerM', d.ledStripEurPerM),
+    ledDriverEur: num(src, 'ledDriverEur', d.ledDriverEur),
+    ledSwitchEur: num(src, 'ledSwitchEur', d.ledSwitchEur),
     // 0 meant the price was never set. The mechanism with dampers costs 25 €.
     bedLiftMechanismEur: newerPrice(num(src, 'bedLiftMechanismEur', d.bedLiftMechanismEur), [0], d.bedLiftMechanismEur),
     edgeMm2Eur: num(src, 'edgeMm2Eur', d.edgeMm2Eur),

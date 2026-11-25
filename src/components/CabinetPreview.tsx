@@ -56,7 +56,7 @@ import {
   type PanelHole,
 } from '@/lib/cabinets'
 import { BedPreview } from '@/components/BedPreview'
-import { MIRROR_GLASS_COLOR, mirrorCoversDoor, mirrorGlass, parseMirrorSpec, type MirrorSpec } from '@/lib/cabinets/mirror'
+import { MIRROR_GLASS_COLOR, MIRROR_HALO_COLOR, MIRROR_HALO_STANDOFF_MM, mirrorCoversDoor, mirrorGlass, parseMirrorSpec, type MirrorSpec } from '@/lib/cabinets/mirror'
 import { PullChoiceContext, pullChoiceFrom, type PullSku } from '@/lib/cabinets/pulls'
 import {
   BETWEEN_FACES,
@@ -544,6 +544,12 @@ function WithDecor({
 }) {
   // Always the same wrapper: adding or dropping it would rebuild the 3D picture and close its menu.
   return <DecorTextureProvider entries={entries}>{children}</DecorTextureProvider>
+}
+
+/** Hands a mirror's halo light to the 3D picture. Draws nothing in the drawing itself. */
+function GlowCapture({ solid }: { solid: Extract<SceneSolid, { kind: 'glow' }> }) {
+  useCaptureSolid(solid)
+  return null
 }
 
 /** Single 3D front view with depth extending to the right. */
@@ -4140,11 +4146,29 @@ function PlinthBoxFront3DView({
         const boardH = VANITY_MIRROR_BOARD_MM + Math.min(fascia.h, Math.max(T, m.sideH))
         const glass = boardMirror ? mirrorGlass(W, boardH, boardMirror) : null
         if (!glass) return null
+        // Lit from behind, the glass stands off the board and the light shows round it.
+        const halo = boardMirror?.halo
+        const standoff = halo ? MIRROR_HALO_STANDOFF_MM : 0
         return (
+          <>
+          {halo && (
+            <GlowCapture
+              solid={{
+                kind: 'glow',
+                key: 'vanity-mirror',
+                x: glass.x,
+                y: sideY - VANITY_MIRROR_BOARD_MM + glass.y,
+                z: zSide + m.sideD,
+                w: glass.width,
+                h: glass.height,
+                color: MIRROR_HALO_COLOR[halo],
+              }}
+            />
+          )}
           <Board
             x={glass.x}
             y={sideY - VANITY_MIRROR_BOARD_MM + glass.y}
-            z={zSide + m.sideD - 6}
+            z={zSide + m.sideD - 6 - standoff}
             w={glass.width}
             h={glass.height}
             d={4}
@@ -4153,6 +4177,7 @@ function PlinthBoxFront3DView({
             faces={{ front: true }}
             mirrorGlass
           />
+          </>
         )
       })()}
 

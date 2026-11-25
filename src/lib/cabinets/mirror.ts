@@ -38,7 +38,21 @@ export interface MirrorSpec {
   on?: string[]
   /** The doors with glass get no handle: the glass leaves no good place for one. */
   noPull?: boolean
+  /**
+   * Light behind the glass (a halo): the glass stands off the board and an LED strip round its
+   * back shines on the board. The value is the light's tone. Missing means no light.
+   */
+  halo?: MirrorHalo
 }
+
+export type MirrorHalo = 'warm' | 'neutral' | 'cool'
+export const MIRROR_HALO_LABEL: Record<MirrorHalo, string> = { warm: 'Топла', neutral: 'Неутрална', cool: 'Студена' }
+/** Light colours for the 3D glow. */
+export const MIRROR_HALO_COLOR: Record<MirrorHalo, string> = { warm: '#ffc98a', neutral: '#fff1dc', cool: '#e3efff' }
+/** How far the glass stands off the board when lit from behind. */
+export const MIRROR_HALO_STANDOFF_MM = 25
+/** The strip runs this far in from the glass edge. */
+export const MIRROR_HALO_INSET_MM = 40
 
 export const EMPTY_MIRROR: MirrorSpec = {
   enabled: false,
@@ -71,6 +85,7 @@ export function parseMirrorSpec(raw: unknown): MirrorSpec {
     bottom: mm(src.bottom, 0),
     on: Array.isArray(src.on) ? src.on.filter((item): item is string => typeof item === 'string') : undefined,
     ...(src.noPull === true ? { noPull: true } : {}),
+    ...(src.halo === 'warm' || src.halo === 'neutral' || src.halo === 'cool' ? { halo: src.halo } : {}),
   }
 }
 
@@ -212,6 +227,7 @@ export function applyCabinetMirrors(
   const groups = new Map<string, { name: string; quantity: number; unit: number; note: string }>()
   let mirrors = 0
   let rejected = 0
+  const lit: { glass: MirrorGlass; quantity: number; tone: MirrorHalo }[] = []
 
   const take = (panel: GeneratedPanel, spec: MirrorSpec, where: string) => {
     const glass = mirrorGlass(panel.width, panel.height, spec)
@@ -250,7 +266,33 @@ export function applyCabinetMirrors(
         take(panel, doorSpec, panel.name)
       }
     }
-    if (boardSpec.enabled && isMirrorBoard(panel)) take(panel, boardSpec, 'Плоскост за огледало')
+    if (boardSpec.enabled && isMirrorBoard(panel)) {
+      take(panel, boardSpec, 'Плоскост за огледало')
+      const glass = mirrorGlass(panel.width, panel.height, boardSpec)
+      if (glass && boardSpec.halo) lit.push({ glass, quantity: panel.quantity, tone: boardSpec.halo })
+    }
+  }
+
+  // Light behind the glass: LED strip round the back, a power supply and a switch per mirror.
+  for (const { glass, quantity, tone } of lit) {
+    const runMm = 2 * (glass.width + glass.height) - 8 * MIRROR_HALO_INSET_MM
+    const metres = Math.max(0.1, Math.ceil(runMm / 100) / 10)
+    const hw = (settings as { hardware?: HardwareSettings } | undefined)?.hardware
+    const stripEur = hw?.ledStripEurPerM ?? 6
+    const driverEur = hw?.ledDriverEur ?? 12
+    const switchEur = hw?.ledSwitchEur ?? 8
+    hardware.push(
+      pricedLine(
+        { id: 'led-strip', name: `LED лента, ${MIRROR_HALO_LABEL[tone].toLowerCase()} светлина`, unitPriceEur: Math.round(metres * stripEur * 100) / 100 },
+        quantity,
+        `${metres.toFixed(1).replace('.', ',')} м отзад по обиколката × ${stripEur.toFixed(2).replace('.', ',')} €/м`,
+      ),
+      pricedLine({ id: 'led-driver', name: 'Захранване за LED лента', unitPriceEur: driverEur }, quantity, 'по 1 на огледало'),
+      pricedLine({ id: 'led-switch', name: 'Ключ за осветлението', unitPriceEur: switchEur }, quantity, 'по 1 на огледало'),
+    )
+    notes.push(
+      `Осветление отзад: огледалото стои на ${MIRROR_HALO_STANDOFF_MM} мм от плоскостта, на дистанционни. LED лента ${metres.toFixed(1).replace('.', ',')} м по гърба му, на ${MIRROR_HALO_INSET_MM} мм от ръба; светлината грее по плоскостта около огледалото.`,
+    )
   }
 
   for (const row of groups.values()) {

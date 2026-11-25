@@ -694,6 +694,10 @@ function FrontButtons({
     const n = (counts.get(bucket) ?? 0) + 1
     counts.set(bucket, n)
     const name = placed.find((row) => row.piece.id === pieceId)?.cabinet.name || 'Мебел'
+    // A mirror's light is lit at rest; "open" means switched off.
+    if (front.id.includes(':light:')) {
+      return { ...front, label: `${name} · Осветление`, action: front.open ? 'Включи' : 'Изключи' }
+    }
     // A bed's slat frame lifts like a door opens.
     if (front.id.includes(':lift:')) {
       return { ...front, label: `${name} · Подматрачна рамка`, action: front.open ? 'Свали' : 'Повдигни' }

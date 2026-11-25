@@ -210,10 +210,12 @@ import {
 } from '@/lib/cabinets/vanity'
 import {
   isMirrorBoard,
+  MIRROR_HALO_LABEL,
   mirrorDoorTargets,
   mirrorGlass,
   mirrorQuote,
   parseMirrorSpec,
+  type MirrorHalo,
   type MirrorMode,
   type MirrorSpec,
 } from '@/lib/cabinets/mirror'
@@ -1371,6 +1373,7 @@ function MirrorFields({
   doors,
   perM2,
   edgePerM,
+  allowHalo = false,
 }: {
   id: string
   spec: MirrorSpec
@@ -1381,6 +1384,8 @@ function MirrorFields({
   doors?: { id: string; label: string; width: number; height: number }[]
   perM2: number
   edgePerM: number
+  /** The glass may be lit from behind (the vanity mirror board). */
+  allowHalo?: boolean
 }) {
   const set = (patch: Partial<MirrorSpec>) => onChange({ ...spec, ...patch })
   const chosenDoors = (doors ?? []).filter((door) => !spec.on || spec.on.includes(door.id))
@@ -1421,6 +1426,39 @@ function MirrorFields({
             <Checkbox checked={spec.polished} onCheckedChange={(c) => set({ polished: c === true })} />
             Полиран кант
           </label>
+          {allowHalo && (
+            <div className="mt-2 flex flex-wrap items-center gap-3">
+              <label className="flex cursor-pointer items-center gap-2 text-sm">
+                <Checkbox
+                  checked={!!spec.halo}
+                  onCheckedChange={(c) => set({ halo: c === true ? (spec.halo ?? 'warm') : undefined })}
+                />
+                Осветление отзад (ореол)
+              </label>
+              {spec.halo && (
+                <label className="flex items-center gap-2 text-sm">
+                  Светлина
+                  <select
+                    aria-label="Цвят на светлината"
+                    className="h-8 rounded-md border border-[var(--color-border)] bg-transparent px-2"
+                    value={spec.halo}
+                    onChange={(e) => set({ halo: e.target.value as MirrorHalo })}
+                  >
+                    {(Object.keys(MIRROR_HALO_LABEL) as MirrorHalo[]).map((tone) => (
+                      <option key={tone} value={tone}>
+                        {MIRROR_HALO_LABEL[tone]}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              {spec.halo && (
+                <p className="w-full text-xs text-[var(--color-muted-foreground)]">
+                  Огледалото стои на 2,5 см от плоскостта, LED лентата е по гърба му и светлината грее около него. В 3D се включва и изключва с клик върху огледалото.
+                </p>
+              )}
+            </div>
+          )}
           {doors && doors.length > 0 && (
             <label className="mt-2 flex cursor-pointer items-center gap-2 text-sm">
               <Checkbox checked={spec.noPull === true} onCheckedChange={(c) => set({ noPull: c === true ? true : undefined })} />
@@ -6656,6 +6694,7 @@ function CabinetDialogForm({
                       spec={boardMirror}
                       onChange={setBoardMirror}
                       wholeLabel="На цялата плоскост"
+                      allowHalo
                       perM2={settings.hardware.mirrorEurPerM2}
                       edgePerM={settings.hardware.mirrorEdgeEurPerM}
                       sample={(() => {
