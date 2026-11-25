@@ -189,7 +189,19 @@ export function mountCabinetStudio(
 
   const anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy())
 
+  // Keep drawing for a short while after anything happens (a click, a drag, new content).
+  let drawUntil = 0
+  let lastDraw = 0
+  const invalidate = (ms = 600) => {
+    drawUntil = Math.max(drawUntil, performance.now() + ms)
+  }
+  const wake = () => invalidate()
+  for (const type of ['pointerdown', 'pointermove', 'pointerup', 'wheel', 'keydown'] as const) {
+    host.addEventListener(type, wake, { passive: true })
+  }
+  window.addEventListener('pointerup', wake, { passive: true })
   const resize = () => {
+    invalidate()
     const width = host.clientWidth || 640
     const height = host.clientHeight || 520
     renderer.setSize(width, height, false)
@@ -363,13 +375,30 @@ export function mountCabinetStudio(
       angle.now += gap * (1 - Math.exp(-delta * 7))
     }
     if (moving) applyMotion()
-    controls.update()
-    renderer.render(scene, camera)
-    labels.render(scene, camera)
+    // Draw only when something changed: the camera turned, a door is moving, or the picture was
+    // touched or updated a moment ago. A still picture costs nothing, which matters with mirrors.
+    const turned = controls.update()
+    if (moving || turned || now < drawUntil || now - lastDraw > 1000) {
+      renderer.render(scene, camera)
+      labels.render(scene, camera)
+      lastDraw = now
+    }
   }
   frame = requestAnimationFrame(tick)
 
-  return {
+  const wakeOnCall = <T extends object>(api: T): T => {
+    for (const key of Object.keys(api) as (keyof T)[]) {
+      const value = api[key]
+      if (typeof value === 'function') {
+        api[key] = ((...args: unknown[]) => {
+          invalidate(1200)
+          return (value as (...a: unknown[]) => unknown)(...args)
+        }) as T[keyof T]
+      }
+    }
+    return api
+  }
+  return wakeOnCall({
     toggle,
     setContent(solids, sheets) {
       for (const item of bin) item.dispose()
@@ -401,6 +430,7 @@ export function mountCabinetStudio(
       renderer.domElement.removeEventListener('pointermove', onMove)
       controls.removeEventListener('start', onOrbitStart)
       controls.dispose()
+      window.removeEventListener('pointerup', wake)
       for (const item of bin) item.dispose()
       floorGeo.dispose()
       floorMat.dispose()
@@ -411,5 +441,5 @@ export function mountCabinetStudio(
       if (renderer.domElement.parentElement === host) host.removeChild(renderer.domElement)
       if (labels.domElement.parentElement === host) host.removeChild(labels.domElement)
     },
-  }
+  })
 }
