@@ -720,7 +720,14 @@ export function mountRoomStudio(host: HTMLElement): RoomStudio {
     held.stand.position.copy(held.startPos)
     markPickedWall()
     outlinePicked()
-    if (held.moved >= 10) for (const listener of movedListeners) listener(held.id, held.at.x, held.at.y)
+    if (held.moved >= 10) {
+      for (const listener of movedListeners) listener(held.id, held.at.x, held.at.y)
+      return
+    }
+    // Pressed and let go without moving: a click, not a drag. On a door, a drawer or a bed's
+    // lifting frame of this cabinet it opens or closes it, as it does when nothing can be dragged.
+    const moving = hitMoving(event)
+    if (moving && moving.startsWith(`${held.id}:`)) toggle(moving)
   }
   host.addEventListener('pointerdown', onHostDown, true)
   window.addEventListener('pointermove', onFloorMove)

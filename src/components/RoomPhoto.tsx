@@ -519,12 +519,20 @@ export function RoomPhoto({
   ))
 
   if (bare) {
+    // In the design view: buttons for the doors, drawers and bed frame of the selected cabinet,
+    // laid over the bottom of the picture. Clicking the part itself in 3D does the same.
+    const ownFronts = pickedId ? fronts.filter((front) => front.id.startsWith(`${pickedId}:`)) : []
     return (
-      <div className="h-full">
+      <div className="relative h-full">
         {failed ? (
           <p className="py-8 text-center text-sm text-neutral-600">Браузърът не пуска 3D картината.</p>
         ) : (
           <div ref={hostRef} className={`${heightClass ?? 'h-full'} w-full overflow-hidden rounded-md bg-[#c9d3dc]`} />
+        )}
+        {ownFronts.length > 0 && (
+          <div className="absolute inset-x-2 bottom-2 z-10" aria-label="Врати и чекмеджета на маркирания шкаф">
+            <FrontButtons fronts={ownFronts} placed={placed} onToggle={(id) => studioRef.current?.toggle(id)} />
+          </div>
         )}
         {captures}
       </div>
