@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { User } from 'firebase/auth'
 import { Sparkles, Layers, Settings, Trash2, BookOpen } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -30,6 +30,10 @@ import { subscribeAuth, saveProject, loadProjects, deleteProject, loadUserSettin
 import { saveDraft, readInitialDraft, setOpenProject, getOpenProject, type OpenProjectRef } from '@/lib/draft-storage'
 import { loadSettings, saveSettings, resetSettings, type HardwareSettings } from '@/lib/settings'
 import { ensureFinishSheets, ensurePackingSheets, finishById, type BoardFinish } from '@/lib/board-finishes'
+import { kronospanBoardByFinishId, withKronospanBoard } from '@/lib/kronospan-color'
+import { swapColor } from '@/lib/project-colors'
+import { projectPriceEur } from '@/lib/project-price'
+import { isCombinationType } from '@/lib/cabinets/compose'
 import {
   loadAssemblyTimeSettings,
   saveAssemblyTimeSettings,
@@ -354,6 +358,11 @@ function App() {
   }
 
   const cabinetState = { cabinets, parts, edgeBanding }
+  // The whole project's price, shown in the design view next to the project colours.
+  const projectPrice = useMemo(
+    () => projectPriceEur(cabinets, sheets, { hardware: settings, assemblyTime: assemblyTimeSettings }, dailyRateEur),
+    [cabinets, sheets, settings, assemblyTimeSettings, dailyRateEur],
+  )
 
   const resetPacking = () => {
     setPackingResult(null)
@@ -477,6 +486,42 @@ function App() {
     },
     [user, showDbError],
   )
+
+  /** Puts `to` everywhere the project uses `from`: carcasses, doors and single pieces. */
+  const handleSwapColor = (from: string, to: string) => {
+    let hardware = settings
+    const board = to ? kronospanBoardByFinishId(to) : undefined
+    if (board) {
+      const finishes = withKronospanBoard(settings.boardFinishes, board)
+      if (finishes !== settings.boardFinishes) {
+        hardware = { ...settings, boardFinishes: finishes }
+        setSettings(hardware)
+        saveSettings(hardware)
+        persistAccountSettings(hardware, assemblyTimeSettings)
+      }
+    }
+    let state = cabinetState
+    let count = 0
+    for (const cabinet of cabinets) {
+      if (isCombinationType(cabinet.typeId)) continue
+      const params = swapColor(cabinet.params, from, to)
+      if (!params) continue
+      state = updateCabinetAndLabel(
+        state,
+        cabinet.id,
+        { typeId: cabinet.typeId, params, quantity: cabinet.quantity },
+        { hardware, assemblyTime: assemblyTimeSettings },
+      )
+      count += 1
+    }
+    if (count === 0) return
+    setCabinets(state.cabinets)
+    setParts(state.parts)
+    setEdgeBanding(state.edgeBanding)
+    setSheets((prev) => ensureFinishSheets(prev, state.parts, hardware.boardFinishes))
+    resetPacking()
+    say(count === 1 ? 'Цветът е сменен в 1 шкаф' : `Цветът е сменен в ${count} шкафа`)
+  }
 
   const applyCabinetRebuild = (
     hardware: HardwareSettings,
@@ -656,6 +701,8 @@ function App() {
           onEditCabinet={(cabinetId) => setEditRequest({ cabinetId, nonce: Date.now() })}
           onCreateCabinet={handleDrawCabinet}
           onRemoveCabinet={handleRemoveCabinet}
+          onSwapColor={handleSwapColor}
+          projectPriceEur={projectPrice}
         />
 
         <div className="flex flex-wrap gap-3">

@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent, type ReactNode } from 'react'
+import { Palette } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { ProjectColors } from '@/components/ProjectColors'
 import { Label } from '@/components/ui/label'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { DraftNumber } from '@/components/DraftNumber'
@@ -205,6 +207,8 @@ export function RoomPlanView({
   onEditCabinet,
   onCreateCabinet,
   onRemoveCabinet,
+  onSwapColor,
+  projectPriceEur,
 }: {
   room: RoomPlan
   cabinets: CabinetInstance[]
@@ -217,6 +221,10 @@ export function RoomPlanView({
   onCreateCabinet?: (input: { typeId: string; params: Record<string, unknown> }, piece: Omit<RoomPiece, 'cabinetId'>) => void
   /** Removes a cabinet from the project list (and so from cutting and price). */
   onRemoveCabinet?: (cabinetId: string) => void
+  /** Puts one board colour in place of another across the whole project. */
+  onSwapColor?: (from: string, to: string) => void
+  /** The whole project's price, so a colour change shows what it costs. */
+  projectPriceEur?: number | null
 }) {
   const [pen, setPen] = useState<RoomOpeningKind | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
@@ -232,6 +240,8 @@ export function RoomPlanView({
   /** Room piece waiting for the «only the room, or the list too» answer. */
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null)
   const [view, setView] = useState<'2d' | 'both' | '3d'>('both')
+  // The side panel shows the project's colours instead of the selected cabinet.
+  const [showColors, setShowColors] = useState(false)
   // «Начертай шкаф»: a rectangle dragged on the plan, in room mm. `live` while the button is held.
   const [drawCabinet, setDrawCabinet] = useState(false)
   const [sketch, setSketch] = useState<(Sketch & { live: boolean }) | null>(null)
@@ -1082,6 +1092,18 @@ export function RoomPlanView({
             Редактирай шкафа
           </Button>
           <span className="mx-1 h-6 w-px bg-[var(--color-border)]" aria-hidden />
+          {onSwapColor && (
+            <Button
+              type="button"
+              size="sm"
+              variant={showColors ? 'default' : 'outline'}
+              aria-pressed={showColors}
+              onClick={() => setShowColors((on) => !on)}
+            >
+              <Palette className="h-4 w-4" />
+              Цветове
+            </Button>
+          )}
           <div className="flex overflow-hidden rounded-md border border-[var(--color-border)]" role="group" aria-label="Изглед">
             {(
               [
@@ -1119,7 +1141,12 @@ export function RoomPlanView({
             className="w-80 shrink-0 overflow-y-auto border-l border-[var(--color-border)] bg-[var(--color-card)] p-3"
             aria-label="Свойства"
           >
-            {sketch && !sketch.live ? (
+            {showColors && onSwapColor ? (
+              <>
+                <h3 className="mb-2 text-sm font-semibold">Цветове на проекта</h3>
+                <ProjectColors cabinets={cabinets} finishes={finishes} priceEur={projectPriceEur ?? null} onSwap={onSwapColor} />
+              </>
+            ) : sketch && !sketch.live ? (
               <>
                 <h3 className="text-sm font-semibold">Нов шкаф</h3>
                 <NewCabinetPanel
