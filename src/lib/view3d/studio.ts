@@ -24,7 +24,7 @@ import { addDimensions } from '@/lib/view3d/dimensions'
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
 import type { DecorSheet } from '@/lib/finish-photo'
 import type { SceneSolid } from '@/lib/cabinets/scene-solids'
-import { buildCabinet, type AnimatedDoor, type AnimatedDrawer } from '@/lib/view3d/assemble'
+import { buildCabinet, mirrorRefresh, type AnimatedDoor, type AnimatedDrawer } from '@/lib/view3d/assemble'
 import type { Disposable } from '@/lib/view3d/materials'
 
 type Angle = {
@@ -97,12 +97,16 @@ export function mountCabinetStudio(
   options?: { onPick?: (pick: StudioPick) => void; onGestureStart?: () => void },
 ): CabinetStudio {
   const renderer = new WebGLRenderer({ antialias: true, alpha: false })
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2))
+  // 1.5 is sharp enough on any screen and much lighter than 2 or 3.
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5))
   renderer.outputColorSpace = SRGBColorSpace
   renderer.toneMapping = ACESFilmicToneMapping
   renderer.toneMappingExposure = 1.05
   renderer.shadowMap.enabled = true
   renderer.shadowMap.type = PCFSoftShadowMap
+  // Shadows do not change when only the camera turns, so they are worked out again only when
+  // something in the scene changes (see the render loop).
+  renderer.shadowMap.autoUpdate = false
   renderer.domElement.style.width = '100%'
   renderer.domElement.style.height = '100%'
   renderer.domElement.style.display = 'block'
@@ -192,6 +196,9 @@ export function mountCabinetStudio(
   // Keep drawing for a short while after anything happens (a click, a drag, new content).
   let drawUntil = 0
   let lastDraw = 0
+  let frameNo = 0
+  // Until when shadows are worked out again: after new content or a moved cabinet.
+  let shadowUntil = performance.now() + 2000
   const invalidate = (ms = 600) => {
     drawUntil = Math.max(drawUntil, performance.now() + ms)
   }
@@ -379,6 +386,10 @@ export function mountCabinetStudio(
     // touched or updated a moment ago. A still picture costs nothing, which matters with mirrors.
     const turned = controls.update()
     if (moving || turned || now < drawUntil || now - lastDraw > 1000) {
+      if (moving || now < shadowUntil) renderer.shadowMap.needsUpdate = true
+      // While the view turns, mirrors refresh every third frame; still, every frame.
+      frameNo += 1
+      mirrorRefresh.live = !turned || frameNo % 3 === 0
       renderer.render(scene, camera)
       labels.render(scene, camera)
       lastDraw = now
@@ -392,6 +403,7 @@ export function mountCabinetStudio(
       if (typeof value === 'function') {
         api[key] = ((...args: unknown[]) => {
           invalidate(1200)
+          shadowUntil = performance.now() + 1200
           return (value as (...a: unknown[]) => unknown)(...args)
         }) as T[keyof T]
       }

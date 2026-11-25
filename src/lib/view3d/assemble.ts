@@ -47,6 +47,12 @@ function mirrorFace(bin: Disposable[]) {
  * A real mirror: a surface that shows what stands in front of it (the room, other cabinets,
  * the floor). It sits a hair in front of the glass board, facing `outward` (+1 or -1 along z).
  */
+/**
+ * Whether mirrors redraw their reflection on this frame. The render loop turns it off on most
+ * frames while the camera is moving, so turning the view stays smooth; when it stops they catch up.
+ */
+export const mirrorRefresh = { live: true }
+
 function addReflection(
   into: Group,
   width: number,
@@ -69,6 +75,10 @@ function addReflection(
   })
   mirror.position.copy(at)
   if (outward === -1) mirror.rotation.y = Math.PI
+  const reflect = mirror.onBeforeRender.bind(mirror)
+  mirror.onBeforeRender = (...args) => {
+    if (mirrorRefresh.live) reflect(...args)
+  }
   into.add(mirror)
   bin.push({ dispose: () => mirror.dispose() }, { dispose: () => geo.dispose() })
 }

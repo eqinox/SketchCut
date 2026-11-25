@@ -44,7 +44,7 @@ import {
   type RoomOpening,
   type RoomWall,
 } from '@/lib/room-openings'
-import { buildCabinet } from '@/lib/view3d/assemble'
+import { buildCabinet, mirrorRefresh } from '@/lib/view3d/assemble'
 import type { Disposable } from '@/lib/view3d/materials'
 
 export type RoomPlacement = {
@@ -191,12 +191,16 @@ function wallMaterial(color: string) {
  */
 export function mountRoomStudio(host: HTMLElement): RoomStudio {
   const renderer = new WebGLRenderer({ antialias: true, alpha: false })
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2))
+  // 1.5 is sharp enough on any screen and much lighter than 2 or 3.
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5))
   renderer.outputColorSpace = SRGBColorSpace
   renderer.toneMapping = ACESFilmicToneMapping
   renderer.toneMappingExposure = 1.08
   renderer.shadowMap.enabled = true
   renderer.shadowMap.type = PCFSoftShadowMap
+  // Shadows do not change when only the camera turns, so they are worked out again only when
+  // something in the scene changes (see the render loop).
+  renderer.shadowMap.autoUpdate = false
   renderer.domElement.style.width = '100%'
   renderer.domElement.style.height = '100%'
   renderer.domElement.style.display = 'block'
@@ -387,6 +391,9 @@ export function mountRoomStudio(host: HTMLElement): RoomStudio {
   // Keep drawing for a short while after anything happens (a click, a drag, new content).
   let drawUntil = 0
   let lastDraw = 0
+  let frameNo = 0
+  // Until when shadows are worked out again: after new content or a moved cabinet.
+  let shadowUntil = performance.now() + 2000
   const invalidate = (ms = 600) => {
     drawUntil = Math.max(drawUntil, performance.now() + ms)
   }
@@ -443,6 +450,10 @@ export function mountRoomStudio(host: HTMLElement): RoomStudio {
     // touched or updated a moment ago. A still picture costs nothing, which matters with mirrors.
     const turned = controls.update()
     if (moving || turned || now < drawUntil || now - lastDraw > 1000) {
+      if (moving || now < shadowUntil) renderer.shadowMap.needsUpdate = true
+      // While the view turns, mirrors refresh every third frame; still, every frame.
+      frameNo += 1
+      mirrorRefresh.live = !turned || frameNo % 3 === 0
       renderer.render(scene, camera)
       labels.render(scene, camera)
       lastDraw = now
@@ -722,6 +733,8 @@ export function mountRoomStudio(host: HTMLElement): RoomStudio {
     held.moved = Math.max(held.moved, Math.abs(x - held.from.x), Math.abs(y - held.from.y))
     held.at = { x, y }
     held.stand.position.set(held.startPos.x + (x - held.from.x), held.startPos.y, held.startPos.z + (y - held.from.y))
+    // The cabinet moved, so its shadow moves with it.
+    shadowUntil = performance.now() + 400
     outlinePicked()
   }
   const onFloorUp = (event: PointerEvent) => {
@@ -1142,6 +1155,7 @@ export function mountRoomStudio(host: HTMLElement): RoomStudio {
       if (typeof value === 'function') {
         api[key] = ((...args: unknown[]) => {
           invalidate(1200)
+          shadowUntil = performance.now() + 1200
           return (value as (...a: unknown[]) => unknown)(...args)
         }) as T[keyof T]
       }
