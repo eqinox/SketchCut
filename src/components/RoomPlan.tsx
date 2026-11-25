@@ -248,7 +248,12 @@ export function RoomPlanView({
   const studioKey = useRef<(event: KeyboardEvent) => void>(() => {})
   /** Room piece waiting for the «only the room, or the list too» answer. */
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null)
-  const [view, setView] = useState<'2d' | 'both' | '3d'>('both')
+  // A phone has no room for plan and 3D side by side, so it starts with the 3D alone.
+  const [view, setView] = useState<'2d' | 'both' | '3d'>(() =>
+    typeof window !== 'undefined' && window.innerWidth < 768 ? '3d' : 'both',
+  )
+  // On a phone the side panel sits under the picture, folded to one line until opened.
+  const [panelOpen, setPanelOpen] = useState(false)
   // The side panel shows the project's colours instead of the selected cabinet.
   const [showColors, setShowColors] = useState(false)
   // «Начертай шкаф»: a rectangle dragged on the plan, in room mm. `live` while the button is held.
@@ -1066,7 +1071,7 @@ export function RoomPlanView({
         role="region"
         aria-label="Проектиране"
       >
-        <header className="flex flex-wrap items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-card)] px-3 py-2">
+        <header className="flex shrink-0 items-center gap-2 overflow-x-auto border-b border-[var(--color-border)] bg-[var(--color-card)] px-3 py-2 md:flex-wrap md:overflow-visible [&>*]:shrink-0">
           <span className="mr-2 text-base font-semibold">Проектиране</span>
           {onCreateCabinet && (
             <Button
@@ -1178,15 +1183,40 @@ export function RoomPlanView({
         {note && (
           <p className="border-b border-[var(--color-border)] px-3 py-1 text-sm text-[var(--color-destructive)]">{note}</p>
         )}
-        <div className="flex min-h-0 flex-1">
-          <main className={`grid min-h-0 min-w-0 flex-1 gap-2 p-2 ${showPlan && show3d ? 'grid-cols-2' : 'grid-cols-1'}`}>
+        <div className="flex min-h-0 flex-1 flex-col md:flex-row">
+          <main
+            className={`grid min-h-0 min-w-0 flex-1 gap-2 p-1 md:p-2 ${
+              showPlan && show3d ? 'grid-rows-2 md:grid-cols-2 md:grid-rows-1' : 'grid-cols-1'
+            }`}
+          >
             {showPlan && planBox(true)}
             {show3d && <div className="min-h-0">{photo('h-full', true)}</div>}
           </main>
           <aside
-            className="w-80 shrink-0 overflow-y-auto border-l border-[var(--color-border)] bg-[var(--color-card)] p-3"
+            className={`w-full shrink-0 overflow-y-auto border-t border-[var(--color-border)] bg-[var(--color-card)] px-3 pb-3 md:max-h-none md:overflow-y-auto md:w-80 md:border-t-0 md:border-l md:pt-3 ${
+              panelOpen ? 'max-h-[45vh]' : 'max-h-11 overflow-hidden'
+            }`}
             aria-label="Свойства"
           >
+            <button
+              type="button"
+              className="sticky top-0 z-10 -mx-3 mb-2 flex w-[calc(100%+1.5rem)] items-center justify-between bg-[var(--color-card)] px-3 py-2.5 text-sm font-semibold md:hidden"
+              aria-expanded={panelOpen}
+              onClick={() => setPanelOpen((open) => !open)}
+            >
+              <span>
+                {showColors
+                  ? 'Цветове на проекта'
+                  : selectedRow
+                    ? `Шкаф: ${selectedRow.name}`
+                    : selectedOpening
+                      ? 'Отвор'
+                      : sketch && !sketch.live
+                        ? 'Нов шкаф'
+                        : 'Стая'}
+              </span>
+              <span aria-hidden>{panelOpen ? '▼ Скрий' : '▲ Покажи'}</span>
+            </button>
             {showColors && onSwapColor ? (
               <>
                 <h3 className="mb-2 text-sm font-semibold">Цветове на проекта</h3>
