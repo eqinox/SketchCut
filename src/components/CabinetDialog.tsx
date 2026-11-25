@@ -14,6 +14,7 @@ import {
 import { CabinetPreview } from '@/components/CabinetPreview'
 import { BoardPickContext } from '@/lib/cabinets/draw-3d'
 import { ProjectRoomContext, type ProjectRoom } from '@/lib/project-room'
+import { PieceColorChoiceContext, type PieceColorChoice } from '@/lib/piece-color-choice'
 import type { RoomPlan } from '@/lib/room'
 import { CabinetGroupView } from '@/components/CabinetGroupView'
 import {
@@ -1778,6 +1779,8 @@ function CabinetDialogForm({
     parsePieceFinishes(editing?.params.pieceFinishes),
   )
   const [pickedPiece, setPickedPiece] = useState<string | null>(null)
+  // What the colour squares below the lists paint: the carcass, the doors or the back.
+  const [swatchTarget, setSwatchTarget] = useState<'carcass' | 'front' | 'back'>('carcass')
   const [carcassFinishId, setCarcassFinishId] = useState(
     typeof editing?.params.carcassFinishId === 'string' ? editing.params.carcassFinishId : '',
   )
@@ -2211,11 +2214,12 @@ function CabinetDialogForm({
     if (!next || next === settings.hardware.boardFinishes) return
     onHardwareSettingsChange?.({ ...settings.hardware, boardFinishes: next })
   }
-  const pickBoard = (board: KronospanBoard, target: 'carcass' | 'front') => {
+  const pickBoard = (board: KronospanBoard, target: 'carcass' | 'front' | 'back') => {
     rememberKronospan(kronospanBoardId(board))
     const id = kronospanBoardId(board)
     if (target === 'carcass') setCarcassFinishId(id)
-    else setFrontFinishId(id)
+    else if (target === 'front') setFrontFinishId(id)
+    else setBackFinishId(id)
   }
   const pickKronospan = (swatch: KronospanSwatch, target: 'carcass' | 'front') => {
     const id = kronospanFinishId(swatch.code)
@@ -6821,20 +6825,90 @@ function CabinetDialogForm({
               </select>
             </label>
           </div>
-          <div className="mt-3">
-            <KronospanColorGrid
-              finishes={settings.hardware.boardFinishes}
-              selectedCode={kronospanCodeFromFinish({ id: carcassFinishId })}
-              selectedId={carcassFinishId}
-              onPick={(board) => pickBoard(board, 'carcass')}
-            />
+          <div className="mt-3 rounded-md border border-[var(--color-border)] p-2">
+            <div className="flex flex-wrap items-center gap-2 text-sm">
+              <span className="font-medium">Цветът, който избереш отдолу, е за:</span>
+              <div role="radiogroup" aria-label="Цветът отдолу е за" className="inline-flex overflow-hidden rounded-md border border-[var(--color-border)]">
+                {(
+                  [
+                    ['carcass', 'Корпуса'],
+                    ['front', 'Вратите и челата'],
+                    ['back', 'Гърба'],
+                  ] as const
+                ).map(([key, name]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    role="radio"
+                    aria-checked={swatchTarget === key}
+                    onClick={() => setSwatchTarget(key)}
+                    className={cn(
+                      'px-3 py-1 text-sm',
+                      swatchTarget === key
+                        ? 'bg-[var(--color-foreground)] text-[var(--color-background)]'
+                        : 'hover:bg-[var(--color-muted)]',
+                    )}
+                  >
+                    {name}
+                  </button>
+                ))}
+              </div>
+            </div>
             <div className="mt-2">
-              <KronospanCombinationRow
-                code={kronospanCodeFromFinish({ id: carcassFinishId })}
-                hint="Натисни, за да стане цвят на вратите"
-                onPick={(swatch) => pickKronospan(swatch, 'front')}
+              <KronospanColorGrid
+                finishes={settings.hardware.boardFinishes}
+                selectedCode={kronospanCodeFromFinish({
+                  id: swatchTarget === 'carcass' ? carcassFinishId : swatchTarget === 'front' ? frontFinishId : backFinishId,
+                })}
+                selectedId={swatchTarget === 'carcass' ? carcassFinishId : swatchTarget === 'front' ? frontFinishId : backFinishId}
+                onPick={(board) => pickBoard(board, swatchTarget)}
               />
             </div>
+            {swatchTarget === 'carcass' && (
+              <div className="mt-2">
+                <KronospanCombinationRow
+                  code={kronospanCodeFromFinish({ id: carcassFinishId })}
+                  hint="Подходящи за вратите. Натисни, за да стане цвят на вратите"
+                  onPick={(swatch) => pickKronospan(swatch, 'front')}
+                />
+              </div>
+            )}
+          </div>
+          <div className="mt-3 rounded-md border border-[var(--color-border)] p-2 text-sm">
+            <p className="font-medium">Детайли със свой цвят</p>
+            <p className="mt-0.5 text-xs text-[var(--color-muted-foreground)]">
+              В „3D само шкафа“ натисни с десния бутон на страница, врата, дъно или друг детайл и му избери цвят.
+              Той остава такъв, дори да смениш цвета на корпуса или вратите.
+            </p>
+            {Object.keys(pieceFinishes).length > 0 && (
+              <ul className="mt-2 flex flex-col gap-1">
+                {Object.entries(pieceFinishes).map(([piece, id]) => {
+                  const finish = finishFor(id)
+                  return (
+                    <li key={piece} className="flex items-center gap-2">
+                      <span aria-hidden className="h-4 w-4 shrink-0 rounded border border-[var(--color-border)]" style={{ background: finish?.color }} />
+                      <span className="min-w-0 flex-1 truncate">
+                        🔒 {pieceColorLabel(piece)} · {finish?.name ?? id}
+                      </span>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() =>
+                          setPieceFinishes((now) => {
+                            const next = { ...now }
+                            delete next[piece]
+                            return next
+                          })
+                        }
+                      >
+                        Като останалите
+                      </Button>
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
           </div>
           <p className="mt-2 text-xs text-[var(--color-muted-foreground)]">
             По подразбиране плоскостите на чертежа са еднакви. Смени само ако трябва да се отличават в сегашния изглед.
@@ -7203,7 +7277,26 @@ function CabinetDialogForm({
     typeId,
   }
   // Without a room the picture is the cabinet alone, where doors and handles can be clicked.
-  const pictured = <ProjectRoomContext.Provider value={withRoom ? projectRoom : null}>{dialogBody}</ProjectRoomContext.Provider>
+  // Right click on a piece in 3D gives it its own board. It keeps it when the carcass or doors change.
+  const pieceColorChoice: PieceColorChoice = {
+    finishes: settings.hardware.boardFinishes,
+    current: (piece) => pieceFinishes[piece] ?? '',
+    choose: (piece, id) => {
+      if (id) rememberKronospan(id)
+      setPieceFinishes((now) => {
+        const next = { ...now }
+        if (id) next[piece] = id
+        else delete next[piece]
+        return next
+      })
+    },
+    label: pieceColorLabel,
+  }
+  const pictured = (
+    <PieceColorChoiceContext.Provider value={pieceColorChoice}>
+      <ProjectRoomContext.Provider value={withRoom ? projectRoom : null}>{dialogBody}</ProjectRoomContext.Provider>
+    </PieceColorChoiceContext.Provider>
+  )
   if (bare) return pictured
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

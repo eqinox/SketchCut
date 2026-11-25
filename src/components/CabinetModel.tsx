@@ -4,18 +4,20 @@ import { PULL_CHOICES, PullChoiceContext, type PullSku } from '@/lib/cabinets/pu
 import { SceneCaptureContext, createCaptureStore, type CaptureStore } from '@/lib/cabinets/scene-solids'
 import { CabinetRoom } from '@/components/CabinetRoom'
 import { ProjectRoomContext } from '@/lib/project-room'
+import { PieceColorChoiceContext } from '@/lib/piece-color-choice'
+import { KronospanFinishOptions } from '@/components/KronospanColors'
 import { mountCabinetStudio, type CabinetStudio, type StudioPick } from '@/lib/view3d/studio'
 
 export function CabinetModel({ store }: { store: CaptureStore }) {
   const solids = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot)
   const sheets = useContext(DecorSheetContext)
   const pulls = useContext(PullChoiceContext)
+  const pieceColors = useContext(PieceColorChoiceContext)
   const hostRef = useRef<HTMLDivElement>(null)
   const studioRef = useRef<CabinetStudio | null>(null)
   const [failed, setFailed] = useState(false)
   const [menu, setMenu] = useState<(StudioPick & { left: number; top: number }) | null>(null)
   const [opened, setOpened] = useState(false)
-  const [handlesOpen, setHandlesOpen] = useState(false)
 
   useEffect(() => {
     const host = hostRef.current
@@ -26,7 +28,7 @@ export function CabinetModel({ store }: { store: CaptureStore }) {
         onGestureStart: () => setMenu(null),
         onPick: (pick) => {
           // Left click opens or closes the door at once. Right click (or a tap) asks what to do.
-          if (!pick.menu && !pick.touch) {
+          if (!pick.menu && !pick.touch && pick.kind !== 'board') {
             studioRef.current?.toggle(pick.animKey)
             setMenu(null)
             return
@@ -35,7 +37,6 @@ export function CabinetModel({ store }: { store: CaptureStore }) {
           const left = Math.min(Math.max(8, pick.clientX - rect.left), Math.max(8, rect.width - 220))
           const top = Math.min(Math.max(8, pick.clientY - rect.top), Math.max(8, rect.height - 220))
           setOpened(pick.open)
-          setHandlesOpen(pick.menu)
           setMenu({ ...pick, left, top })
         },
       })
@@ -58,59 +59,85 @@ export function CabinetModel({ store }: { store: CaptureStore }) {
     return <p className="py-8 text-center text-sm text-neutral-600">Браузърът не пуска 3D картината.</p>
   }
 
-  const current = menu ? (pulls?.skuFor(menu.pullKey) ?? 'normal') : 'none'
+  const current = menu && menu.kind !== 'board' ? (pulls?.skuFor(menu.pullKey) ?? 'normal') : 'none'
+  const ownColor = menu?.piece && pieceColors ? pieceColors.current(menu.piece) : ''
+  const title = menu?.piece && pieceColors ? pieceColors.label(menu.piece) : menu?.kind === 'drawer' ? 'Чекмедже' : 'Врата'
   return (
     <div className="relative h-[520px] w-full">
       <div ref={hostRef} className="h-full w-full" />
       {menu && (
         <div
-          className="absolute z-20 w-52 rounded-md border border-neutral-300 bg-white p-1 text-sm text-neutral-900 shadow-lg"
+          role="menu"
+          aria-label={title}
+          className="absolute z-20 flex w-60 flex-col gap-2 rounded-md border border-neutral-300 bg-white p-2 text-sm text-neutral-900 shadow-lg"
           style={{ left: menu.left, top: menu.top }}
           onPointerDown={(event) => event.stopPropagation()}
+          onContextMenu={(event) => event.preventDefault()}
         >
-          {!handlesOpen && (
-            <>
-              <button
-                type="button"
-                className="w-full rounded px-2 py-1.5 text-left text-neutral-900 hover:bg-neutral-100"
-                onClick={() => {
-                  studioRef.current?.toggle(menu.animKey)
+          <div className="flex items-center justify-between gap-2">
+            <span className="font-semibold">{title}</span>
+            <button
+              type="button"
+              aria-label="Затвори менюто"
+              className="rounded px-1.5 text-neutral-500 hover:bg-neutral-100"
+              onClick={() => setMenu(null)}
+            >
+              ×
+            </button>
+          </div>
+          {menu.kind !== 'board' && (
+            <button
+              type="button"
+              className="rounded border border-neutral-200 px-2 py-1 text-left hover:bg-neutral-100"
+              onClick={() => {
+                studioRef.current?.toggle(menu.animKey)
+                setMenu(null)
+              }}
+            >
+              {opened ? 'Затвори' : 'Отвори'}
+            </button>
+          )}
+          {menu.kind !== 'board' && pulls?.choose && (
+            <label className="flex flex-col gap-1 text-xs text-neutral-600">
+              Дръжка
+              <select
+                aria-label="Дръжка на тази врата"
+                className="h-8 rounded border border-neutral-300 bg-white px-1 text-sm text-neutral-900"
+                value={current}
+                onChange={(event) => {
+                  pulls.choose?.(menu.pullKey, event.target.value as PullSku)
                   setMenu(null)
                 }}
               >
-                {opened ? 'Затвори' : 'Отвори'}
-              </button>
-              {pulls?.choose && (
-                <button
-                  type="button"
-                  className="w-full rounded px-2 py-1.5 text-left text-neutral-900 hover:bg-neutral-100"
-                  onClick={() => setHandlesOpen(true)}
-                >
-                  Смени дръжка
-                </button>
-              )}
-            </>
+                {PULL_CHOICES.map((choice) => (
+                  <option key={choice.sku} value={choice.sku}>
+                    {choice.name}
+                  </option>
+                ))}
+              </select>
+            </label>
           )}
-          {handlesOpen && pulls?.choose && (
-            <>
-              {PULL_CHOICES.map((choice) => (
-                <button
-                  key={choice.sku}
-                  type="button"
-                  className={
-                    choice.sku === current
-                      ? 'w-full rounded bg-orange-50 px-2 py-1.5 text-left text-orange-900'
-                      : 'w-full rounded px-2 py-1.5 text-left text-neutral-900 hover:bg-neutral-100'
-                  }
-                  onClick={() => {
-                    pulls.choose?.(menu.pullKey, choice.sku as PullSku)
-                    setMenu(null)
-                  }}
-                >
-                  {choice.name}
-                </button>
-              ))}
-            </>
+          {menu.piece && pieceColors && (
+            <label className="flex flex-col gap-1 text-xs text-neutral-600">
+              Цвят само на този детайл
+              <select
+                aria-label="Цвят само на този детайл"
+                className="h-8 rounded border border-neutral-300 bg-white px-1 text-sm text-neutral-900"
+                value={ownColor}
+                onChange={(event) => {
+                  if (menu.piece) pieceColors.choose(menu.piece, event.target.value)
+                  setMenu(null)
+                }}
+              >
+                <option value="">Като останалите</option>
+                <KronospanFinishOptions finishes={pieceColors.finishes} />
+              </select>
+              <span className="text-[11px] leading-snug">
+                {ownColor
+                  ? '🔒 Свой цвят: остава такъв, дори да смениш корпуса или вратите.'
+                  : 'Избери цвят и той ще остане такъв, дори да смениш корпуса или вратите.'}
+              </span>
+            </label>
           )}
         </div>
       )}
@@ -136,7 +163,7 @@ export function CapturedModel({ children }: { children: ReactNode }) {
           <>
             <CabinetModel store={store} />
             <p className="mt-1 text-center text-[11px] text-neutral-500">
-              Размерите се четат и докато въртиш · клик на врата или чекмедже го отваря · десен клик сменя дръжката · колелцето приближава
+              Размерите се четат и докато въртиш · клик на врата или чекмедже го отваря · десен клик на детайл: дръжка и свой цвят · колелцето приближава
             </p>
           </>
         )}

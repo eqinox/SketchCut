@@ -41,7 +41,10 @@ type Angle = {
 const DRAWER_GLIDE_S = 0.7
 
 export type StudioPick = {
-  kind: 'door' | 'drawer'
+  /** `board` is a piece that does not move: a side, the bottom, a shelf. */
+  kind: 'door' | 'drawer' | 'board'
+  /** The piece's id, the same one the colour list uses. Missing on parts that are not boards. */
+  piece?: string
   /** Key the open angle is stored under. */
   animKey: string
   /** Key the handle choice is stored under. It does not move with the cabinet. */
@@ -71,6 +74,15 @@ function movingKeyOf(object: Object3D | null): { kind: 'door' | 'drawer'; animKe
     if (typeof current.userData.doorKey === 'string') {
       return { kind: 'door', animKey: current.userData.doorKey, pullKey: pullKey || current.userData.doorKey }
     }
+    current = current.parent
+  }
+  return null
+}
+
+function pieceOf(object: Object3D | null): string | null {
+  let current = object
+  while (current) {
+    if (typeof current.userData.piece === 'string') return current.userData.piece
     current = current.parent
   }
   return null
@@ -245,6 +257,19 @@ export function mountCabinetStudio(
     }
     return null
   }
+  /** The nearest board under the pointer and, when it is a door or drawer, how it moves. */
+  const hitBoard = (event: PointerEvent) => {
+    const rect = renderer.domElement.getBoundingClientRect()
+    pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1
+    pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1
+    raycaster.setFromCamera(pointer, camera)
+    for (const hit of raycaster.intersectObjects(root.children, true)) {
+      const moving = movingKeyOf(hit.object)
+      const piece = pieceOf(hit.object)
+      if (moving || piece) return { moving, piece }
+    }
+    return null
+  }
 
   let downX = 0
   let downY = 0
@@ -277,15 +302,19 @@ export function mountCabinetStudio(
     if (!pressed) return
     pressed = false
     if (Math.hypot(event.clientX - downX, event.clientY - downY) > 5) return
-    const hit = hitMoving(event)
-    if (!hit) return
+    const found = hitBoard(event)
+    if (!found) return
+    const hit = found.moving
+    // A plain board (side, bottom, shelf) only answers the menu: there is nothing to open.
+    if (!hit && event.button !== 2 && event.pointerType === 'mouse') return
     options?.onPick?.({
-      kind: hit.kind,
-      animKey: hit.animKey,
-      pullKey: hit.pullKey,
+      kind: hit ? hit.kind : 'board',
+      animKey: hit?.animKey ?? '',
+      pullKey: hit?.pullKey ?? '',
+      ...(found.piece ? { piece: found.piece } : {}),
       clientX: event.clientX,
       clientY: event.clientY,
-      open: isOpen(hit.animKey),
+      open: hit ? isOpen(hit.animKey) : false,
       menu: event.button === 2,
       touch: event.pointerType !== 'mouse',
     })

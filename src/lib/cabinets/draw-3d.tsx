@@ -375,7 +375,7 @@ export function Board({
   const chosen = piece.chosen
   useCaptureSolid(
     w > 0.4 && h > 0.4 && d > 0.2
-      ? { kind: 'box', x, y, z, w, h, d, color: piece.color, rearColor, slide, pull, ...(mirrorGlass ? { mirrorGlass: true } : {}) }
+      ? { kind: 'box', x, y, z, w, h, d, color: piece.color, rearColor, slide, pull, ...(mirrorGlass ? { mirrorGlass: true } : {}), ...(pick ? { piece: pick } : {}) }
       : null,
   )
   const c = partFaces(piece.color)
@@ -568,6 +568,7 @@ export function HingedDoor({
     inset,
     pull: sku === 'none' ? undefined : { key: pullKey, sku },
     ...(mirror && mirror.width > 1 && mirror.height > 1 ? { mirror } : {}),
+    ...(pick ? { piece: pick } : {}),
   })
   const rad = (HINGE_OPEN_DEG * Math.PI) / 180
   const c = Math.cos(rad)

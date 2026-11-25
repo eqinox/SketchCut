@@ -20,6 +20,8 @@ export type SceneSolid =
       pull?: { key: string; sku: PullSku; at?: 'left' | 'right' | 'center' }
       /** Bought mirror glass. Drawn shiny, not as a chipboard face. */
       mirrorGlass?: boolean
+      /** Which piece of the cabinet this is, so a click can give it its own board. */
+      piece?: string
     }
   | {
       kind: 'door'
@@ -40,6 +42,8 @@ export type SceneSolid =
       pull?: { key: string; sku: PullSku }
       /** Glass on the outer face. x and y are from the top-left of the door, y downward. */
       mirror?: { x: number; y: number; width: number; height: number }
+      /** Which piece of the cabinet this is, so a click can give it its own board. */
+      piece?: string
     }
   | {
       kind: 'rail'

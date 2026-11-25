@@ -65,6 +65,7 @@ function addBox(
   mesh.position.set(solid.x + solid.w / 2, -(solid.y + solid.h / 2), -(solid.z + solid.d / 2))
   mesh.castShadow = true
   mesh.receiveShadow = true
+  if (solid.piece) mesh.userData.piece = solid.piece
   parent.add(mesh)
   bin.push({ dispose: () => geo.dispose() })
   if (solid.pull && !solid.slide) addFrontHandle(parent, solid, bin)
@@ -153,6 +154,7 @@ function addDoor(
   group.traverse((child) => {
     child.userData.doorKey = key
     child.userData.pullKey = solid.pull?.key ?? key
+    if (solid.piece) child.userData.piece = solid.piece
   })
 
   return {
