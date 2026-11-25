@@ -49,6 +49,10 @@ export type StudioPick = {
   clientX: number
   clientY: number
   open: boolean
+  /** Right mouse button: the person asked for the menu, not for the door to move. */
+  menu: boolean
+  /** Finger or pen: there is no right button, so the menu always opens. */
+  touch: boolean
 }
 
 export type CabinetStudio = {
@@ -282,6 +286,8 @@ export function mountCabinetStudio(
       clientX: event.clientX,
       clientY: event.clientY,
       open: isOpen(hit.animKey),
+      menu: event.button === 2,
+      touch: event.pointerType !== 'mouse',
     })
   }
   const onMove = (event: PointerEvent) => {

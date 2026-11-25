@@ -25,11 +25,17 @@ export function CabinetModel({ store }: { store: CaptureStore }) {
       studio = mountCabinetStudio(host, {
         onGestureStart: () => setMenu(null),
         onPick: (pick) => {
+          // Left click opens or closes the door at once. Right click (or a tap) asks what to do.
+          if (!pick.menu && !pick.touch) {
+            studioRef.current?.toggle(pick.animKey)
+            setMenu(null)
+            return
+          }
           const rect = host.getBoundingClientRect()
           const left = Math.min(Math.max(8, pick.clientX - rect.left), Math.max(8, rect.width - 220))
           const top = Math.min(Math.max(8, pick.clientY - rect.top), Math.max(8, rect.height - 220))
           setOpened(pick.open)
-          setHandlesOpen(false)
+          setHandlesOpen(pick.menu)
           setMenu({ ...pick, left, top })
         },
       })
@@ -130,7 +136,7 @@ export function CapturedModel({ children }: { children: ReactNode }) {
           <>
             <CabinetModel store={store} />
             <p className="mt-1 text-center text-[11px] text-neutral-500">
-              Размерите се четат и докато въртиш · кликни врата или чекмедже: отваряне и смяна на дръжката · колелцето приближава
+              Размерите се четат и докато въртиш · клик на врата или чекмедже го отваря · десен клик сменя дръжката · колелцето приближава
             </p>
           </>
         )}
