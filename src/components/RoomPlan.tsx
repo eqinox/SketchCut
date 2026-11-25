@@ -1708,7 +1708,7 @@ function PieceEditor({
             ? '✓ Гърбът е до стената'
             : backGap > 0
               ? `Гърбът е на ${formatMm(backGap)} мм от стената`
-              : `Гърбът влиза ${formatMm(-backGap)} мм в стената`}
+              : `Гърбът е влязъл ${formatMm(-backGap)} мм в нишата`}
         </p>
         {onEdit && (
           <Button type="button" size="sm" onClick={() => onEdit(row.piece.cabinetId)}>

@@ -567,16 +567,39 @@ export function mountRoomStudio(host: HTMLElement): RoomStudio {
     const foot = stand.userData.roomFoot as Foot | undefined
     return foot && foot.w > 0 && foot.d > 0 ? foot : null
   }
-  /** Pulls a spot onto the walls it is close to, and keeps the cabinet inside the room. */
+  /** How deep a niche lets the cabinet go past this wall where it stands (0 when there is none). */
+  const nicheRoom = (wall: 'front' | 'back' | 'left' | 'right', from: number, to: number) => {
+    let deepest = 0
+    for (const opening of paintedList) {
+      if (opening.kind !== 'niche' || opening.wall !== wall) continue
+      const shared = Math.min(to, opening.along + opening.span) - Math.max(from, opening.along)
+      if (shared > 40) deepest = Math.max(deepest, opening.depth)
+    }
+    return deepest
+  }
+  /**
+   * Pulls a spot onto the walls it is close to, and keeps the cabinet inside the room. In front
+   * of a niche it may go on into it; on drop the plan decides how far the cabinet really fits
+   * (only the parts low enough for the niche go in, as with a combined cabinet).
+   */
   const pullToWalls = (spot: { x: number; y: number }, foot: Foot) => {
     const maxX = Math.max(0, roomSize.width - foot.w)
     const maxY = Math.max(0, roomSize.depth - foot.d)
-    let x = Math.max(0, Math.min(maxX, spot.x))
-    let y = Math.max(0, Math.min(maxY, spot.y))
-    if (x <= WALL_PULL_MM) x = 0
-    else if (maxX - x <= WALL_PULL_MM) x = maxX
-    if (y <= WALL_PULL_MM) y = 0
-    else if (maxY - y <= WALL_PULL_MM) y = maxY
+    const intoLeft = nicheRoom('left', spot.y, spot.y + foot.d)
+    const intoRight = nicheRoom('right', spot.y, spot.y + foot.d)
+    const intoFront = nicheRoom('front', spot.x, spot.x + foot.w)
+    const intoBack = nicheRoom('back', spot.x, spot.x + foot.w)
+    let x = Math.max(-intoLeft, Math.min(maxX + intoRight, spot.x))
+    let y = Math.max(-intoFront, Math.min(maxY + intoBack, spot.y))
+    const near = (a: number, b: number) => Math.abs(a - b) <= WALL_PULL_MM
+    if (near(x, 0)) x = 0
+    else if (near(x, maxX)) x = maxX
+    else if (intoLeft && near(x, -intoLeft)) x = -intoLeft
+    else if (intoRight && near(x, maxX + intoRight)) x = maxX + intoRight
+    if (near(y, 0)) y = 0
+    else if (near(y, maxY)) y = maxY
+    else if (intoFront && near(y, -intoFront)) y = -intoFront
+    else if (intoBack && near(y, maxY + intoBack)) y = maxY + intoBack
     return { x: Math.round(x), y: Math.round(y) }
   }
   /** Which wall the back of the cabinet is against, if any. Turn 0 has its back to the back wall. */
