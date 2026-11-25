@@ -66,6 +66,8 @@ export interface PriceBreakdownSection {
 export interface PriceBreakdown {
   sections: PriceBreakdownSection[]
   totalEur: number
+  /** Deposit: everything that is bought (boards, edge, hardware), without the work. */
+  depositEur: number
 }
 
 function panelAreaM2(panel: GeneratedPanel): number {
@@ -601,7 +603,8 @@ export function explainCabinetPrice(input: {
     ),
   )
   const totalEur = sections.reduce((s, sec) => s + (sec.subtotalEur ?? 0), 0)
-  return { sections, totalEur }
+  const laborEur = sections.find((sec) => sec.id === 'labor')?.subtotalEur ?? 0
+  return { sections, totalEur, depositEur: totalEur - laborEur }
 }
 
 export function explainCabinetsPrice(
@@ -653,5 +656,6 @@ export function explainCabinetsPrice(
       ...merged.sections,
     ],
     totalEur: merged.totalEur,
+    depositEur: merged.depositEur,
   }
 }

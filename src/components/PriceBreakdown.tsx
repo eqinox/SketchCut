@@ -125,6 +125,9 @@ export function PriceBreakdownView({
           <span>
             Обща цена: <strong>{formatEur(breakdown.totalEur)}</strong>
           </span>
+          <span title="Капарото е цената на материалите: плочи, кант, фазер и фурнитура. Без труда.">
+            Капаро (само материали): <strong>{formatEur(breakdown.depositEur)}</strong>
+          </span>
         </div>
         <Button
           type="button"
