@@ -4201,6 +4201,20 @@ function PlinthBoxFront3DView({
               strokeWidth={0}
             />
           )}
+          {/* The second plinth stands at the back, drawn first so the front one covers it. */}
+          {!bottomSpans && p.plinthCount === 2 && (
+            <Board
+              x={T}
+              y={floor - p.plinthHeight}
+              z={m.backPlinthZ}
+              w={m.plinthLength}
+              h={p.plinthHeight}
+              d={T}
+              color={wood.bottom} pick="plinth"
+              cam={view}
+              faces={{ front: true, top: true }}
+            />
+          )}
           {!bottomSpans && (
             <Board
               x={T}
@@ -4300,6 +4314,19 @@ function PlinthBoxFront3DView({
               const meetsRight = Math.abs(span.x + span.w - (W - T)) < 1
               return (
                 <React.Fragment key={`bay-base-${span.x}`}>
+                  {p.plinthCount === 2 && (
+                    <Board
+                      x={span.x}
+                      y={floor - p.plinthHeight}
+                      z={m.backPlinthZ}
+                      w={span.w}
+                      h={p.plinthHeight}
+                      d={T}
+                      color={wood.bottom} pick={`plinth-${Math.round(span.x)}`}
+                      cam={view}
+                      faces={{ front: true, top: true, right: !meetsRight, left: !meetsLeft }}
+                    />
+                  )}
                   <Board
                     x={span.x}
                     y={floor - p.plinthHeight}
