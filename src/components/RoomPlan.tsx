@@ -259,6 +259,18 @@ export function RoomPlanView({
   // «Начертай шкаф»: a rectangle dragged on the plan, in room mm. `live` while the button is held.
   const [drawCabinet, setDrawCabinet] = useState(false)
   const [sketch, setSketch] = useState<(Sketch & { live: boolean }) | null>(null)
+  // «Мести»: in the design view a drag moves a cabinet only while this is on, so looking round
+  // a selected cabinet never shifts it by accident. Off when the view opens.
+  const [moveOn, setMoveOn] = useState(false)
+  // The plan's pointer handler is bound once; it reads these through refs.
+  const moveOnRef = useRef(moveOn)
+  const studioRef = useRef(studio)
+  useEffect(() => {
+    moveOnRef.current = moveOn
+    studioRef.current = studio
+  }, [moveOn, studio])
+  // Escape drops the selection first; with nothing selected it closes the design view.
+  const hasPick = Boolean(selected || selectedOpening)
   useEffect(() => {
     if (!studio) return
     const before = document.body.style.overflow
@@ -267,7 +279,13 @@ export function RoomPlanView({
       // A cabinet form opened from here closes itself first.
       if (document.querySelector('[role="dialog"]')) return
       if (event.key === 'Escape') {
+        if (hasPick) {
+          setSelected(null)
+          setSelectedOpening(null)
+          return
+        }
         setStudio(false)
+        setMoveOn(false)
         return
       }
       studioKey.current(event)
@@ -278,7 +296,7 @@ export function RoomPlanView({
       document.body.style.overflow = before
       window.removeEventListener('keydown', onKey, true)
     }
-  }, [studio])
+  }, [studio, hasPick])
   const svgRef = useRef<SVGSVGElement | null>(null)
   const planRef = useRef<HTMLDivElement | null>(null)
   const drag = useRef<{ id: string; ox: number; oy: number } | null>(null)
@@ -622,7 +640,18 @@ export function RoomPlanView({
     const kind = !opening && !row ? penRef.current : null
     const spot = kind ? wallAt(local.x, local.y, roomRef.current.width, depth) : null
     const drawing = Boolean(kind && spot && spot.dist <= ROOM_WALL_MM + 160)
-    if (!opening && !row && !drawing) return
+    if (!opening && !row && !drawing) {
+      // A click on empty floor drops the selection.
+      setSelected(null)
+      setSelectedOpening(null)
+      return
+    }
+    if (row && studioRef.current && !moveOnRef.current) {
+      // «Мести» is off: the click only selects the cabinet.
+      setSelected(row.piece.id)
+      setSelectedOpening(null)
+      return
+    }
     event.preventDefault()
     stopDrag.current?.()
     const pointerId = event.pointerId
@@ -922,7 +951,7 @@ export function RoomPlanView({
         setSelectedOpening(null)
         setSketch({ ...rect, live: false })
       }}
-      onMovePiece={studio ? (id, x, y) => patchPiece(id, { x, y }) : undefined}
+      onMovePiece={studio && moveOn ? (id, x, y) => patchPiece(id, { x, y }) : undefined}
     />
   )
 
@@ -1100,6 +1129,16 @@ export function RoomPlanView({
           <Button
             type="button"
             size="sm"
+            variant={moveOn ? 'default' : 'outline'}
+            aria-pressed={moveOn}
+            title="Докато е пуснато, шкафовете се местят с дърпане. Иначе дърпането само върти изгледа."
+            onClick={() => setMoveOn((on) => !on)}
+          >
+            {moveOn ? 'Мести: вкл.' : 'Мести: изкл.'}
+          </Button>
+          <Button
+            type="button"
+            size="sm"
             variant="outline"
             disabled={!selectedRow}
             onClick={() => selectedRow && patchPiece(selectedRow.piece.id, turnedPlacement(selectedRow))}
@@ -1194,7 +1233,10 @@ export function RoomPlanView({
             type="button"
             size="sm"
             className="sticky right-0 z-10 ml-auto shadow-[-8px_0_8px_var(--color-card)] md:static md:shadow-none"
-            onClick={() => setStudio(false)}
+            onClick={() => {
+              setStudio(false)
+              setMoveOn(false)
+            }}
           >
             Затвори
           </Button>
@@ -1814,7 +1856,7 @@ function PieceEditor({
           </Button>
         </div>
         <p className="mt-1 text-[11px] text-[var(--color-muted-foreground)]">
-          В «Проектиране»: стрелките местят с 10 мм (със Shift — 100), Page Up/Down вдигат и свалят, Delete трие. В 3D хвани избрания шкаф и го влачи по пода.
+          В «Проектиране»: стрелките местят с 10 мм (със Shift — 100), Page Up/Down вдигат и свалят, Delete трие. С пуснато «Мести» хващаш шкаф и го влачиш по плана или по пода в 3D; иначе дърпането само върти изгледа. Esc или клик на празно маха избора.
         </p>
       </div>
       <Button type="button" variant="outline" onClick={() => onPatch(turnedPlacement(row))}>
