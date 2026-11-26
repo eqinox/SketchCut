@@ -1119,7 +1119,12 @@ export function RoomPlanView({
             Редактирай шкафа
           </Button>
           <span className="mx-1 h-6 w-px bg-[var(--color-border)]" aria-hidden />
-          <div className="flex overflow-hidden rounded-md border border-[var(--color-border)]" role="group" aria-label="История">
+          {/* On a phone the bar scrolls sideways; undo and redo sit up front as icons so they are always in reach. */}
+          <div
+            className="order-[-1] flex overflow-hidden rounded-md border border-[var(--color-border)] md:order-none"
+            role="group"
+            aria-label="История"
+          >
             <button
               type="button"
               className="flex items-center gap-1 px-2.5 py-1.5 text-sm hover:bg-[var(--color-muted)] disabled:opacity-40 disabled:hover:bg-transparent"
@@ -1129,7 +1134,8 @@ export function RoomPlanView({
               aria-label={`Отмени${undoCount > 0 ? `, ${undoCount} стъпки` : ''}`}
             >
               <Undo2 className="h-4 w-4" />
-              Отмени{undoCount > 0 ? <span className="text-xs opacity-70">({undoCount})</span> : null}
+              <span className="hidden md:inline">Отмени</span>
+              {undoCount > 0 ? <span className="text-xs opacity-70">({undoCount})</span> : null}
             </button>
             <button
               type="button"
@@ -1140,7 +1146,7 @@ export function RoomPlanView({
               aria-label="Повтори"
             >
               <Redo2 className="h-4 w-4" />
-              Повтори
+              <span className="hidden md:inline">Повтори</span>
             </button>
           </div>
           {onSwapColor && (
