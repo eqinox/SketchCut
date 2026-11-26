@@ -32,6 +32,20 @@ export const VANITY_BACK_RAIL_MM = 280
  */
 export const VANITY_MIRROR_BOARD_MM = 700
 
+/**
+ * The part of the mirror board above the top, where glass can go: below it the board is behind
+ * the top and the pedestals. The glass's gaps are measured inside it, so "bottom" is from the top.
+ */
+export function vanityMirrorArea(boardWidth: number, thickness: number): { width: number; height: number } {
+  return { width: boardWidth, height: Math.max(0, VANITY_MIRROR_BOARD_MM - thickness) }
+}
+
+/**
+ * A new vanity mirror: 120 mm above the top, so things on it do not touch the glass and a light
+ * behind shows below it too; 60 mm under the board's edge and 80 mm in from each side.
+ */
+export const VANITY_MIRROR_GAPS = { left: 80, right: 80, top: 60, bottom: 120 } as const
+
 /** Clear width of a pedestal, so a drawer can still be made. */
 export const VANITY_MIN_PEDESTAL_MM = 200
 /** Clear sitting opening. */

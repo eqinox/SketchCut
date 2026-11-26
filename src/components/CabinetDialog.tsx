@@ -201,7 +201,9 @@ import {
   mergeKneePartitions,
   parseVanityParams,
   VANITY_BACK_RAIL_MM,
+  VANITY_MIRROR_GAPS,
   vanityKneeError,
+  vanityMirrorArea,
   vanityOpening,
   zoneInVanityKnee,
   type VanityKnee,
@@ -1374,6 +1376,8 @@ function MirrorFields({
   perM2,
   edgePerM,
   allowHalo = false,
+  startGaps,
+  bottomHint,
 }: {
   id: string
   spec: MirrorSpec
@@ -1386,6 +1390,10 @@ function MirrorFields({
   edgePerM: number
   /** The glass may be lit from behind (the vanity mirror board). */
   allowHalo?: boolean
+  /** Gaps a new mirror starts with (the vanity), instead of covering the whole panel. */
+  startGaps?: { left: number; right: number; top: number; bottom: number }
+  /** Says what "Отдолу" is measured from. */
+  bottomHint?: string
 }) {
   const set = (patch: Partial<MirrorSpec>) => onChange({ ...spec, ...patch })
   const chosenDoors = (doors ?? []).filter((door) => !spec.on || spec.on.includes(door.id))
@@ -1413,6 +1421,10 @@ function MirrorFields({
             const enabled = c === true
             if (!enabled) {
               set({ enabled: false, on: undefined })
+              return
+            }
+            if (startGaps) {
+              set({ enabled: true, on: undefined, mode: 'inset', ...startGaps })
               return
             }
             set(doors && doors.length > 1 ? { enabled: true, on: [] } : { enabled: true, on: undefined })
@@ -1575,6 +1587,9 @@ function MirrorFields({
                 </label>
               ))}
             </div>
+          )}
+          {bottomHint && spec.mode !== 'full' && (
+            <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">{bottomHint}</p>
           )}
           <p className="mt-2 text-xs text-[var(--color-muted-foreground)]">
             {doors && doors.length > 1 && chosenDoors.length === 0
@@ -6737,19 +6752,23 @@ function CabinetDialogForm({
                 }
               >
                 <p className="mt-0.5 text-xs text-[var(--color-muted-foreground)]">
-                  Огледалото е на плоскостта зад тоалетката, над плота. Може да е с осветление отзад (ореол).
+                  Огледалото е на плоскостта зад тоалетката, само над плота. По подразбиране почва 12 см над плота и има отстъп отгоре и отстрани. Може да е с осветление отзад (ореол).
                 </p>
                 <MirrorFields
                   id="board-mirror"
                   spec={boardMirror}
                   onChange={setBoardMirror}
-                  wholeLabel="На цялата плоскост"
+                  wholeLabel="Над целия плот"
                   allowHalo
+                  startGaps={VANITY_MIRROR_GAPS}
+                  bottomHint="„Отдолу“ се мери от плота: под него плоскостта е зад плота и шкафчетата и там огледало не влиза."
                   perM2={settings.hardware.mirrorEurPerM2}
                   edgePerM={settings.hardware.mirrorEdgeEurPerM}
                   sample={(() => {
                     const board = result?.panels.find((panel) => isMirrorBoard(panel))
-                    return board ? { width: board.width, height: board.height, quantity: board.quantity } : null
+                    if (!board) return null
+                    // Only the part above the top takes glass.
+                    return { ...vanityMirrorArea(board.width, Number(thickness) || 18), quantity: board.quantity }
                   })()}
                 />
               </FormSection>

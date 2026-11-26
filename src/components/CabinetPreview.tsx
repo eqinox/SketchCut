@@ -4219,8 +4219,8 @@ function PlinthBoxFront3DView({
         />
       )}
       {fascia && (() => {
-        const boardH = VANITY_MIRROR_BOARD_MM + Math.min(fascia.h, Math.max(T, m.sideH))
-        const glass = boardMirror ? mirrorGlass(W, boardH, boardMirror) : null
+        // Glass only above the top: lower down the board is behind the top and the pedestals.
+        const glass = boardMirror ? mirrorGlass(W, VANITY_MIRROR_BOARD_MM - T, boardMirror) : null
         if (!glass) return null
         const halo = boardMirror?.halo
         // Lit from behind, the glass is glued on a second board and stands off by its thickness.

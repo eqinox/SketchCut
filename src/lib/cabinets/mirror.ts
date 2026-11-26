@@ -3,6 +3,7 @@ import { formatMm } from '@/lib/utils'
 import type { AssemblyStep } from '@/lib/assembly-time'
 import type { CabinetGeneratorResult, GeneratedPanel, HardwareItem } from './types'
 import { pricedLine } from './hardware'
+import { vanityMirrorArea } from './vanity'
 
 /** 3 mm rectangular mirror, EUR per square metre. */
 export const MIRROR_EUR_PER_M2 = 38.4
@@ -272,8 +273,10 @@ export function applyCabinetMirrors(
       }
     }
     if (boardSpec.enabled && isMirrorBoard(panel)) {
-      take(panel, boardSpec, 'Плоскост за огледало')
-      const glass = mirrorGlass(panel.width, panel.height, boardSpec)
+      // Only the part above the top takes glass; the rest is behind the top and the pedestals.
+      const area = { ...panel, ...vanityMirrorArea(panel.width, boardT) }
+      take(area, boardSpec, 'Огледало над плота')
+      const glass = mirrorGlass(area.width, area.height, boardSpec)
       if (glass && boardSpec.halo) {
         lit.push({ glass, quantity: panel.quantity, tone: boardSpec.halo })
         const w = glass.width - 2 * MIRROR_HALO_INSET_MM
