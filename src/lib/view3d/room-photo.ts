@@ -1,3 +1,4 @@
+import { constantWheelZoom } from '@/lib/view3d/wheel-zoom'
 import {
   ACESFilmicToneMapping,
   CubeCamera,
@@ -426,6 +427,18 @@ export function mountRoomStudio(host: HTMLElement): RoomStudio {
     host.addEventListener(type, wake, { passive: true })
   }
   window.addEventListener('pointerup', wake, { passive: true })
+  const stopWheelZoom = constantWheelZoom({
+    host,
+    canvas: renderer.domElement,
+    camera,
+    controls,
+    scene,
+    step: () => 125,
+    maxDistance: () => controls.maxDistance,
+    onChange: () => {
+      invalidate()
+    },
+  })
   const resize = () => {
     invalidate()
     const width = host.clientWidth || 960
@@ -1356,6 +1369,7 @@ export function mountRoomStudio(host: HTMLElement): RoomStudio {
       controls.dispose()
       mirrorShot.dispose()
       window.removeEventListener('pointerup', wake)
+      stopWheelZoom()
       for (const item of bin) item.dispose()
       floor.geometry.dispose()
       floorMat.dispose()

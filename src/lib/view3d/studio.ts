@@ -25,6 +25,7 @@ import {
 } from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js'
+import { constantWheelZoom } from '@/lib/view3d/wheel-zoom'
 import { addDimensions } from '@/lib/view3d/dimensions'
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
 import type { DecorSheet } from '@/lib/finish-photo'
@@ -242,6 +243,19 @@ export function mountCabinetStudio(
     host.addEventListener(type, wake, { passive: true })
   }
   window.addEventListener('pointerup', wake, { passive: true })
+  const stopWheelZoom = constantWheelZoom({
+    host,
+    canvas: renderer.domElement,
+    camera,
+    controls,
+    scene,
+    step: () => panRef * 0.05,
+    maxDistance: () => controls.maxDistance,
+    onChange: () => {
+      invalidate()
+    fitNear()
+    },
+  })
   const resize = () => {
     invalidate()
     const width = host.clientWidth || 640
@@ -520,6 +534,7 @@ export function mountCabinetStudio(
       mirrorShot.dispose()
       mirrorRoomMat.dispose()
       window.removeEventListener('pointerup', wake)
+      stopWheelZoom()
       for (const item of bin) item.dispose()
       floorGeo.dispose()
       floorMat.dispose()
