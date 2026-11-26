@@ -215,7 +215,7 @@ export function CabinetsPanel({
             Генерират детайли и кант за разкроя · лесно се добавят нови типове
           </p>
         </div>
-        <div className={`flex-wrap items-end gap-3 ${fold.open ? 'flex' : 'hidden md:flex'}`}>
+        <div className={`flex-wrap items-end gap-3 ${fold.open ? 'flex' : 'hidden'}`}>
           <div>
             <Label htmlFor="daily-rate" className="text-xs">
               Ставка за тази кухня

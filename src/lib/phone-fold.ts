@@ -3,9 +3,8 @@ import { useState } from 'react'
 const KEY = 'sketchcut:fold:'
 
 /**
- * On a phone the long sections of the page (sheets, parts, cabinets, room, drawing) fold to their
- * title with a tap, so the page is not one endless scroll. The choice is kept on this device.
- * On a wider screen everything is always open.
+ * The long sections of the page (sheets, parts, cabinets, room, drawing) fold to their title with
+ * a click or tap, so the page is not one endless scroll. The choice is kept on this device.
  */
 export function usePhoneFold(id: string) {
   const [open, setOpen] = useState(() => {
@@ -27,5 +26,5 @@ export function usePhoneFold(id: string) {
     })
   }
   // `contents` keeps the section's own spacing between its children.
-  return { open, toggle, body: open ? 'contents' : 'hidden md:contents' }
+  return { open, toggle, body: open ? 'contents' : 'hidden' }
 }

@@ -700,7 +700,7 @@ function App() {
       </header>
 
       <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-4 p-4">
-        <div className="grid grid-cols-1 gap-4 lg:min-h-[400px] lg:grid-cols-2">
+        <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
           <SheetsPanel 
             sheets={sheets} 
             onChange={setSheets}
