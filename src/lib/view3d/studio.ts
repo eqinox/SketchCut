@@ -157,7 +157,12 @@ export function mountCabinetStudio(
   controls.maxDistance = 14000
   controls.zoomToCursor = true
   let baseNear = 10
+  // OrbitControls pans slower the closer the camera is. Speed it back up so a drag with the
+  // right button moves the view as fast close in as it does from the first, whole-cabinet view.
+  let panRef = 3000
   const fitNear = () => {
+    const distance = camera.position.distanceTo(controls.target)
+    controls.panSpeed = 4 * Math.max(1, panRef / Math.max(1, distance))
     const want = Math.min(baseNear, Math.max(0.5, camera.position.distanceTo(controls.target) / 60))
     if (Math.abs(camera.near - want) < 0.01) return
     camera.near = want
@@ -277,6 +282,7 @@ export function mountCabinetStudio(
     shadowCam.updateProjectionMatrix()
     if (userMoved) return
     const dist = radius * 1.75
+    panRef = dist
     camera.position.set(center.x + dist * 0.78, center.y + dist * 0.38, center.z + dist)
     baseNear = Math.max(8, radius / 80)
     camera.near = baseNear

@@ -244,6 +244,10 @@ export function mountRoomStudio(host: HTMLElement): RoomStudio {
   controls.maxDistance = 12000
   controls.zoomToCursor = true
   controls.addEventListener('change', () => {
+    // OrbitControls pans slower the closer the camera is. Speed it back up so a drag with the
+    // right button moves the room as fast close in as it does from a normal view of it.
+    const distance = camera.position.distanceTo(controls.target)
+    controls.panSpeed = 4 * Math.max(1, 2500 / Math.max(1, distance))
     const want = Math.min(30, Math.max(0.5, camera.position.distanceTo(controls.target) / 60))
     if (Math.abs(camera.near - want) < 0.01) return
     camera.near = want
