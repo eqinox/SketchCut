@@ -520,8 +520,8 @@ export function RoomPhoto({
   ))
 
   if (bare) {
-    // In the design view: buttons for the doors, drawers and bed frame of the selected cabinet,
-    // laid over the bottom of the picture. Clicking the part itself in 3D does the same.
+    // In the design view a door, drawer or bed frame opens by clicking it in 3D, so the picture
+    // is not covered by a button for each one. Only a short hint, "close all" and the mirror light stay.
     const ownFronts = pickedId ? fronts.filter((front) => front.id.startsWith(`${pickedId}:`)) : []
     return (
       <div className="relative h-full">
@@ -531,8 +531,8 @@ export function RoomPhoto({
           <div ref={hostRef} className={`${heightClass ?? 'h-full'} w-full overflow-hidden rounded-md bg-[#c9d3dc]`} />
         )}
         {ownFronts.length > 0 && (
-          <div className="absolute inset-x-2 bottom-2 z-10" aria-label="Врати и чекмеджета на маркирания шкаф">
-            <FrontButtons fronts={ownFronts} placed={placed} onToggle={(id) => studioRef.current?.toggle(id)} />
+          <div className="pointer-events-none absolute inset-x-2 bottom-2 z-10" aria-label="Врати и чекмеджета на маркирания шкаф">
+            <FrontButtons fronts={ownFronts} onToggle={(id) => studioRef.current?.toggle(id)} />
           </div>
         )}
         {captures}
@@ -578,7 +578,7 @@ export function RoomPhoto({
           className={`${heightClass ?? (tall ? 'h-[min(78vh,820px)]' : 'h-[640px]')} w-full overflow-hidden rounded-sm bg-[#c9d3dc]`}
         />
       )}
-      <FrontButtons fronts={fronts} placed={placed} onToggle={(id) => studioRef.current?.toggle(id)} />
+      <FrontButtons fronts={fronts} onToggle={(id) => studioRef.current?.toggle(id)} />
       <p className="mt-1 text-center text-[11px] text-neutral-500">
         {tool === 'look'
           ? onPick
@@ -677,44 +677,36 @@ function MmField({ label, value, onChange }: { label: string; value: number; onC
   )
 }
 
-function FrontButtons({
-  fronts,
-  placed,
-  onToggle,
-}: {
-  fronts: RoomFront[]
-  placed: { piece: { id: string }; cabinet: CabinetInstance }[]
-  onToggle: (id: string) => void
-}) {
+/**
+ * Doors, drawers and bed frames open by clicking them in 3D, so the picture is not covered by a
+ * button for each one. Only a short hint, "close all" and the switch of a mirror's light stay.
+ */
+function FrontButtons({ fronts, onToggle }: { fronts: RoomFront[]; onToggle: (id: string) => void }) {
+  const lights = fronts.filter((front) => front.id.includes(':light:'))
+  const openParts = fronts.filter((front) => front.open && !front.id.includes(':light:'))
   if (fronts.length === 0) return null
-  const counts = new Map<string, number>()
-  const rows = fronts.map((front) => {
-    const pieceId = front.id.split(':')[0] ?? ''
-    const bucket = `${pieceId}:${front.kind}`
-    const n = (counts.get(bucket) ?? 0) + 1
-    counts.set(bucket, n)
-    const name = placed.find((row) => row.piece.id === pieceId)?.cabinet.name || 'Мебел'
-    // A mirror's light is lit at rest; "open" means switched off.
-    if (front.id.includes(':light:')) {
-      return { ...front, label: `${name} · Осветление`, action: front.open ? 'Включи' : 'Изключи' }
-    }
-    // A bed's slat frame lifts like a door opens.
-    if (front.id.includes(':lift:')) {
-      return { ...front, label: `${name} · Подматрачна рамка`, action: front.open ? 'Свали' : 'Повдигни' }
-    }
-    const what = front.kind === 'door' ? 'Врата' : 'Чекмедже'
-    return { ...front, label: `${name} · ${what} ${n}`, action: front.open ? 'Затвори' : 'Отвори' }
-  })
+  const button = 'pointer-events-auto rounded-md border border-neutral-300 bg-white px-3 py-1.5 text-sm text-neutral-900'
   return (
-    <div className="mt-2 flex flex-wrap gap-2">
-      {rows.map((row) => (
+    <div className="mt-2 flex flex-wrap items-center gap-2">
+      {fronts.length > lights.length && (
+        <span className="rounded-md bg-white/85 px-2 py-1 text-xs text-neutral-800">
+          Цъкни врата или чекмедже на избрания шкаф, за да го отвориш
+        </span>
+      )}
+      {openParts.length > 0 && (
         <button
-          key={row.id}
           type="button"
-          className="rounded-md border border-neutral-300 bg-white px-3 py-1.5 text-sm text-neutral-900"
-          onClick={() => onToggle(row.id)}
+          className={button}
+          onClick={() => {
+            for (const front of openParts) onToggle(front.id)
+          }}
         >
-          {row.label} · {row.action}
+          Затвори всички
+        </button>
+      )}
+      {lights.map((front) => (
+        <button key={front.id} type="button" className={button} onClick={() => onToggle(front.id)}>
+          Осветление · {front.open ? 'Включи' : 'Изключи'}
         </button>
       ))}
     </div>
