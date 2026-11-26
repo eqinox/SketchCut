@@ -56,7 +56,7 @@ import {
   type PanelHole,
 } from '@/lib/cabinets'
 import { BedPreview } from '@/components/BedPreview'
-import { MIRROR_GLASS_COLOR, MIRROR_HALO_COLOR, MIRROR_HALO_STANDOFF_MM, mirrorCoversDoor, mirrorGlass, parseMirrorSpec, type MirrorSpec } from '@/lib/cabinets/mirror'
+import { MIRROR_GLASS_COLOR, MIRROR_HALO_COLOR, MIRROR_HALO_INSET_MM, MIRROR_HALO_STANDOFF_MM, mirrorCoversDoor, mirrorGlass, parseMirrorSpec, type MirrorSpec } from '@/lib/cabinets/mirror'
 import { PullChoiceContext, pullChoiceFrom, type PullSku } from '@/lib/cabinets/pulls'
 import {
   BETWEEN_FACES,
@@ -550,6 +550,81 @@ function WithDecor({
 function GlowCapture({ solid }: { solid: Extract<SceneSolid, { kind: 'glow' }> }) {
   useCaptureSolid(solid)
   return null
+}
+
+/** Aluminium spacer frame the lit mirror is glued to: square profile, as deep as the standoff. */
+const HALO_PROFILE_MM = 20
+const HALO_ALU = '#c3c7cb'
+/** White 8 mm strip with 2835 LEDs, 60 per metre. */
+const HALO_STRIP_W_MM = 8
+const HALO_STRIP_T_MM = 1.5
+const HALO_LED_PITCH_MM = 1000 / 60
+
+/**
+ * Everything behind a mirror lit from behind, at its real size: the aluminium frame the glass is
+ * glued to (40 mm in from its edge), the LED strip round the frame's outer side with every LED,
+ * the 12 V driver inside the frame, the cables, and the switch on the board's right edge.
+ * Only for the 3D picture; the drawing shows the glass alone.
+ */
+function haloParts(
+  glass: { x: number; y: number; width: number; height: number },
+  boardFront: number,
+  boardRight: number,
+  boardT: number,
+  tone: keyof typeof MIRROR_HALO_COLOR,
+  switchY: number,
+): Extract<SceneSolid, { kind: 'box' }>[] {
+  const P = HALO_PROFILE_MM
+  const deep = MIRROR_HALO_STANDOFF_MM
+  const x0 = glass.x + MIRROR_HALO_INSET_MM
+  const x1 = glass.x + glass.width - MIRROR_HALO_INSET_MM
+  const y0 = glass.y + MIRROR_HALO_INSET_MM
+  const y1 = glass.y + glass.height - MIRROR_HALO_INSET_MM
+  if (x1 - x0 < 2 * P + 40 || y1 - y0 < 2 * P + 40) return []
+  const z = boardFront - deep
+  const box = (x: number, y: number, zz: number, w: number, h: number, d: number, color: string) =>
+    ({ kind: 'box', x, y, z: zz, w, h, d, color }) as const
+  const parts: Extract<SceneSolid, { kind: 'box' }>[] = [
+    box(x0, y0, z, x1 - x0, P, deep, HALO_ALU),
+    box(x0, y1 - P, z, x1 - x0, P, deep, HALO_ALU),
+    box(x0, y0 + P, z, P, y1 - y0 - 2 * P, deep, HALO_ALU),
+    box(x1 - P, y0 + P, z, P, y1 - y0 - 2 * P, deep, HALO_ALU),
+  ]
+  // The strip on the frame's outer side, so the light falls on the board round the glass.
+  const zs = z + (deep - HALO_STRIP_W_MM) / 2
+  const T = HALO_STRIP_T_MM
+  const strip = '#f1f1ec'
+  parts.push(
+    box(x0, y0 - T, zs, x1 - x0, T, HALO_STRIP_W_MM, strip),
+    box(x0, y1, zs, x1 - x0, T, HALO_STRIP_W_MM, strip),
+    box(x0 - T, y0, zs, T, y1 - y0, HALO_STRIP_W_MM, strip),
+    box(x1, y0, zs, T, y1 - y0, HALO_STRIP_W_MM, strip),
+  )
+  const led = MIRROR_HALO_COLOR[tone]
+  const L = 3.5
+  const zl = z + (deep - 2.8) / 2
+  const leds = (from: number, to: number, place: (at: number) => Extract<SceneSolid, { kind: 'box' }>) => {
+    for (let at = from + HALO_LED_PITCH_MM / 2; at + L <= to; at += HALO_LED_PITCH_MM) parts.push(place(at))
+  }
+  leds(x0, x1, (at) => box(at, y0 - T - 0.8, zl, L, 0.8, 2.8, led))
+  leds(x0, x1, (at) => box(at, y1 + T, zl, L, 0.8, 2.8, led))
+  leds(y0, y1, (at) => box(x0 - T - 0.8, at, zl, 0.8, L, 2.8, led))
+  leds(y0, y1, (at) => box(x1 + T, at, zl, 0.8, L, 2.8, led))
+  // Slim 12 V driver lying on the board inside the frame, near the top, right of centre.
+  const driverW = Math.min(160, (x1 - x0) / 2 - P - 30)
+  const driverX = (x0 + x1) / 2 + 30
+  const driverY = y0 + P + 40
+  parts.push(box(driverX, driverY, boardFront - 22, driverW, 32, 22, '#2a2a2d'))
+  // 12 V cable to the strip's end on the right of the frame; mains cable into the board,
+  // through a hole to the switch on the right edge and on to the socket behind.
+  const cable = '#f4f4f0'
+  parts.push(box(driverX + driverW, driverY + 10, boardFront - 8, x1 - P - driverX - driverW, 5, 5, cable))
+  parts.push(box(driverX - 30, driverY + 18, boardFront - 8, 30, 5, 5, cable))
+  parts.push(box(driverX - 30, driverY + 18, boardFront - 8, 5, 5, 8, cable))
+  // Rocker switch on the board's right edge, within reach above the desk.
+  parts.push(box(boardRight, switchY, boardFront + (boardT - 14) / 2, 6, 40, 14, '#f6f6f3'))
+  parts.push(box(boardRight + 6, switchY + 6, boardFront + (boardT - 8) / 2, 4, 28, 8, '#d9d9d4'))
+  return parts
 }
 
 /** Single 3D front view with depth extending to the right. */
@@ -4165,13 +4240,23 @@ function PlinthBoxFront3DView({
               }}
             />
           )}
+          {halo &&
+            haloParts(
+              { ...glass, y: sideY - VANITY_MIRROR_BOARD_MM + glass.y },
+              zSide + m.sideD,
+              W,
+              T,
+              halo,
+              sideY - 250,
+            ).map((part, index) => <CaptureOnly key={`halo-${index}`} solid={part} />)}
+          {/* GlassMania 3 mm; when lit it is glued to the frame, its back 25 mm off the board. */}
           <Board
             x={glass.x}
             y={sideY - VANITY_MIRROR_BOARD_MM + glass.y}
-            z={zSide + m.sideD - 6 - standoff}
+            z={halo ? zSide + m.sideD - standoff - 3 : zSide + m.sideD - 6}
             w={glass.width}
             h={glass.height}
-            d={4}
+            d={halo ? 3 : 4}
             color={MIRROR_GLASS_COLOR}
             cam={view}
             faces={{ front: true }}

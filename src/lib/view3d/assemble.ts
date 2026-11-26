@@ -98,6 +98,7 @@ export function refreshMirrors(
 function mirrorFaces(bin: Disposable[]) {
   const face = mirrorFace(bin)
   const edge = new MeshStandardMaterial({ color: '#8ea0aa', metalness: 0.65, roughness: 0.28 })
+  edge.userData.mirrorEdge = true
   bin.push({ dispose: () => edge.dispose() })
   return [edge, edge, edge, edge, face, face]
 }

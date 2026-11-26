@@ -66,6 +66,8 @@ export type StudioPick = {
 export type CabinetStudio = {
   setContent(solids: SceneSolid[], sheets: ReadonlyMap<string, DecorSheet>): void
   toggle(animKey: string): void
+  /** Makes mirror glass see-through, to show what is fixed behind it (the light's frame and strip). */
+  setSeeThroughMirrors(on: boolean): void
   dispose(): void
 }
 
@@ -444,8 +446,26 @@ export function mountCabinetStudio(
     }
     return api
   }
+  let seeThrough = false
+  const applySeeThrough = () => {
+    root.traverse((object) => {
+      const material = (object as Mesh).material
+      const list = Array.isArray(material) ? material : material ? [material] : []
+      for (const item of list) {
+        if (item.userData.mirror !== true && item.userData.mirrorEdge !== true) continue
+        item.transparent = seeThrough
+        item.opacity = seeThrough ? 0.15 : 1
+        item.depthWrite = !seeThrough
+        item.needsUpdate = true
+      }
+    })
+  }
   return wakeOnCall({
     toggle,
+    setSeeThroughMirrors(on) {
+      seeThrough = on
+      applySeeThrough()
+    },
     setContent(solids, sheets) {
       for (const item of bin) item.dispose()
       bin = []
@@ -465,6 +485,7 @@ export function mountCabinetStudio(
         }
       }
       applyMotion()
+      if (seeThrough) applySeeThrough()
       frameCabinet()
     },
     dispose() {

@@ -19,6 +19,9 @@ export function CabinetModel({ store }: { store: CaptureStore }) {
   const [failed, setFailed] = useState(false)
   const [menu, setMenu] = useState<(StudioPick & { left: number; top: number }) | null>(null)
   const [opened, setOpened] = useState(false)
+  // A mirror lit from behind hides its frame, LED strip and driver; this shows them through the glass.
+  const [seeThrough, setSeeThrough] = useState(false)
+  const hasHalo = solids.some((solid) => solid.kind === 'glow')
 
   useEffect(() => {
     const host = hostRef.current
@@ -58,6 +61,10 @@ export function CabinetModel({ store }: { store: CaptureStore }) {
     studioRef.current?.setContent(solids, sheets)
   }, [solids, sheets])
 
+  useEffect(() => {
+    studioRef.current?.setSeeThroughMirrors(seeThrough && hasHalo)
+  }, [seeThrough, hasHalo])
+
   if (failed) {
     return <p className="py-8 text-center text-sm text-neutral-600">Браузърът не пуска 3D картината.</p>
   }
@@ -80,6 +87,18 @@ export function CabinetModel({ store }: { store: CaptureStore }) {
   return (
     <div className="relative h-[520px] w-full">
       <div ref={hostRef} className="h-full w-full" />
+      {hasHalo && (
+        <button
+          type="button"
+          aria-pressed={seeThrough}
+          className={`absolute right-2 top-2 z-10 rounded-md border px-2.5 py-1 text-xs shadow-sm ${
+            seeThrough ? 'border-neutral-900 bg-neutral-900 text-white' : 'border-neutral-300 bg-white text-neutral-900'
+          }`}
+          onClick={() => setSeeThrough((on) => !on)}
+        >
+          {seeThrough ? 'Огледалото обратно' : 'Покажи зад огледалото'}
+        </button>
+      )}
       {menu && (
         <div
           role="menu"

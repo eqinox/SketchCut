@@ -291,7 +291,7 @@ export function applyCabinetMirrors(
       pricedLine({ id: 'led-switch', name: 'Ключ за осветлението', unitPriceEur: switchEur }, quantity, 'по 1 на огледало'),
     )
     notes.push(
-      `Осветление отзад: огледалото стои на ${MIRROR_HALO_STANDOFF_MM} мм от плоскостта, на дистанционни. LED лента ${metres.toFixed(1).replace('.', ',')} м по гърба му, на ${MIRROR_HALO_INSET_MM} мм от ръба; светлината грее по плоскостта около огледалото.`,
+      `Осветление отзад: огледалото е залепено на алуминиева рамка (профил 20 × ${MIRROR_HALO_STANDOFF_MM} мм), на ${MIRROR_HALO_INSET_MM} мм навътре от ръба му, и стои на ${MIRROR_HALO_STANDOFF_MM} мм от плоскостта. LED лента ${metres.toFixed(1).replace('.', ',')} м по външната страна на рамката; светлината грее по плоскостта около огледалото. Захранването е зад огледалото, ключът е на десния ръб на плоскостта.`,
     )
   }
 
