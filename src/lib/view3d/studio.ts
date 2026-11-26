@@ -151,8 +151,19 @@ export function mountCabinetStudio(
   controls.dampingFactor = 0.08
   controls.panSpeed = 4
   controls.maxPolarAngle = Math.PI * 0.92
-  controls.minDistance = 180
+  // Zoom right up to any detail: the wheel goes toward the spot under the pointer, with no stop
+  // close in. The near plane follows the distance, so nothing close gets cut away.
+  controls.minDistance = 2
   controls.maxDistance = 14000
+  controls.zoomToCursor = true
+  let baseNear = 10
+  const fitNear = () => {
+    const want = Math.min(baseNear, Math.max(0.5, camera.position.distanceTo(controls.target) / 60))
+    if (Math.abs(camera.near - want) < 0.01) return
+    camera.near = want
+    camera.updateProjectionMatrix()
+  }
+  controls.addEventListener('change', fitNear)
 
   const root = new Group()
   scene.add(root)
@@ -267,11 +278,13 @@ export function mountCabinetStudio(
     if (userMoved) return
     const dist = radius * 1.75
     camera.position.set(center.x + dist * 0.78, center.y + dist * 0.38, center.z + dist)
-    camera.near = Math.max(8, radius / 80)
+    baseNear = Math.max(8, radius / 80)
+    camera.near = baseNear
     camera.far = radius * 40
     camera.updateProjectionMatrix()
     controls.target.copy(center)
     controls.update()
+    fitNear()
   }
 
   const applyMotion = () => {

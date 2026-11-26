@@ -238,8 +238,17 @@ export function mountRoomStudio(host: HTMLElement): RoomStudio {
   controls.enableDamping = true
   controls.dampingFactor = 0.08
   controls.panSpeed = 4
-  controls.minDistance = 500
+  // Zoom right up to any detail: the wheel goes toward the spot under the pointer, with no stop
+  // close in. The near plane follows the distance, so nothing close gets cut away.
+  controls.minDistance = 2
   controls.maxDistance = 12000
+  controls.zoomToCursor = true
+  controls.addEventListener('change', () => {
+    const want = Math.min(30, Math.max(0.5, camera.position.distanceTo(controls.target) / 60))
+    if (Math.abs(camera.near - want) < 0.01) return
+    camera.near = want
+    camera.updateProjectionMatrix()
+  })
   controls.maxPolarAngle = Math.PI * 0.58
   controls.minPolarAngle = 0.55
   controls.target.set(-2000, 900, 2200)
