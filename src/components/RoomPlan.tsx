@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent, type ReactNode } from 'react'
+import { FoldTitle } from '@/components/PhoneFold'
+import { usePhoneFold } from '@/lib/phone-fold'
 import { Palette, Redo2, Undo2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ProjectColors } from '@/components/ProjectColors'
@@ -262,6 +264,9 @@ export function RoomPlanView({
   // «Мести»: in the design view a drag moves a cabinet only while this is on, so looking round
   // a selected cabinet never shifts it by accident. Off when the view opens.
   const [moveOn, setMoveOn] = useState(false)
+  // On a phone the room and the drawing fold to their titles.
+  const roomFold = usePhoneFold('room')
+  const drawingFold = usePhoneFold('drawing')
   // The plan's pointer handler is bound once; it reads these through refs.
   const moveOnRef = useRef(moveOn)
   const studioRef = useRef(studio)
@@ -1331,11 +1336,12 @@ export function RoomPlanView({
   return (
     <section className="rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] p-4">
       <div className="flex flex-wrap items-center gap-3">
-        <h2 className="text-lg font-semibold">Стая</h2>
+        <FoldTitle fold={roomFold}>Стая</FoldTitle>
         <Button type="button" onClick={() => setStudio(true)}>
           Проектиране на цял екран
         </Button>
       </div>
+      <div className={roomFold.body}>
       <p className="mt-1 text-sm text-[var(--color-muted-foreground)]">
         Светлият размер. Натисни Прозорец, Врата или Ниша и дръпни по стената от къде до къде да е. Готовия отвор се хваща и се носи на друга стена. Изтрий го с бутона до името. Хвани мебела и го плъзни с мишката или с пръст. Ако частта, която опира в стената, се събира в нишата, бутни го. По-плитък шкаф отпред не пречи на по-дълбокия зад него. Оранжевата стрелка сочи челото — там са вратите. Избери мебела и натисни «Завърти», за да я обърнеш. 3D стаята гледа както този план: дясното е вдясно. Отдолу е чертежът: изглед отгоре и отпред, с вериги, които събират размера.
       </p>
@@ -1375,7 +1381,12 @@ export function RoomPlanView({
         <RoomLink room={room} cabinets={cabinets} finishes={finishes} userId={userId} />
       </div>
 
-      <h3 className="mt-6 text-base font-semibold">Чертеж</h3>
+      </div>
+
+      <FoldTitle fold={drawingFold} as="h3" className="mt-6 text-base font-semibold">
+        Чертеж
+      </FoldTitle>
+      <div className={drawingFold.body}>
       <p className="mt-1 text-sm text-[var(--color-muted-foreground)]">
         Размери в мм. Веригата по всяка страна събира светлия размер. Отпред е долната страна на изгледа отгоре.
       </p>
@@ -1519,6 +1530,7 @@ export function RoomPlanView({
             />
           </svg>
         </Drawing>
+      </div>
       </div>
     </section>
   )

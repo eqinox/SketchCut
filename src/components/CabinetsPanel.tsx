@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import { FoldTitle } from '@/components/PhoneFold'
+import { usePhoneFold } from '@/lib/phone-fold'
 import { Box, ChevronDown, ChevronUp, Copy, Link2, Pencil, Plus, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -203,16 +205,17 @@ export function CabinetsPanel({
     })
   }
 
+  const fold = usePhoneFold('cabinets')
   return (
     <div className="flex flex-col gap-4 rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold">Шкафове</h2>
+          <FoldTitle fold={fold}>Шкафове</FoldTitle>
           <p className="text-xs text-[var(--color-muted-foreground)]">
             Генерират детайли и кант за разкроя · лесно се добавят нови типове
           </p>
         </div>
-        <div className="flex flex-wrap items-end gap-3">
+        <div className={`flex-wrap items-end gap-3 ${fold.open ? 'flex' : 'hidden md:flex'}`}>
           <div>
             <Label htmlFor="daily-rate" className="text-xs">
               Ставка за тази кухня
@@ -327,6 +330,7 @@ export function CabinetsPanel({
           </div>
         </div>
       </div>
+      <div className={fold.body}>
 
       <div className="flex flex-wrap gap-2">
         <Button onClick={openAdd} variant="secondary" className="w-full sm:w-auto">
@@ -643,6 +647,7 @@ export function CabinetsPanel({
           setEditing(null)
         }}
       />
+      </div>
     </div>
   )
 }

@@ -1,4 +1,6 @@
 import { GripVertical, Plus, Trash2 } from 'lucide-react'
+import { FoldTitle } from '@/components/PhoneFold'
+import { usePhoneFold } from '@/lib/phone-fold'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
@@ -153,11 +155,12 @@ export function SheetsPanel({
   const hasChipboard = sheets.some((s) => sheetKind(s) === 'chipboard')
   const hasHardboard = sheets.some((s) => sheetKind(s) === 'hardboard')
 
+  const fold = usePhoneFold('sheets')
   return (
     <div className="flex h-full flex-col gap-4 rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] p-4">
       <div className="flex items-start justify-between gap-2">
         <div>
-          <h2 className="text-lg font-semibold">Плочи</h2>
+          <FoldTitle fold={fold}>Плочи</FoldTitle>
           <p className="text-xs text-[var(--color-muted-foreground)]">
             Първо дължината по фладера, после широчината · ПДЧ и фазер отделно
           </p>
@@ -185,6 +188,7 @@ export function SheetsPanel({
           </Button>
         </div>
       </div>
+      <div className={fold.body}>
 
       <div className="flex gap-2">
         {(['chipboard', 'hardboard'] as const).map((k) => (
@@ -343,6 +347,7 @@ export function SheetsPanel({
       <p className="text-xs text-[var(--color-muted-foreground)]">
         Общо: {totalAvailable} плочи · Диск: 3 мм
       </p>
+      </div>
     </div>
   )
 }

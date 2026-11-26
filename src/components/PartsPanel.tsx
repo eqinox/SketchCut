@@ -1,4 +1,6 @@
 import { useRef, useState } from 'react'
+import { FoldTitle } from '@/components/PhoneFold'
+import { usePhoneFold } from '@/lib/phone-fold'
 import { GripVertical, Plus, RotateCw, Trash2 } from 'lucide-react'
 import { DraftNumber } from '@/components/DraftNumber'
 import { Button } from '@/components/ui/button'
@@ -123,11 +125,12 @@ export function PartsPanel({ parts, onChange, onClear, sheets = [] }: PartsPanel
     setDropIndex(null)
   }
 
+  const fold = usePhoneFold('parts')
   return (
     <div className="flex h-full flex-col gap-4 rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] p-4">
       <div className="flex items-start justify-between gap-2">
         <div>
-          <h2 className="text-lg font-semibold">Детайли</h2>
+          <FoldTitle fold={fold}>Детайли</FoldTitle>
           <p className="text-xs text-[var(--color-muted-foreground)]">
             Първо дължината по фладера, после широчината · Tab · Enter · влачи
           </p>
@@ -147,6 +150,7 @@ export function PartsPanel({ parts, onChange, onClear, sheets = [] }: PartsPanel
           Изчисти детайлите
         </Button>
       </div>
+      <div className={fold.body}>
 
       <div className="grid grid-cols-3 gap-2">
         <div>
@@ -309,6 +313,7 @@ export function PartsPanel({ parts, onChange, onClear, sheets = [] }: PartsPanel
       <p className="text-xs text-[var(--color-muted-foreground)]">
         Общо: {parts.reduce((s, p) => s + p.quantity, 0)} бр.
       </p>
+      </div>
     </div>
   )
 }
