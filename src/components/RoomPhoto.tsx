@@ -14,7 +14,7 @@ import {
 } from '@/lib/cabinets/compose'
 import { decorSheetFor, type DecorSheet } from '@/lib/finish-photo'
 import { finishById, type BoardFinish } from '@/lib/board-finishes'
-import { mountRoomStudio, type FloorRect, type RoomStudio } from '@/lib/view3d/room-photo'
+import { mountRoomStudio, type FloorRect, type RoomLighting, type RoomStudio } from '@/lib/view3d/room-photo'
 import { pieceSpan, type RoomPlan } from '@/lib/room'
 import {
   OPENING_NAME,
@@ -192,6 +192,7 @@ export function RoomPhoto({
   sketch = null,
   onSketch,
   onMovePiece,
+  lighting,
 }: {
   room: RoomPlan
   cabinets: CabinetInstance[]
@@ -215,6 +216,8 @@ export function RoomPhoto({
   onSketch?: (rect: FloorRect) => void
   /** When set, the picked cabinet can be dragged over the floor; the drop lands here. */
   onMovePiece?: (id: string, x: number, y: number) => void
+  /** Ceiling lamp on or off, day or night outside. Missing: lamp on, day. */
+  lighting?: RoomLighting
 }) {
   const onSketchRef = useRef(onSketch)
   const onMoveRef = useRef(onMovePiece)
@@ -347,6 +350,12 @@ export function RoomPhoto({
   useEffect(() => {
     studioRef.current?.showSketch(sketch)
   }, [sketch, ready])
+
+  const lampOn = lighting?.lamp ?? true
+  const night = lighting?.night ?? false
+  useEffect(() => {
+    studioRef.current?.setLighting({ lamp: lampOn, night })
+  }, [lampOn, night, ready])
 
   useEffect(() => {
     const studio = studioRef.current

@@ -19,6 +19,9 @@ import {
   MeshStandardMaterial,
   Object3D,
   Path,
+  PointLight,
+  RectAreaLight,
+  CylinderGeometry,
   Shape,
   ShapeGeometry,
   PCFSoftShadowMap,
@@ -38,6 +41,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js'
 import { addDimensions, addOverallDimensions } from '@/lib/view3d/dimensions'
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
+import { RectAreaLightUniformsLib } from 'three/addons/lights/RectAreaLightUniformsLib.js'
 import type { DecorSheet } from '@/lib/finish-photo'
 import type { SceneSolid } from '@/lib/cabinets/scene-solids'
 import type { RoomPlan } from '@/lib/room'
@@ -84,6 +88,8 @@ export type RoomHit =
 /** A rectangle on the floor, in room mm: x from the left wall, y from the front wall. */
 export type FloorRect = { x: number; y: number; w: number; d: number }
 
+export type RoomLighting = { lamp: boolean; night: boolean }
+
 export type RoomStudio = {
   setRoom(
     room: RoomPlan,
@@ -121,6 +127,11 @@ export type RoomStudio = {
   onMoved(listener: (id: string, x: number, y: number) => void): () => void
   /** Left button orbits while navigating. A drawing tool takes that button. */
   setNavigate(on: boolean): void
+  /**
+   * The room's light: the ceiling lamp in the middle on or off, and day or night outside.
+   * Daylight (or moonlight) comes in only through a window, and only a little.
+   */
+  setLighting(lighting: RoomLighting): void
   subscribe(listener: () => void): () => void
   dispose(): void
 }
@@ -261,13 +272,34 @@ export function mountRoomStudio(host: HTMLElement): RoomStudio {
     userMoved = true
   })
 
-  scene.add(new HemisphereLight(0xfff4e4, 0xb7ab9a, 0.62))
-  const sun = new DirectionalLight(0xfff3e2, 3.1)
+  // Light comes from the ceiling lamp and, through a window, from outside. Only a faint even
+  // glow stays besides, so a dark room is still readable.
+  RectAreaLightUniformsLib.init()
+  let lighting: RoomLighting = { lamp: true, night: false }
+  let hasWindow = false
+  const ambient = new HemisphereLight(0xfff4e4, 0xb7ab9a, 0.1)
+  scene.add(ambient)
+  // Sunlight (or moonlight) through the window: the walls cast shadows, so it falls only
+  // through the opening.
+  const sun = new DirectionalLight(0xfff3e2, 1.2)
   sun.castShadow = true
   sun.shadow.mapSize.set(2048, 2048)
   sun.shadow.bias = -0.00025
   sun.shadow.normalBias = 6
-  const fill = new DirectionalLight(0xd7e4f4, 0.55)
+  // The soft glow of the sky from the window opening itself.
+  const skyGlow = new RectAreaLight(0xdfeaf7, 1, 1000, 1000)
+  // The ceiling lamp in the middle of the room: a round fitting and a warm light under it.
+  const lamp = new PointLight(0xffe2b8, 5e6, 0, 2)
+  lamp.castShadow = true
+  lamp.shadow.mapSize.set(1024, 1024)
+  lamp.shadow.camera.near = 40
+  lamp.shadow.camera.far = 30000
+  lamp.shadow.bias = -0.0005
+  lamp.shadow.normalBias = 4
+  const lampGeo = new CylinderGeometry(170, 190, 55, 48)
+  const lampMat = new MeshStandardMaterial({ color: '#f7f5f0', emissive: '#fff1d6', emissiveIntensity: 1.6, roughness: 0.6 })
+  const lampShade = new Mesh(lampGeo, lampMat)
+  const fill = new DirectionalLight(0xd7e4f4, 0)
   // Mirror in X so the right wall stays on the right of the picture, the same
   // way as the plan. A negative scale keeps the wall faces one-sided: from
   // outside a wall you still see into the room, not the back of the wall.
@@ -277,6 +309,9 @@ export function mountRoomStudio(host: HTMLElement): RoomStudio {
   view.add(sun)
   view.add(sun.target)
   view.add(fill)
+  view.add(skyGlow)
+  view.add(lamp)
+  view.add(lampShade)
 
   const shell = new Group()
   view.add(shell)
@@ -312,6 +347,8 @@ export function mountRoomStudio(host: HTMLElement): RoomStudio {
   const makePlane = (material: MeshStandardMaterial | MeshPhysicalMaterial) => {
     const mesh = new Mesh(new PlaneGeometry(1, 1), material)
     mesh.receiveShadow = true
+    // Walls and ceiling block the light from outside: it reaches in only through a window.
+    mesh.castShadow = true
     shell.add(mesh)
     return mesh
   }
@@ -928,6 +965,32 @@ export function mountRoomStudio(host: HTMLElement): RoomStudio {
     featureBin.push(geo)
   }
 
+  function applyLighting() {
+    const { lamp: lampOn, night } = lighting
+    lamp.visible = lampOn
+    lampMat.emissiveIntensity = lampOn ? 1.6 : 0
+    lampMat.color.set(lampOn ? '#f7f5f0' : '#dcd9d3')
+    sun.visible = hasWindow
+    skyGlow.visible = hasWindow
+    if (night) {
+      sun.color.set(0x9db4e6)
+      sun.intensity = 0.12
+      skyGlow.color.set(0x5a6f94)
+      skyGlow.intensity = 0.25
+      renderer.setClearColor(0x0b1220)
+    } else {
+      sun.color.set(0xfff3e2)
+      sun.intensity = 1.2
+      skyGlow.color.set(0xdfeaf7)
+      skyGlow.intensity = 1.1
+      renderer.setClearColor(0xc5d4e0)
+    }
+    // The faint even glow: a little more by day through a window, a little with the lamp on.
+    const glow = 0.04 + (hasWindow && !night ? 0.08 : 0) + (lampOn ? 0.1 : 0)
+    ambient.intensity = glow
+    scene.environmentIntensity = glow * 1.4
+  }
+
   function paintOpenings(room: RoomPlan, openings = openingsIn(room)) {
     paintedRoom = room
     paintedList = openings
@@ -941,9 +1004,9 @@ export function mountRoomStudio(host: HTMLElement): RoomStudio {
       const mat =
         opening.kind === 'window'
           ? new MeshStandardMaterial({
-              color,
-              emissive: color,
-              emissiveIntensity: 0.45,
+              color: lighting.night ? '#0e1726' : color,
+              emissive: lighting.night ? '#16233a' : color,
+              emissiveIntensity: lighting.night ? 0.5 : 0.45,
               roughness: 0.12,
               metalness: 0,
               envMapIntensity: 0.35,
@@ -1091,17 +1154,28 @@ export function mountRoomStudio(host: HTMLElement): RoomStudio {
     }
 
     const win = openings.find((opening) => opening.kind === 'window')
+    hasWindow = !!win
     if (win) {
       const out = laid[win.wall].out
       const at = side(win.wall)
         ? new Vector3(win.wall === 'left' ? 0 : width, win.sill + win.height / 2, win.along + win.span / 2)
         : new Vector3(win.along + win.span / 2, win.sill + win.height / 2, win.wall === 'front' ? 0 : depth)
-      sun.position.set(at.x + out.x * 1600, Math.max(at.y + 400, height * 0.75), at.z + out.z * 1600)
+      // Slanting down, so a patch of light falls on the floor in front of the window.
+      sun.position.set(at.x + out.x * 2400, at.y + 1800, at.z + out.z * 2400)
+      sun.target.position.set(at.x - out.x * 1500, 0, at.z - out.z * 1500)
+      // The sky's glow from the opening, facing into the room.
+      skyGlow.width = Math.max(100, win.span - 20)
+      skyGlow.height = Math.max(100, win.height - 20)
+      skyGlow.position.copy(at).addScaledVector(out, -15)
+      skyGlow.lookAt(at.clone().addScaledVector(out, -1000))
     } else {
-      sun.position.set(-width * 0.15, height * 1.35, depth * 0.55)
+      sun.target.position.set(width * 0.55, 400, depth * 0.5)
     }
-    sun.target.position.set(width * 0.55, 400, depth * 0.5)
     sun.target.updateMatrixWorld()
+    // The ceiling lamp hangs in the middle of the room.
+    lampShade.position.set(width / 2, height - 28, depth / 2)
+    lamp.position.set(width / 2, height - 90, depth / 2)
+    applyLighting()
   }
 
   function aimFrom(clientX: number, clientY: number): boolean {
@@ -1341,6 +1415,14 @@ export function mountRoomStudio(host: HTMLElement): RoomStudio {
     setNavigate(on) {
       ;(controls.mouseButtons as { LEFT: number }).LEFT = on ? MOUSE.ROTATE : -1
     },
+    setLighting(next) {
+      if (next.lamp === lighting.lamp && next.night === lighting.night) return
+      const nightChanged = next.night !== lighting.night
+      lighting = { ...next }
+      // The window pane changes colour between day and night.
+      if (nightChanged && paintedRoom) paintOpenings(paintedRoom, paintedList)
+      else applyLighting()
+    },
     subscribe(listener) {
       listeners.add(listener)
       return () => listeners.delete(listener)
@@ -1388,6 +1470,8 @@ export function mountRoomStudio(host: HTMLElement): RoomStudio {
       leftWall.geometry.dispose()
       rightWall.geometry.dispose()
       env.dispose()
+      lampGeo.dispose()
+      lampMat.dispose()
       renderer.dispose()
       if (labels.domElement.parentElement === host) host.removeChild(labels.domElement)
       if (renderer.domElement.parentElement === host) host.removeChild(renderer.domElement)

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent, type ReactNode } from 'react'
 import { FoldTitle } from '@/components/PhoneFold'
 import { usePhoneFold } from '@/lib/phone-fold'
-import { Palette, Redo2, Undo2 } from 'lucide-react'
+import { Lightbulb, LightbulbOff, Moon, Palette, Redo2, Sun, Undo2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ProjectColors } from '@/components/ProjectColors'
 import { Label } from '@/components/ui/label'
@@ -264,6 +264,9 @@ export function RoomPlanView({
   // «Мести»: in the design view a drag moves a cabinet only while this is on, so looking round
   // a selected cabinet never shifts it by accident. Off when the view opens.
   const [moveOn, setMoveOn] = useState(false)
+  // The 3D room's light: the ceiling lamp and day or night outside the window.
+  const [lampOn, setLampOn] = useState(true)
+  const [night, setNight] = useState(false)
   // On a phone the room and the drawing fold to their titles.
   const roomFold = usePhoneFold('room')
   const drawingFold = usePhoneFold('drawing')
@@ -957,6 +960,7 @@ export function RoomPlanView({
         setSketch({ ...rect, live: false })
       }}
       onMovePiece={studio && moveOn ? (id, x, y) => patchPiece(id, { x, y }) : undefined}
+      lighting={{ lamp: lampOn, night }}
     />
   )
 
@@ -1096,6 +1100,34 @@ export function RoomPlanView({
     />
   )
 
+  // The 3D room's light: the ceiling lamp, and day or night outside the window.
+  const lightButtons = (
+    <div className="flex overflow-hidden rounded-md border border-[var(--color-border)]" role="group" aria-label="Светлина">
+      <button
+        type="button"
+        aria-pressed={lampOn}
+        className={`flex items-center gap-1 px-2.5 py-1.5 text-sm ${
+          lampOn ? 'bg-[var(--color-primary)] text-[var(--color-primary-foreground)]' : 'hover:bg-[var(--color-muted)]'
+        }`}
+        title="Лампата на тавана в средата на стаята"
+        onClick={() => setLampOn((on) => !on)}
+      >
+        {lampOn ? <Lightbulb className="h-4 w-4" /> : <LightbulbOff className="h-4 w-4" />}
+        {lampOn ? 'Лампа: вкл.' : 'Лампа: изкл.'}
+      </button>
+      <button
+        type="button"
+        aria-pressed={night}
+        className="flex items-center gap-1 border-l border-[var(--color-border)] px-2.5 py-1.5 text-sm hover:bg-[var(--color-muted)]"
+        title="Ден или нощ навън: светлината през прозореца"
+        onClick={() => setNight((on) => !on)}
+      >
+        {night ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
+        {night ? 'Нощ' : 'Ден'}
+      </button>
+    </div>
+  )
+
   if (studio) {
     const showPlan = view !== '3d'
     const show3d = view !== '2d'
@@ -1233,6 +1265,7 @@ export function RoomPlanView({
               </button>
             ))}
           </div>
+          {show3d && lightButtons}
           {/* On a phone the bar scrolls sideways; the close button stays pinned at its right end. */}
           <Button
             type="button"
@@ -1364,6 +1397,7 @@ export function RoomPlanView({
         <Button type="button" variant="outline" size="sm" onClick={() => setShowPhoto((on) => !on)}>
           {showPhoto ? 'Скрий 3D' : 'Покажи 3D'}
         </Button>
+        {showPhoto && lightButtons}
         <p className="text-xs text-[var(--color-muted-foreground)]">
           Планът и 3D са едно и също: избереш ли шкаф на едното, светва и на другото.
         </p>
