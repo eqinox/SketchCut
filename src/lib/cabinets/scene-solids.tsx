@@ -26,7 +26,7 @@ export type SceneSolid =
       /** Which piece of the cabinet this is, so a click can give it its own board. */
       piece?: string
       /** For the assembly film: a part with no piece name that belongs to this stage. */
-      assembly?: 'feet' | 'mirror'
+      assembly?: 'feet' | 'mirror' | 'slide'
     }
   | {
       kind: 'door'

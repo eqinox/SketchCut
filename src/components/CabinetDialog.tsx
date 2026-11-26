@@ -7391,7 +7391,7 @@ function CabinetDialogForm({
     <PieceColorChoiceContext.Provider value={pieceColorChoice}>
       <ProjectRoomContext.Provider value={withRoom && !assemblyFilm ? projectRoom : null}>
         <AssemblyFilmContext.Provider
-          value={assemblyFilm && drawStyle === 'model' ? { steps: result?.labor.assemblySteps ?? [], dailyRateEur } : null}
+          value={assemblyFilm && drawStyle === 'model' ? { steps: result?.labor.assemblySteps ?? [], dailyRateEur, slideKind } : null}
         >
           {dialogBody}
         </AssemblyFilmContext.Provider>

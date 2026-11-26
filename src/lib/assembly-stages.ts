@@ -1,5 +1,6 @@
 import type { AssemblyStep } from '@/lib/assembly-time'
 import type { SceneSolid } from '@/lib/cabinets/scene-solids'
+import type { BenchPhase } from '@/lib/view3d/workbench'
 
 /** One scene of the assembly film: what is done in it, how long it takes, which pieces arrive. */
 export interface AssemblyStage {
@@ -8,11 +9,14 @@ export interface AssemblyStage {
   steps: AssemblyStep[]
   minutes: number
   solids: SceneSolid[]
+  /** Done on the loose boards on the bench, before the carcass goes together. */
+  bench?: BenchPhase
 }
 
 type Rule = {
   key: string
   title: string
+  bench?: BenchPhase
   step: (id: string, step: AssemblyStep) => boolean
   solid: (solid: SceneSolid) => boolean
 }
@@ -31,6 +35,29 @@ const RULES: Rule[] = [
     key: 'edges',
     title: 'Подготовка: обработка на канта',
     step: (id) => starts(id, 'edge:'),
+    solid: () => false,
+  },
+  {
+    // On the bench, before assembly: pencil lines for slides, fixed shelves and dividers,
+    // and points for the shelf pins.
+    key: 'mark',
+    title: 'Разчертаване на детайлите',
+    bench: 'mark',
+    step: (id, step) => starts(id, 'mark-') || step.kind === 'mark',
+    solid: () => false,
+  },
+  {
+    key: 'pins',
+    title: 'Рафтоносачи: шило, бормашина 4,5 и чук',
+    bench: 'pins',
+    step: (id) => starts(id, 'shelf-pins'),
+    solid: () => false,
+  },
+  {
+    key: 'slides',
+    title: 'Водачи на страниците',
+    bench: 'slides',
+    step: (id) => starts(id, 'drawer-guides'),
     solid: () => false,
   },
   {
@@ -99,8 +126,20 @@ const RULES: Rule[] = [
 ]
 
 /** Splits a cabinet's 3D pieces and its assembly steps into scenes, in working order. */
-export function assemblyStages(solids: SceneSolid[], steps: AssemblyStep[]): AssemblyStage[] {
-  const stages: AssemblyStage[] = RULES.map((rule) => ({ key: rule.key, title: rule.title, steps: [], minutes: 0, solids: [] }))
+export function assemblyStages(
+  solids: SceneSolid[],
+  steps: AssemblyStep[],
+  /** Which bench jobs have something to show (lines or points, pins, slides). */
+  benchWork: Record<BenchPhase, boolean> = { mark: false, pins: false, slides: false },
+): AssemblyStage[] {
+  const stages: AssemblyStage[] = RULES.map((rule) => ({
+    key: rule.key,
+    title: rule.title,
+    steps: [],
+    minutes: 0,
+    solids: [],
+    ...(rule.bench ? { bench: rule.bench } : {}),
+  }))
   const carcass = stages.find((stage) => stage.key === 'carcass')!
   const finish: AssemblyStage = { key: 'finish', title: 'Довършване', steps: [], minutes: 0, solids: [] }
   for (const solid of solids) {
@@ -114,5 +153,5 @@ export function assemblyStages(solids: SceneSolid[], steps: AssemblyStep[]): Ass
   }
   return [...stages, finish]
     .map((stage) => ({ ...stage, minutes: Math.round(stage.steps.reduce((sum, step) => sum + step.minutes, 0) * 10) / 10 }))
-    .filter((stage) => stage.solids.length > 0 || stage.steps.length > 0)
+    .filter((stage) => stage.solids.length > 0 || stage.steps.length > 0 || (stage.bench ? benchWork[stage.bench] : false))
 }

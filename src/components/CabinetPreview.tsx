@@ -370,7 +370,7 @@ function SlideBar({
 }) {
   useCaptureSolid(
     length > 1
-      ? { kind: 'box', x, y, z, w: 14, h, d: length, color: '#8b919a' }
+      ? { kind: 'box', x, y, z, w: 14, h, d: length, color: '#8b919a', assembly: 'slide' }
       : null,
   )
   return null
