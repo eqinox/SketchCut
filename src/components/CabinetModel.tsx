@@ -8,6 +8,8 @@ import { PieceColorChoiceContext } from '@/lib/piece-color-choice'
 import { KronospanColorGrid, KronospanFinishOptions } from '@/components/KronospanColors'
 import { kronospanBoardId, kronospanCodeFromFinish } from '@/lib/kronospan-color'
 import { mountCabinetStudio, type CabinetStudio, type StudioPick } from '@/lib/view3d/studio'
+import { AssemblyFilmContext } from '@/lib/assembly-context'
+import { AssemblyFilm } from '@/components/AssemblyFilm'
 
 export function CabinetModel({ store }: { store: CaptureStore }) {
   const solids = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot)
@@ -191,18 +193,20 @@ export function CabinetModel({ store }: { store: CaptureStore }) {
 }
 
 export function CapturedModel({ children }: { children: ReactNode }) {
-  const storeRef = useRef<CaptureStore | null>(null)
-  if (!storeRef.current) storeRef.current = createCaptureStore()
-  const store = storeRef.current
+  // One store for the life of the picture.
+  const [store] = useState(createCaptureStore)
   const solids = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot)
   const scene = useContext(ProjectRoomContext)
+  const film = useContext(AssemblyFilmContext)
   return (
     <SceneCaptureContext.Provider value={store}>
       <div className="relative w-full">
         <div className="pointer-events-none absolute h-px w-px overflow-hidden opacity-0" aria-hidden>
           {children}
         </div>
-        {scene ? (
+        {film ? (
+          <AssemblyFilm store={store} />
+        ) : scene ? (
           <CabinetRoom scene={scene} solids={solids} />
         ) : (
           <>

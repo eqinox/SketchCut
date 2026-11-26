@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { AssemblyFilmContext } from '@/lib/assembly-context'
 import { PULL_CHOICES, parsePullSku, pullName, taraPull, type PullSku } from '@/lib/cabinets/pulls'
 import { Box, ChevronDown, ChevronRight, Plus, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -1850,6 +1851,8 @@ function CabinetDialogForm({
   const [drawStyle, setDrawStyle] = useState<'line' | 'color' | 'model'>('model')
   // The 3D picture shows the cabinet in its room or alone. The last choice is kept for next time.
   const [withRoom, setWithRoom] = useState(() => readWithRoom())
+  // „Сглобяване“: the 3D picture plays how the cabinet is put together, step by step.
+  const [assemblyFilm, setAssemblyFilm] = useState(false)
   const changeWithRoom = (next: boolean) => {
     setWithRoom(next)
     try {
@@ -3319,10 +3322,15 @@ function CabinetDialogForm({
             Изглед
             <select
               className="h-8 rounded-md border border-[var(--color-border)] bg-transparent px-2"
-              value={drawStyle === 'model' ? (withRoom ? 'room' : 'model') : drawStyle}
+              value={drawStyle === 'model' ? (assemblyFilm ? 'assembly' : withRoom ? 'room' : 'model') : drawStyle}
               aria-label="Изглед"
               onChange={(e) => {
                 const next = e.target.value
+                setAssemblyFilm(next === 'assembly')
+                if (next === 'assembly') {
+                  setDrawStyle('model')
+                  return
+                }
                 if (next === 'room' || next === 'model') {
                   setDrawStyle('model')
                   changeWithRoom(next === 'room')
@@ -3333,6 +3341,7 @@ function CabinetDialogForm({
             >
               <option value="room">3D в стаята</option>
               <option value="model">3D само шкафа</option>
+              <option value="assembly">Сглобяване (анимация)</option>
               <option value="color">Цветен</option>
               <option value="line">Чертеж</option>
             </select>
@@ -7380,7 +7389,13 @@ function CabinetDialogForm({
   }
   const pictured = (
     <PieceColorChoiceContext.Provider value={pieceColorChoice}>
-      <ProjectRoomContext.Provider value={withRoom ? projectRoom : null}>{dialogBody}</ProjectRoomContext.Provider>
+      <ProjectRoomContext.Provider value={withRoom && !assemblyFilm ? projectRoom : null}>
+        <AssemblyFilmContext.Provider
+          value={assemblyFilm && drawStyle === 'model' ? { steps: result?.labor.assemblySteps ?? [], dailyRateEur } : null}
+        >
+          {dialogBody}
+        </AssemblyFilmContext.Provider>
+      </ProjectRoomContext.Provider>
     </PieceColorChoiceContext.Provider>
   )
   if (bare) return pictured

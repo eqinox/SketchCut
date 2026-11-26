@@ -580,7 +580,7 @@ function haloParts(
   if (x1 - x0 < 100 || y1 - y0 < 100) return []
   const z = boardFront - boardT
   const box = (x: number, y: number, zz: number, w: number, h: number, d: number, color: string) =>
-    ({ kind: 'box', x, y, z: zz, w, h, d, color }) as const
+    ({ kind: 'box', x, y, z: zz, w, h, d, color, assembly: 'mirror' }) as const
   // The second board, as thick as the mirror board, in the same decor.
   const parts: Extract<SceneSolid, { kind: 'box' }>[] = [box(x0, y0, z, x1 - x0, y1 - y0, boardT, boardColor)]
   // The strip round its edge, so the light falls on the mirror board round the glass.
@@ -2905,7 +2905,7 @@ function Front3DView({
   const legZBack = Math.max(legZFront, D - legZFront - legD)
   const drawFeet = !hideFeet && L > 0
   const legBox = (x: number, z: number, color: string): SceneSolid | null =>
-    drawFeet ? { kind: 'box', x, y: floor - L, z, w: legW, h: L, d: legD, color } : null
+    drawFeet ? { kind: 'box', x, y: floor - L, z, w: legW, h: L, d: legD, color, assembly: 'feet' } : null
   useCaptureSolid(legBox(legInset, legZFront, legLeftPaint.color))
   useCaptureSolid(legBox(W - legInset - legW, legZFront, legRightPaint.color))
   useCaptureSolid(legBox(legInset, legZBack, wood.leg))

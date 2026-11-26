@@ -69,6 +69,11 @@ export type CabinetStudio = {
   toggle(animKey: string): void
   /** Makes mirror glass see-through, to show what is fixed behind it (the light's frame and strip). */
   setSeeThroughMirrors(on: boolean): void
+  /**
+   * The assembly film: `done` stands in place, `adding` drops into place from above.
+   * The camera is framed once on `all`, so it stays put from step to step.
+   */
+  setAssembly(done: SceneSolid[], adding: SceneSolid[], all: SceneSolid[], sheets: ReadonlyMap<string, DecorSheet>): void
   dispose(): void
 }
 
@@ -100,6 +105,10 @@ function pieceOf(object: Object3D | null): string | null {
  * The 3D picture. Lighting, materials and hinges live here so later tools
  * (sections, measurements, exploded views) can reuse the same studio.
  */
+/** In the assembly film, new pieces drop this far and take this long to land. */
+const ARRIVE_LIFT_MM = 450
+const ARRIVE_S = 1.1
+
 export function mountCabinetStudio(
   host: HTMLElement,
   options?: { onPick?: (pick: StudioPick) => void; onGestureStart?: () => void },
@@ -223,6 +232,11 @@ export function mountCabinetStudio(
   let drawers: AnimatedDrawer[] = []
   let bin: Disposable[] = []
   let userMoved = false
+  // The assembly film: the group of pieces dropping into place, and how far along it is (0–1).
+  let arriving: Group | null = null
+  let arriveT = 1
+  let assemblyFramed = false
+  let assemblyShape = ''
   let frame = 0
   let disposed = false
 
@@ -436,6 +450,12 @@ export function mountCabinetStudio(
       angle.now += gap * (1 - Math.exp(-delta * 7))
     }
     if (moving) applyMotion()
+    if (arriving && arriveT < 1) {
+      arriveT = Math.min(1, arriveT + delta / ARRIVE_S)
+      const eased = 1 - (1 - arriveT) ** 3
+      arriving.position.y = ARRIVE_LIFT_MM * (1 - eased)
+      moving = true
+    }
     // Draw only when something changed: the camera turned, a door is moving, or the picture was
     // touched or updated a moment ago. A still picture costs nothing, which matters with mirrors.
     const turned = controls.update()
@@ -499,7 +519,48 @@ export function mountCabinetStudio(
       seeThrough = on
       applySeeThrough()
     },
+    setAssembly(done, adding, all, sheets) {
+      const build = (list: SceneSolid[], parent: Group) => {
+        const built = buildCabinet(parent, list.filter((solid) => solid.kind !== 'dim'), sheets, anisotropy, bin)
+        return built
+      }
+      for (const item of bin) item.dispose()
+      bin = []
+      root.clear()
+      // A different cabinet (or new sizes): frame again.
+      const shape = all
+        .map((solid) => (solid.kind === 'box' ? `${Math.round(solid.x)},${Math.round(solid.y)},${Math.round(solid.w)},${Math.round(solid.h)},${Math.round(solid.d)}` : solid.kind))
+        .join('|')
+      if (shape !== assemblyShape) {
+        assemblyShape = shape
+        assemblyFramed = false
+        userMoved = false
+      }
+      if (!assemblyFramed) {
+        // Frame on the whole cabinet once, so the view does not jump as pieces arrive.
+        build(all, root)
+        frameCabinet()
+        for (const item of bin) item.dispose()
+        bin = []
+        root.clear()
+        assemblyFramed = true
+      }
+      const first = build(done, root)
+      arriving = new Group()
+      root.add(arriving)
+      const second = build(adding, arriving)
+      doors = [...first.doors, ...second.doors]
+      drawers = [...first.drawers, ...second.drawers]
+      for (const door of doors) angles.set(door.key, { now: 0, target: 0, kind: 'door', from: 0, glide: 1 })
+      for (const drawer of drawers) angles.set(drawer.key, { now: 0, target: 0, kind: 'drawer', from: 0, glide: 1 })
+      applyMotion()
+      arriveT = adding.length > 0 ? 0 : 1
+      arriving.position.y = arriveT < 1 ? ARRIVE_LIFT_MM : 0
+      shadowUntil = performance.now() + ARRIVE_S * 1000 + 600
+    },
     setContent(solids, sheets) {
+      assemblyFramed = false
+      arriving = null
       for (const item of bin) item.dispose()
       bin = []
       root.clear()
