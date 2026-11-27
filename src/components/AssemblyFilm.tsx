@@ -17,27 +17,29 @@ const SCENE_MS = 3200
 const AFTER_MS = 900
 const FAST_SPEED = 3
 
-/** Each job on the bench: its name on the label and the priced steps it belongs to. */
-const BENCH_OPS: Record<BenchOp, { title: string; steps: (id: string) => boolean; otherwise: string }> = {
-  'line:bottom': { title: 'Линии за дъното', steps: (id) => id === 'mark-bottom', otherwise: 'без отделно време' },
-  'line:fixed': { title: 'Линии за фиксиран рафт', steps: (id) => id === 'mark-fixed-shelf', otherwise: 'без отделно време' },
-  'line:slide': { title: 'Линия за водач', steps: (id) => id.startsWith('mark-drawer'), otherwise: 'във времето за водачите' },
+/** Each job on the bench: its name on the label, what one piece of it is, and the priced steps. */
+const BENCH_OPS: Record<BenchOp, { title: string; unit?: string; steps: (id: string) => boolean; otherwise: string }> = {
+  'line:bottom': { title: 'Линии за дъното', unit: '2 линии', steps: (id) => id === 'mark-bottom', otherwise: 'без отделно време' },
+  'line:fixed': { title: 'Линии за фиксиран рафт', unit: '2 линии', steps: (id) => id === 'mark-fixed-shelf', otherwise: 'без отделно време' },
+  'line:slide': { title: 'Линия за водач', unit: 'линия', steps: (id) => id.startsWith('mark-drawer'), otherwise: 'във времето за водачите' },
   'line:divider': {
     title: 'Линии за разделителна страница',
+    unit: '2 линии',
     steps: (id) => id === 'mark-partition-bottom' || id === 'mark-partition-top',
     otherwise: 'без отделно време',
   },
-  cross: { title: 'Кръстче за лоста', steps: (id) => id === 'mark-clothes-rail', otherwise: 'във времето за лоста' },
+  cross: { title: 'Кръстче за лоста', unit: 'кръстче', steps: (id) => id === 'mark-clothes-rail', otherwise: 'във времето за лоста' },
   point: {
     title: 'Изчисление и точки за рафтоносачи',
+    unit: 'точка',
     steps: (id) => id === 'mark-shelf-pins' || id === 'mark-shelf-pins-calc',
     otherwise: 'без отделно време',
   },
-  dent: { title: 'Център с шило и чук', steps: (id) => id === 'shelf-pins-dent', otherwise: 'без отделно време' },
-  drill: { title: 'Пробиване с бургия 4,5', steps: (id) => id === 'shelf-pins-drill', otherwise: 'без отделно време' },
-  pin: { title: 'Набиване на рафтоносачите', steps: (id) => id === 'shelf-pins', otherwise: 'без отделно време' },
-  slide: { title: 'Водачите на местата им', steps: (id) => id.startsWith('drawer-guides'), otherwise: 'без отделно време' },
-  screw: { title: 'Винтовете на водачите', steps: (id) => id.startsWith('drawer-guides'), otherwise: 'без отделно време' },
+  dent: { title: 'Център с шило и чук', unit: 'точка', steps: (id) => id === 'shelf-pins-dent', otherwise: 'без отделно време' },
+  drill: { title: 'Пробиване с бургия 4,5', unit: 'дупка', steps: (id) => id === 'shelf-pins-drill', otherwise: 'без отделно време' },
+  pin: { title: 'Набиване на рафтоносачите', unit: 'рафтоносач', steps: (id) => id === 'shelf-pins', otherwise: 'без отделно време' },
+  slide: { title: 'Водач на мястото си', unit: 'водач', steps: (id) => id.startsWith('drawer-guides'), otherwise: 'без отделно време' },
+  screw: { title: 'Винтове на водача', unit: 'водач', steps: (id) => id.startsWith('drawer-guides'), otherwise: 'без отделно време' },
   swap: { title: 'Смяна на плоскостта на масата', steps: (id) => id.endsWith('-swap'), otherwise: 'без отделно време' },
 }
 
@@ -209,12 +211,14 @@ export function AssemblyFilm({ store }: { store: CaptureStore }) {
   // only when the scene's list does not have that job.
   // One board at a time on the bench: `part` is that board's share, so the label is for what is
   // on the bench now.
-  const describe = (op: BenchOp, part: number) => {
+  const describe = (op: BenchOp, part: number, piece: { index: number; count: number } | null) => {
     const job = BENCH_OPS[op]
     const here = (stage?.steps ?? []).filter((step) => job.steps(step.id))
     const steps = here.length > 0 ? here : allSteps.filter((step) => job.steps(step.id))
     const scaled = part < 1 ? steps.map((step) => ({ ...step, minutes: step.minutes * part })) : steps
-    return tagText(job.title, scaled, priceOf, job.otherwise)
+    // Just this piece: „Линии за фиксиран рафт — 2 линии, 1 от 2 · 1 мин · 0,33 €“.
+    const title = piece && piece.count > 1 && job.unit ? `${job.title} — ${job.unit}, ${piece.index + 1} от ${piece.count}` : job.title
+    return tagText(title, scaled, priceOf, job.otherwise)
   }
   // Several pieces in one scene (fixed shelves one by one, the short dividers): each its share.
   const stageTag =
