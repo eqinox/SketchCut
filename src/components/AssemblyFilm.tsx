@@ -39,6 +39,8 @@ export function AssemblyFilm({ store }: { store: CaptureStore }) {
   /** How fast the 3D work runs: 0 while paused. */
   const pace = playing ? (fast ? FAST_SPEED : 1) : 0
   const [sceneDone, setSceneDone] = useState('')
+  /** Goes up on „Отначало“, so the scene plays again even when it is already the one on screen. */
+  const [round, setRound] = useState(0)
 
   const soft = film?.slideKind ? isSoftCloseSlide(film.slideKind) : false
   const groups = benchGroups(solids)
@@ -101,7 +103,7 @@ export function AssemblyFilm({ store }: { store: CaptureStore }) {
 
   // The scene on screen: on the bench a job plays; otherwise what stands is shown and this
   // scene's work plays on it.
-  const sceneKey = stages.length > 0 ? `${index}/${stages.length}/${solids.length}/${benchKey}` : ''
+  const sceneKey = stages.length > 0 ? `${round}:${index}/${stages.length}/${solids.length}/${benchKey}` : ''
   useEffect(() => {
     if (!stage) return
     const key = sceneKey
@@ -195,6 +197,7 @@ export function AssemblyFilm({ store }: { store: CaptureStore }) {
                 className={button}
                 onClick={() => {
                   setAt(0)
+                  setRound((n) => n + 1)
                   setSceneDone('')
                   setPlaying(true)
                 }}
