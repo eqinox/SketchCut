@@ -340,10 +340,10 @@ export interface AssemblyTimeSettings {
   /** D1L/D2 profiles + soft-close on one sliding door, minutes. */
   installSlidingDoorHardwareMinutes: number
 
-  /** Drawing one partition on the bottom (or on the top) — minutes per page. */
-  partitionMarkMinutes: number
-  /** Drawing one fixed shelf on the carcass — minutes. Assembly is separate. */
-  fixedShelfMarkMinutes: number
+  /** Drawing where one partition stands, on the bottom and the top together — minutes. */
+  partitionLineMinutes: number
+  /** Drawing where one fixed shelf goes, on both sides together — minutes. Assembly is separate. */
+  fixedShelfLineMinutes: number
   /** Extra drawing time per interior job (pins, slides, rail) for one partition, small cabinet. */
   partitionDetailMarkSmallMinutes: number
   partitionDetailMarkMediumMinutes: number
@@ -412,8 +412,8 @@ export const DEFAULT_ASSEMBLY_TIME_SETTINGS: AssemblyTimeSettings = {
   installUpperTrackMinutes: 30,
   installLowerTrackMinutes: 25,
   installSlidingDoorHardwareMinutes: 30,
-  partitionMarkMinutes: 2,
-  fixedShelfMarkMinutes: 2,
+  partitionLineMinutes: 1,
+  fixedShelfLineMinutes: 1,
   partitionDetailMarkSmallMinutes: 0.5,
   partitionDetailMarkMediumMinutes: 1,
   partitionDetailMarkLargeMinutes: 1.5,
@@ -463,6 +463,17 @@ export const SHELF_PIN_REPEAT_SAVES_SECONDS = 30
 export const BENCH_TWO_SIDES_MAX_DEPTH_MM = 450
 /** …or up to this height (sides across the bench). */
 export const BENCH_TWO_SIDES_MAX_HEIGHT_MM = 900
+
+/** Two boards of this length and width lie on the bench together (90 cm deep, 2 m long). */
+export function benchFitsTwo(lengthMm: number, widthA: number, widthB = widthA): boolean {
+  const widths = widthA + widthB
+  return widths <= BENCH_TWO_SIDES_MAX_DEPTH_MM * 2 || (lengthMm <= BENCH_TWO_SIDES_MAX_HEIGHT_MM && widths <= 2000)
+}
+
+/** Taking one board off the bench, leaning it on the wall and putting the other one on — seconds. */
+export function benchSwapSeconds(lengthMm: number): number {
+  return lengthMm > 2000 ? 95 : lengthMm > 1500 ? 65 : 35
+}
 
 /** Seconds to mark the 4 pins of one shelf: the first time, and when the spot repeats. */
 export function shelfPinMarkSeconds(heightMm: number, depthMm: number): { full: number; repeat: number; swap: boolean } {
@@ -686,8 +697,8 @@ export function parseAssemblyTimeSettings(raw: unknown): AssemblyTimeSettings {
       'installSlidingDoorHardwareMinutes',
       d.installSlidingDoorHardwareMinutes,
     ),
-    partitionMarkMinutes: numPositive(src, 'partitionMarkMinutes', d.partitionMarkMinutes),
-    fixedShelfMarkMinutes: numPositive(src, 'fixedShelfMarkMinutes', d.fixedShelfMarkMinutes),
+    partitionLineMinutes: numPositive(src, 'partitionLineMinutes', d.partitionLineMinutes),
+    fixedShelfLineMinutes: numPositive(src, 'fixedShelfLineMinutes', d.fixedShelfLineMinutes),
     partitionDetailMarkSmallMinutes: numPositive(
       src,
       'partitionDetailMarkSmallMinutes',
@@ -1026,8 +1037,8 @@ export function collectCabinetAssembly(input: {
   const partitions = Math.max(0, input.partitionCount ?? 0)
   const fixedN = Math.max(0, input.fixedShelfCount ?? 0)
   const railN = input.clothesRailCount ?? (input.hasClothesRail ? 1 : 0)
-  const markPerFace = s.partitionMarkMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.partitionMarkMinutes
-  const fixedMarkPer = s.fixedShelfMarkMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.fixedShelfMarkMinutes
+  const markPerFace = s.partitionLineMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.partitionLineMinutes
+  const fixedMarkPer = s.fixedShelfLineMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.fixedShelfLineMinutes
   const detailMarkPer = pickTier(
     tier,
     s.partitionDetailMarkSmallMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.partitionDetailMarkSmallMinutes,
@@ -1037,42 +1048,74 @@ export function collectCabinetAssembly(input: {
   const sizeWord = OVERALL_TIER_BG[tier]
   const topCaption = markTopCaption(input)
 
+  // One line per partition or fixed shelf: drawn on both boards at once when they lie on the
+  // bench together; otherwise once on each, with the swap in between.
   if (partitions > 0 && markPerFace > 0) {
-    const faceMinutes = markPerFace * partitions
     const pages = partitionPagesPhrase(partitions)
-    const faceCalc = `${pages} × ${minText(markPerFace)} = ${minText(faceMinutes)}`
-    pushStep(steps, {
-      id: 'mark-partition-bottom',
-      kind: 'mark',
-      label:
-        partitions === 1
-          ? 'Начертаване на разделителна страница на дъното'
-          : 'Начертаване на разделителни страници на дъното',
-      minutes: faceMinutes,
-      quantity: partitions,
-      unitOne: 'страница',
-      unitMany: 'страници',
-      calc: faceCalc,
-      hint: `време за начертаване върху дъното · да се начертаят ${pages}`,
-    })
-    pushStep(steps, {
-      id: 'mark-partition-top',
-      kind: 'mark',
-      label:
-        partitions === 1
-          ? `Начертаване на разделителна страница на ${topCaption}`
-          : `Начертаване на разделителни страници на ${topCaption}`,
-      minutes: faceMinutes,
-      quantity: partitions,
-      unitOne: 'страница',
-      unitMany: 'страници',
-      calc: faceCalc,
-      hint: `време за начертаване върху ${topCaption} · да се начертаят ${pages}`,
-    })
+    // The top (or the rails, a fascia) is drawn together with the bottom when both fit on the bench.
+    const otherDepth = input.hasTop || input.isWallCabinet ? input.depth : 100
+    const together = benchFitsTwo(input.width, input.depth, otherDepth)
+    if (together) {
+      const minutes = markPerFace * partitions
+      pushStep(steps, {
+        id: 'mark-partition-bottom',
+        kind: 'mark',
+        label:
+          partitions === 1
+            ? `Начертаване на разделителна страница на дъното и ${topCaption}`
+            : `Начертаване на разделителни страници на дъното и ${topCaption}`,
+        minutes,
+        quantity: partitions,
+        unitOne: 'страница',
+        unitMany: 'страници',
+        calc: `${pages} × ${minText(markPerFace)} = ${minText(minutes)}`,
+        hint: `дъното и ${topCaption} лежат заедно на масата · една линия минава през двете`,
+      })
+    } else {
+      const minutes = markPerFace * partitions
+      const faceCalc = `${pages} × ${minText(markPerFace)} = ${minText(minutes)}`
+      pushStep(steps, {
+        id: 'mark-partition-bottom',
+        kind: 'mark',
+        label: partitions === 1 ? 'Начертаване на разделителна страница на дъното' : 'Начертаване на разделителни страници на дъното',
+        minutes,
+        quantity: partitions,
+        unitOne: 'страница',
+        unitMany: 'страници',
+        calc: faceCalc,
+        hint: 'дъното и плотът не се събират заедно на масата',
+      })
+      const swap = benchSwapSeconds(input.width)
+      pushExact(steps, {
+        id: 'mark-partition-top-swap',
+        kind: 'mark',
+        label: `Смяна на дъното с ${topCaption} на масата`,
+        minutes: swap / 60,
+        calc: secText(swap),
+        hint: `махаш дъното, облягаш го на стената и слагаш ${topCaption} · ${formatQty(input.width / 10)} см дълго`,
+      })
+      pushStep(steps, {
+        id: 'mark-partition-top',
+        kind: 'mark',
+        label:
+          partitions === 1
+            ? `Начертаване на разделителна страница на ${topCaption}`
+            : `Начертаване на разделителни страници на ${topCaption}`,
+        minutes,
+        quantity: partitions,
+        unitOne: 'страница',
+        unitMany: 'страници',
+        calc: faceCalc,
+        hint: 'още 1 мин на страница, защото се чертае отделно',
+      })
+    }
   }
 
   if (fixedN > 0 && fixedMarkPer > 0) {
-    const minutes = fixedMarkPer * fixedN
+    const shelves = fixedN === 1 ? '1 фиксиран рафт' : `${formatQty(fixedN)} фиксирани рафта`
+    const together = benchFitsTwo(input.height, input.depth)
+    const per = together ? fixedMarkPer : fixedMarkPer * 2
+    const minutes = per * fixedN
     pushStep(steps, {
       id: 'mark-fixed-shelf',
       kind: 'mark',
@@ -1081,9 +1124,24 @@ export function collectCabinetAssembly(input: {
       quantity: fixedN,
       unitOne: 'рафт',
       unitMany: 'рафта',
-      calc: `${fixedN === 1 ? '1 фиксиран рафт' : `${formatQty(fixedN)} фиксирани рафта`} × ${minText(fixedMarkPer)} = ${minText(minutes)}`,
-      hint: 'начертаване върху страниците',
+      calc: together
+        ? `${shelves} × ${minText(fixedMarkPer)} = ${minText(minutes)}`
+        : `${shelves} × 2 страници × ${minText(fixedMarkPer)} = ${minText(minutes)}`,
+      hint: together
+        ? 'двете страници лежат заедно на масата · една линия минава през двете'
+        : 'двете страници не се събират на масата: всяка се чертае отделно',
     })
+    if (!together) {
+      const swap = benchSwapSeconds(input.height)
+      pushExact(steps, {
+        id: 'mark-fixed-shelf-swap',
+        kind: 'mark',
+        label: 'Смяна на страницата на масата',
+        minutes: swap / 60,
+        calc: secText(swap),
+        hint: `махаш едната страница, облягаш я на стената и слагаш другата · ${formatQty(input.height / 10)} см висока`,
+      })
+    }
   }
 
   if (partitions > 0 && detailMarkPer > 0) {

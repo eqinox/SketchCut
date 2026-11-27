@@ -355,8 +355,8 @@ export function SettingsDialog({
     setSizeHeightMedium(String(s.heightMediumMaxMm ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.heightMediumMaxMm))
     setSizeDepthSmall(String(s.depthSmallMaxMm ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.depthSmallMaxMm))
     setSizeDepthMedium(String(s.depthMediumMaxMm ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.depthMediumMaxMm))
-    setPartitionMark(String(s.partitionMarkMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.partitionMarkMinutes))
-    setFixedShelfMark(String(s.fixedShelfMarkMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.fixedShelfMarkMinutes))
+    setPartitionMark(String(s.partitionLineMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.partitionLineMinutes))
+    setFixedShelfMark(String(s.fixedShelfLineMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.fixedShelfLineMinutes))
     setPartitionDetailSmall(
       String(s.partitionDetailMarkSmallMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.partitionDetailMarkSmallMinutes),
     )
@@ -508,8 +508,8 @@ export function SettingsDialog({
       installLowerTrackMinutes: parseFloat(installLowerTrack) || DEFAULT_ASSEMBLY_TIME_SETTINGS.installLowerTrackMinutes,
       installSlidingDoorHardwareMinutes:
         parseFloat(installSlidingDoorHardware) || DEFAULT_ASSEMBLY_TIME_SETTINGS.installSlidingDoorHardwareMinutes,
-      partitionMarkMinutes: parseFloat(partitionMark) || DEFAULT_ASSEMBLY_TIME_SETTINGS.partitionMarkMinutes,
-      fixedShelfMarkMinutes: parseFloat(fixedShelfMark) || DEFAULT_ASSEMBLY_TIME_SETTINGS.fixedShelfMarkMinutes,
+      partitionLineMinutes: parseFloat(partitionMark) || DEFAULT_ASSEMBLY_TIME_SETTINGS.partitionLineMinutes,
+      fixedShelfLineMinutes: parseFloat(fixedShelfMark) || DEFAULT_ASSEMBLY_TIME_SETTINGS.fixedShelfLineMinutes,
       partitionDetailMarkSmallMinutes:
         parseFloat(partitionDetailSmall) || DEFAULT_ASSEMBLY_TIME_SETTINGS.partitionDetailMarkSmallMinutes,
       partitionDetailMarkMediumMinutes:
@@ -1461,7 +1461,7 @@ export function SettingsDialog({
                 </p>
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div>
-                    <Label htmlFor="partition-mark">Разделителна страница на дъното или плота (минути)</Label>
+                    <Label htmlFor="partition-mark">Разделителна страница — линия на дъното и плота (минути)</Label>
                     <Input
                       id="partition-mark"
                       type="number"
@@ -1481,6 +1481,9 @@ export function SettingsDialog({
                       value={fixedShelfMark}
                       onChange={(e) => setFixedShelfMark(e.target.value)}
                     />
+                    <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
+                      Когато двете плоскости лежат заедно на масата. Ако не се събират — двойно, плюс смяната им: 35 сек, над 150 см 65 сек, над 2 м 95 сек.
+                    </p>
                   </div>
                   <div>
                     <Label htmlFor="partition-detail-small">Допълнително на операция — малък</Label>
