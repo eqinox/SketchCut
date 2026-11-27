@@ -342,6 +342,8 @@ export interface AssemblyTimeSettings {
 
   /** Drawing where one partition stands, on the bottom and the top together — minutes. */
   partitionLineMinutes: number
+  /** Putting one partition in: onto the bottom and under the top, screwed through — minutes. */
+  partitionInstallMinutes: number
   /** Drawing where one fixed shelf goes, on both sides together — minutes. Assembly is separate. */
   fixedShelfLineMinutes: number
   /** Extra drawing time per interior job (pins, slides, rail) for one partition, small cabinet. */
@@ -413,6 +415,7 @@ export const DEFAULT_ASSEMBLY_TIME_SETTINGS: AssemblyTimeSettings = {
   installLowerTrackMinutes: 25,
   installSlidingDoorHardwareMinutes: 30,
   partitionLineMinutes: 1,
+  partitionInstallMinutes: 8,
   fixedShelfLineMinutes: 1,
   partitionDetailMarkSmallMinutes: 0.5,
   partitionDetailMarkMediumMinutes: 1,
@@ -698,6 +701,7 @@ export function parseAssemblyTimeSettings(raw: unknown): AssemblyTimeSettings {
       d.installSlidingDoorHardwareMinutes,
     ),
     partitionLineMinutes: numPositive(src, 'partitionLineMinutes', d.partitionLineMinutes),
+    partitionInstallMinutes: numPositive(src, 'partitionInstallMinutes', d.partitionInstallMinutes),
     fixedShelfLineMinutes: numPositive(src, 'fixedShelfLineMinutes', d.fixedShelfLineMinutes),
     partitionDetailMarkSmallMinutes: numPositive(
       src,
@@ -1377,12 +1381,7 @@ export function collectCabinetAssembly(input: {
 
   if ((input.partitionCount ?? 0) > 0) {
     const n = input.partitionCount ?? 0
-    const per = pickTier(
-      tier,
-      s.sidesToBottomSmallMinutes,
-      s.sidesToBottomMediumMinutes,
-      s.sidesToBottomLargeMinutes,
-    )
+    const per = s.partitionInstallMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.partitionInstallMinutes
     pushStep(steps, {
       id: 'partition',
       label: n === 1 ? 'Сглобяване на разделителна страница' : 'Сглобяване на разделителни страници',
@@ -1390,7 +1389,7 @@ export function collectCabinetAssembly(input: {
       quantity: n,
       unitOne: 'страница',
       unitMany: 'страници',
-      hint: 'като вътрешна страница към дъното',
+      hint: 'сяда на дъното и под плота, винтове 5×60',
     })
   }
 

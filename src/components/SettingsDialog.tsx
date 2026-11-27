@@ -239,6 +239,7 @@ export function SettingsDialog({
   const [sizeDepthSmall, setSizeDepthSmall] = useState('')
   const [sizeDepthMedium, setSizeDepthMedium] = useState('')
   const [partitionMark, setPartitionMark] = useState('')
+  const [partitionInstall, setPartitionInstall] = useState('')
   const [fixedShelfMark, setFixedShelfMark] = useState('')
   const [partitionDetailSmall, setPartitionDetailSmall] = useState('')
   const [partitionDetailMedium, setPartitionDetailMedium] = useState('')
@@ -356,6 +357,7 @@ export function SettingsDialog({
     setSizeDepthSmall(String(s.depthSmallMaxMm ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.depthSmallMaxMm))
     setSizeDepthMedium(String(s.depthMediumMaxMm ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.depthMediumMaxMm))
     setPartitionMark(String(s.partitionLineMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.partitionLineMinutes))
+    setPartitionInstall(String(s.partitionInstallMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.partitionInstallMinutes))
     setFixedShelfMark(String(s.fixedShelfLineMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.fixedShelfLineMinutes))
     setPartitionDetailSmall(
       String(s.partitionDetailMarkSmallMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.partitionDetailMarkSmallMinutes),
@@ -509,6 +511,7 @@ export function SettingsDialog({
       installSlidingDoorHardwareMinutes:
         parseFloat(installSlidingDoorHardware) || DEFAULT_ASSEMBLY_TIME_SETTINGS.installSlidingDoorHardwareMinutes,
       partitionLineMinutes: parseFloat(partitionMark) || DEFAULT_ASSEMBLY_TIME_SETTINGS.partitionLineMinutes,
+      partitionInstallMinutes: parseFloat(partitionInstall) || DEFAULT_ASSEMBLY_TIME_SETTINGS.partitionInstallMinutes,
       fixedShelfLineMinutes: parseFloat(fixedShelfMark) || DEFAULT_ASSEMBLY_TIME_SETTINGS.fixedShelfLineMinutes,
       partitionDetailMarkSmallMinutes:
         parseFloat(partitionDetailSmall) || DEFAULT_ASSEMBLY_TIME_SETTINGS.partitionDetailMarkSmallMinutes,
@@ -1469,6 +1472,17 @@ export function SettingsDialog({
                       min="0"
                       value={partitionMark}
                       onChange={(e) => setPartitionMark(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="partition-install">Слагане на разделителна страница (минути)</Label>
+                    <Input
+                      id="partition-install"
+                      type="number"
+                      step="0.5"
+                      min="0"
+                      value={partitionInstall}
+                      onChange={(e) => setPartitionInstall(e.target.value)}
                     />
                   </div>
                   <div>
