@@ -25,6 +25,7 @@ import {
   Vector2,
 } from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+import { attachJoysticks } from '@/lib/view3d/joysticks'
 import { CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js'
 import { constantWheelZoom } from '@/lib/view3d/wheel-zoom'
 import { addDimensions } from '@/lib/view3d/dimensions'
@@ -299,6 +300,8 @@ export function mountCabinetStudio(
     drawUntil = Math.max(drawUntil, performance.now() + ms)
   }
   const wake = () => invalidate()
+  // Thumb sticks for the camera on a phone or tablet.
+  const stopSticks = attachJoysticks(host, camera, controls, () => invalidate())
   // Not on every mouse move: only hovering changes nothing in the picture.
   for (const type of ['pointerdown', 'pointerup', 'wheel', 'keydown'] as const) {
     host.addEventListener(type, wake, { passive: true })
@@ -781,6 +784,7 @@ export function mountCabinetStudio(
     },
     dispose() {
       disposed = true
+      stopSticks()
       cancelAnimationFrame(frame)
       observer.disconnect()
       renderer.domElement.removeEventListener('pointerdown', onDown)

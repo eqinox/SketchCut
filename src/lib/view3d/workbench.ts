@@ -20,6 +20,7 @@ import {
   WebGLRenderer,
 } from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+import { attachJoysticks } from '@/lib/view3d/joysticks'
 import { benchJobs, type BenchGroup, type BenchJob } from '@/lib/bench-plan'
 
 export type Workbench = {
@@ -73,6 +74,8 @@ export function mountWorkbench(host: HTMLElement, group: BenchGroup, soft: boole
   const controls = new OrbitControls(camera, renderer.domElement)
   controls.enableDamping = true
   controls.maxPolarAngle = Math.PI * 0.48
+  // Thumb sticks for the camera on a phone or tablet.
+  const stopSticks = attachJoysticks(host, camera, controls)
 
   const bin: (BufferGeometry | Material)[] = []
   const mat = (color: string, roughness = 0.6, metalness = 0) => {
@@ -639,6 +642,7 @@ export function mountWorkbench(host: HTMLElement, group: BenchGroup, soft: boole
     },
     dispose() {
       disposed = true
+      stopSticks()
       cancelAnimationFrame(frameId)
       observer.disconnect()
       controls.dispose()
