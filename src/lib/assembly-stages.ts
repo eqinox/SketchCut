@@ -77,9 +77,10 @@ function moved(solid: Box, dx: number, dy: number, dz: number, tag: string): Box
 }
 
 /** Splits the minutes of a step evenly over the scenes that share it. */
-function share(steps: AssemblyStep[], parts: number): AssemblyStep[] {
-  if (parts <= 1) return steps
-  return steps.map((step) => ({ ...step, minutes: Math.round((step.minutes / parts) * 10) / 10 }))
+/** This stage's part of the steps: `part` of the whole (by how much of the work it shows). */
+function share(steps: AssemblyStep[], part: number): AssemblyStep[] {
+  if (part >= 1) return steps
+  return steps.map((step) => ({ ...step, minutes: Math.round(step.minutes * part * 100) / 100 }))
 }
 
 /**
@@ -177,21 +178,25 @@ export function assemblyStages(solids: SceneSolid[], steps: AssemblyStep[], grou
     })
   })
   // The bench steps go to the scenes that show them.
-  const giveTo = (taken: AssemblyStep[], targets: AssemblyStage[]) => {
+  type BenchItem = (typeof benchStages)[number]
+  /** Split between the scenes that show the work, by how much of it each shows (`weight`), else evenly. */
+  const giveTo = (taken: AssemblyStep[], targets: BenchItem[], weight?: (item: BenchItem) => number) => {
     if (taken.length === 0) return
     if (targets.length === 0) {
       pool.push(...taken)
       return
     }
-    for (const target of targets) target.steps.push(...share(taken, targets.length))
+    const weights = targets.map((item) => (weight ? Math.max(0, weight(item)) : 1))
+    const total = weights.reduce((sum, value) => sum + value, 0)
+    targets.forEach((item, i) => item.stage.steps.push(...share(taken, total > 0 ? weights[i] / total : 1 / targets.length)))
   }
-  const benchWhere = (test: (item: (typeof benchStages)[number]) => boolean) => benchStages.filter(test).map((item) => item.stage)
+  const benchWhere = (test: (item: BenchItem) => boolean) => benchStages.filter(test)
   giveTo(claimIds('mark-bottom', 'mark-fixed-shelf', 'mark-sides-swap', 'mark-clothes-rail', 'mark-shelf'), benchWhere((item) => item.group.key === 'sides' && item.phase === 'mark'))
-  giveTo(claimIds('mark-drawer-guides', 'mark-drawer'), benchWhere((item) => item.phase === 'mark' && item.counts.slides > 0))
+  giveTo(claimIds('mark-drawer-guides', 'mark-drawer'), benchWhere((item) => item.phase === 'mark' && item.counts.slides > 0), (item) => item.counts.slides)
   giveTo(claimIds('mark-partition-bottom'), benchWhere((item) => item.group.key === 'bottom'))
   giveTo(claimIds('mark-partition-top'), benchWhere((item) => item.group.key === 'top'))
-  giveTo(claimIds('shelf-pins'), benchWhere((item) => item.phase === 'pins'))
-  giveTo(claimIds('drawer-guides'), benchWhere((item) => item.phase === 'slides'))
+  giveTo(claimIds('shelf-pins'), benchWhere((item) => item.phase === 'pins'), (item) => item.counts.points)
+  giveTo(claimIds('drawer-guides'), benchWhere((item) => item.phase === 'slides'), (item) => item.counts.slides)
 
   // 2. The carcass, piece by piece.
   const sides = mainBoxes(shown, (name) => name === 'side-left' || name === 'side-right')

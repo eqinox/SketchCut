@@ -205,9 +205,12 @@ export function AssemblyFilm({ store }: { store: CaptureStore }) {
 
   // Beside the tool or the piece: what is done, its time and its price.
   const allSteps = film?.steps ?? []
+  // This scene's part of the job, the same as in the list under the picture; the whole cabinet's
+  // only when the scene's list does not have that job.
   const describe = (op: BenchOp) => {
     const job = BENCH_OPS[op]
-    return tagText(job.title, allSteps.filter((step) => job.steps(step.id)), priceOf, job.otherwise)
+    const here = (stage?.steps ?? []).filter((step) => job.steps(step.id))
+    return tagText(job.title, here.length > 0 ? here : allSteps.filter((step) => job.steps(step.id)), priceOf, job.otherwise)
   }
   const stageTag = stage && !stage.bench ? tagText(stage.title, stage.steps, priceOf, 'без отделно време') : null
   useEffect(() => {
