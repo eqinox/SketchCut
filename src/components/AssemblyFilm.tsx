@@ -19,7 +19,7 @@ const FAST_SPEED = 3
 
 /** Each job on the bench: its name on the label and the priced steps it belongs to. */
 const BENCH_OPS: Record<BenchOp, { title: string; steps: (id: string) => boolean; otherwise: string }> = {
-  'line:bottom': { title: 'Линия: къде идва дъното', steps: () => false, otherwise: 'без отделно време' },
+  'line:bottom': { title: 'Линии за дъното', steps: () => false, otherwise: 'без отделно време' },
   'line:fixed': { title: 'Линии за фиксиран рафт', steps: (id) => id === 'mark-fixed-shelf', otherwise: 'без отделно време' },
   'line:slide': { title: 'Линия за водач', steps: (id) => id.startsWith('mark-drawer'), otherwise: 'във времето за водачите' },
   'line:divider': {

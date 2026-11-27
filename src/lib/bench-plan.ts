@@ -8,7 +8,7 @@ import type { SceneSolid } from '@/lib/cabinets/scene-solids'
  * (from the front edge back), in mm.
  */
 export interface BenchFace {
-  /** Pencil lines: the bottom, fixed shelves and dividers (their middle, or both edges), slides. */
+  /** Pencil lines: the bottom and fixed shelves (both faces), dividers (both edges), slides. */
   lines: { u0: number; v0: number; u1: number; v1: number; kind?: BenchLineKind }[]
   /** A cross where the clothes rail's holder comes. */
   crosses: { u: number; v: number }[]
@@ -116,7 +116,11 @@ function uprightFaces(board: Box, solids: SceneSolid[], withBottom: boolean): Ma
   if (withBottom) {
     for (const bottom of mainBoxes(solids, (name) => name === 'bottom')) {
       const face = at(faceOf(bottom, board, 30))
-      if (face) line(face, 'bottom', bottom.y + bottom.h / 2 - board.y, ...span(bottom))
+      // Like a fixed shelf: two lines, the bottom's two faces, the bottom sits between them.
+      if (face) {
+        line(face, 'bottom', bottom.y - board.y, ...span(bottom))
+        line(face, 'bottom', bottom.y + bottom.h - board.y, ...span(bottom))
+      }
     }
   }
   for (const shelf of boxes.filter((box) => piece(box).startsWith('shelf-'))) {
