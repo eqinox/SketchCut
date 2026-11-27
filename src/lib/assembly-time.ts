@@ -1016,6 +1016,8 @@ export function collectCabinetAssembly(input: {
   clothesRailCount?: number
   clothesRailLengthMm?: number
   fixedShelfCount?: number
+  /** The bottom sits between the sides, so its place is drawn on them. */
+  bottomBetweenSides?: boolean
   partitionCount?: number
   /** Soft-close slides: 6 min per drawer on the sides, plus a project-wide groove on the taller rails. */
   softCloseDrawers?: boolean
@@ -1111,11 +1113,31 @@ export function collectCabinetAssembly(input: {
     }
   }
 
+  // The bottom (when it sits between the sides) and each fixed shelf: two pencil lines on both
+  // sides, 1 min each when the two sides lie on the bench together. Otherwise each side is drawn
+  // on its own (twice the time), with one swap of the sides at the wall for the whole cabinet.
+  const sidesTogether = benchFitsTwo(input.height, input.depth)
+  const sideTimes = sidesTogether ? 1 : 2
+  const sideHint = sidesTogether
+    ? 'двете страници лежат заедно на масата · линиите минават през двете'
+    : 'двете страници не се събират на масата: всяка се чертае отделно'
+  let sidesDrawn = false
+  if (input.bottomBetweenSides && fixedMarkPer > 0) {
+    const minutes = fixedMarkPer * sideTimes
+    sidesDrawn = true
+    pushStep(steps, {
+      id: 'mark-bottom',
+      kind: 'mark',
+      label: 'Начертаване на дъното на страниците',
+      minutes,
+      calc: sidesTogether ? `2 линии през двете страници наведнъж = ${minText(minutes)}` : `2 страници × ${minText(fixedMarkPer)} = ${minText(minutes)}`,
+      hint: `дъното стои между страниците: две линии, на дебелината му · ${sideHint}`,
+    })
+  }
   if (fixedN > 0 && fixedMarkPer > 0) {
     const shelves = fixedN === 1 ? '1 фиксиран рафт' : `${formatQty(fixedN)} фиксирани рафта`
-    const together = benchFitsTwo(input.height, input.depth)
-    const per = together ? fixedMarkPer : fixedMarkPer * 2
-    const minutes = per * fixedN
+    const minutes = fixedMarkPer * sideTimes * fixedN
+    sidesDrawn = true
     pushStep(steps, {
       id: 'mark-fixed-shelf',
       kind: 'mark',
@@ -1124,24 +1146,22 @@ export function collectCabinetAssembly(input: {
       quantity: fixedN,
       unitOne: 'рафт',
       unitMany: 'рафта',
-      calc: together
+      calc: sidesTogether
         ? `${shelves} × ${minText(fixedMarkPer)} = ${minText(minutes)}`
         : `${shelves} × 2 страници × ${minText(fixedMarkPer)} = ${minText(minutes)}`,
-      hint: together
-        ? 'двете страници лежат заедно на масата · една линия минава през двете'
-        : 'двете страници не се събират на масата: всяка се чертае отделно',
+      hint: `две линии на рафт, на дебелината му · ${sideHint}`,
     })
-    if (!together) {
-      const swap = benchSwapSeconds(input.height)
-      pushExact(steps, {
-        id: 'mark-fixed-shelf-swap',
-        kind: 'mark',
-        label: 'Смяна на страницата на масата',
-        minutes: swap / 60,
-        calc: secText(swap),
-        hint: `махаш едната страница, облягаш я на стената и слагаш другата · ${formatQty(input.height / 10)} см висока`,
-      })
-    }
+  }
+  if (sidesDrawn && !sidesTogether) {
+    const swap = benchSwapSeconds(input.height)
+    pushExact(steps, {
+      id: 'mark-sides-swap',
+      kind: 'mark',
+      label: 'Смяна на страницата на масата',
+      minutes: swap / 60,
+      calc: secText(swap),
+      hint: `веднъж на шкаф: махаш едната страница, облягаш я на стената и слагаш другата · ${formatQty(input.height / 10)} см висока`,
+    })
   }
 
   if (partitions > 0 && detailMarkPer > 0) {

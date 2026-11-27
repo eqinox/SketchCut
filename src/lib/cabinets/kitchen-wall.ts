@@ -288,6 +288,7 @@ export function generateKitchenWall(
     clothesRailCount: interior.clothesRailCount,
     clothesRailLengthMm: m.innerW,
     fixedShelfCount: interior.fixedShelfCount,
+    bottomBetweenSides: KITCHEN_WALL_JOINERY.bottomSides === 'sides-cover-bottom',
     partitionCount: interior.partitionCount,
     softCloseDrawers: isSoftCloseSlide(p.slideKind),
     externalDoors: p.externalDoors === true || hardwareSettings.externalDoors,

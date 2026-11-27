@@ -614,6 +614,7 @@ export function generatePlinthCabinet(
     clothesRailCount: interior.clothesRailCount,
     clothesRailLengthMm: m.innerW,
     fixedShelfCount: interior.fixedShelfCount,
+    bottomBetweenSides: !p.useLegs || opts.topInner === true,
     partitionCount: interior.partitionCount,
     softCloseDrawers: isSoftCloseSlide(p.slideKind),
     externalDoors: p.externalDoors === true || hardwareSettings.externalDoors,

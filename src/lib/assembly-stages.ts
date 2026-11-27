@@ -186,7 +186,7 @@ export function assemblyStages(solids: SceneSolid[], steps: AssemblyStep[], grou
     for (const target of targets) target.steps.push(...share(taken, targets.length))
   }
   const benchWhere = (test: (item: (typeof benchStages)[number]) => boolean) => benchStages.filter(test).map((item) => item.stage)
-  giveTo(claimIds('mark-fixed-shelf', 'mark-clothes-rail', 'mark-shelf'), benchWhere((item) => item.group.key === 'sides' && item.phase === 'mark'))
+  giveTo(claimIds('mark-bottom', 'mark-fixed-shelf', 'mark-sides-swap', 'mark-clothes-rail', 'mark-shelf'), benchWhere((item) => item.group.key === 'sides' && item.phase === 'mark'))
   giveTo(claimIds('mark-drawer-guides', 'mark-drawer'), benchWhere((item) => item.phase === 'mark' && item.counts.slides > 0))
   giveTo(claimIds('mark-partition-bottom'), benchWhere((item) => item.group.key === 'bottom'))
   giveTo(claimIds('mark-partition-top'), benchWhere((item) => item.group.key === 'top'))
