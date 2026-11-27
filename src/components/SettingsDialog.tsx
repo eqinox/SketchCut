@@ -193,9 +193,6 @@ export function SettingsDialog({
   const [frontFascia, setFrontFascia] = useState('')
   const [prepareWallSides, setPrepareWallSides] = useState('')
   const [assembleWallCarcass, setAssembleWallCarcass] = useState('')
-  const [shelfPinPair, setShelfPinPair] = useState('')
-  const [shelfPinExtra, setShelfPinExtra] = useState('')
-  const [shelfPinPairDeep, setShelfPinPairDeep] = useState('')
   const [shelfPinDeepMinDepth, setShelfPinDeepMinDepth] = useState('')
   const [backSmall, setBackSmall] = useState('')
   const [backLarge, setBackLarge] = useState('')
@@ -311,9 +308,6 @@ export function SettingsDialog({
     setFrontFascia(String(s.installFrontFasciaMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.installFrontFasciaMinutes))
     setPrepareWallSides(String(s.prepareWallSidesMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.prepareWallSidesMinutes))
     setAssembleWallCarcass(String(s.assembleWallCarcassMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.assembleWallCarcassMinutes))
-    setShelfPinPair(String(s.shelfPinPairMinutes))
-    setShelfPinExtra(String(s.shelfPinExtraMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.shelfPinExtraMinutes))
-    setShelfPinPairDeep(String(s.shelfPinPairDeepMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.shelfPinPairDeepMinutes))
     setShelfPinDeepMinDepth(String(s.shelfPinDeepMinDepthMm ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.shelfPinDeepMinDepthMm))
     setBackSmall(String(s.backSmallMinutes))
     setBackLarge(String(s.backLargeMinutes))
@@ -475,9 +469,6 @@ export function SettingsDialog({
       installFrontFasciaMinutes: parseFloat(frontFascia) || DEFAULT_ASSEMBLY_TIME_SETTINGS.installFrontFasciaMinutes,
       prepareWallSidesMinutes: parseFloat(prepareWallSides) || DEFAULT_ASSEMBLY_TIME_SETTINGS.prepareWallSidesMinutes,
       assembleWallCarcassMinutes: parseFloat(assembleWallCarcass) || DEFAULT_ASSEMBLY_TIME_SETTINGS.assembleWallCarcassMinutes,
-      shelfPinPairMinutes: parseFloat(shelfPinPair) || DEFAULT_ASSEMBLY_TIME_SETTINGS.shelfPinPairMinutes,
-      shelfPinExtraMinutes: parseFloat(shelfPinExtra) || DEFAULT_ASSEMBLY_TIME_SETTINGS.shelfPinExtraMinutes,
-      shelfPinPairDeepMinutes: parseFloat(shelfPinPairDeep) || DEFAULT_ASSEMBLY_TIME_SETTINGS.shelfPinPairDeepMinutes,
       backSmallMinutes: parseFloat(backSmall) || DEFAULT_ASSEMBLY_TIME_SETTINGS.backSmallMinutes,
       backLargeMinutes: parseFloat(backLarge) || DEFAULT_ASSEMBLY_TIME_SETTINGS.backLargeMinutes,
       backNailSeconds: parseFloat(backNailSeconds) || DEFAULT_ASSEMBLY_TIME_SETTINGS.backNailSeconds,
@@ -1719,29 +1710,17 @@ export function SettingsDialog({
                       Където два фазера се срещат — от двете страни, по-бавно и под наклон.
                     </p>
                   </div>
-                  <div>
-                    <Label htmlFor="shelf-pin-pair">Рафтоносачи — първи рафт (минути)</Label>
-                    <Input id="shelf-pin-pair" type="number" step="0.5" min="0" value={shelfPinPair} onChange={(e) => setShelfPinPair(e.target.value)} />
-                    <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
-                      На 1 шкаф, при дълбочина до {previewShelfPinDepth} мм. 4 рафтоносача на рафт.
-                    </p>
+                  <div className="sm:col-span-2 rounded-md border border-[var(--color-border)] p-3 text-xs">
+                    <p className="font-medium">Рафтоносачи (4 на рафт)</p>
+                    <ul className="mt-1 list-disc space-y-0.5 pl-4 text-[var(--color-muted-foreground)]">
+                      <li>Изчисление къде са: 1 мин на шкаф. Пропуска се, ако в проекта има шкаф преди него с рафтоносачи на същото място.</li>
+                      <li>Начертаване на рафт: 55 сек, при повтарящ се рафт 25 сек.</li>
+                      <li>Над 45 см дълбок и над 90 см висок (двете страници не се събират на масата): 1 мин 30 сек / 1 мин; над 150 см висок: 2 мин / 1 мин 30 сек; над 2 м: 2 мин 30 сек / 2 мин.</li>
+                      <li>Център с шило и чук: 30 сек на рафт. Пробиване с бургия 4,5: 25 сек на рафт. Набиване: 20 сек на рафт.</li>
+                    </ul>
                   </div>
                   <div>
-                    <Label htmlFor="shelf-pin-extra">Рафтоносачи — всеки следващ (минути)</Label>
-                    <Input id="shelf-pin-extra" type="number" step="0.5" min="0" value={shelfPinExtra} onChange={(e) => setShelfPinExtra(e.target.value)} />
-                    <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
-                      Същият шкаф, всеки следващ рафт. И при дълбок шкаф.
-                    </p>
-                  </div>
-                  <div>
-                    <Label htmlFor="shelf-pin-pair-deep">Рафтоносачи — дълбок, първи рафт (минути)</Label>
-                    <Input id="shelf-pin-pair-deep" type="number" step="0.5" min="0" value={shelfPinPairDeep} onChange={(e) => setShelfPinPairDeep(e.target.value)} />
-                    <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
-                      При дълбочина над {previewShelfPinDepth} мм. Следващите пак по горното време.
-                    </p>
-                  </div>
-                  <div>
-                    <Label htmlFor="shelf-pin-deep-min">Дълбок шкаф — над (мм)</Label>
+                    <Label htmlFor="shelf-pin-deep-min">Дълбок шкаф за водачите — над (мм)</Label>
                     <Input
                       id="shelf-pin-deep-min"
                       type="number"
@@ -1751,7 +1730,7 @@ export function SettingsDialog({
                       onChange={(e) => setShelfPinDeepMinDepth(e.target.value)}
                     />
                     <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
-                      Над {previewShelfPinDepth} мм дълбочина се ползва по-дългото време за рафтоносачи. Водачите имат и условие за височина.
+                      Над {previewShelfPinDepth} мм дълбочина (и над височината по-долу) водачите отнемат повече време.
                     </p>
                   </div>
                   <div>

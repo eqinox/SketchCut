@@ -2,7 +2,9 @@ import {
   explainCabinetsPrice,
   generateCabinet,
   getCabinetType,
+  repriceShelfPins,
   scaleCabinetResult,
+  shelfPinSpots,
   type CabinetInstance,
 } from '@/lib/cabinets'
 import { isCombinationType } from '@/lib/cabinets/compose'
@@ -17,10 +19,16 @@ export function projectPriceEur(
   settings: { hardware: HardwareSettings; assemblyTime: AssemblyTimeSettings },
   dailyRateEur: number,
 ): number | null {
+  // Shelf pins at a spot an earlier cabinet already marked go quicker.
+  const known = new Set<string>()
   const rows = cabinets.flatMap((cabinet) => {
     if (isCombinationType(cabinet.typeId)) return []
     try {
-      const result = scaleCabinetResult(generateCabinet(cabinet.typeId, cabinet.params, settings), cabinet.quantity)
+      const result = repriceShelfPins(
+        scaleCabinetResult(generateCabinet(cabinet.typeId, cabinet.params, settings), cabinet.quantity),
+        known,
+      )
+      for (const key of shelfPinSpots(result)) known.add(key)
       return [
         {
           label: getCabinetType(cabinet.typeId)?.name ?? cabinet.name,

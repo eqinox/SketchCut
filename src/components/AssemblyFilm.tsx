@@ -151,11 +151,7 @@ export function AssemblyFilm({ store }: { store: CaptureStore }) {
               Досега: {formatMinutes(doneMinutes)}
               {priceOf(doneMinutes) ? ` · ${priceOf(doneMinutes)}` : ''}
             </p>
-            <p className="text-xs text-neutral-600">
-              {hourly > 0
-                ? `${formatEur(film?.dailyRateEur ?? 0)} на ден = ${formatEur(hourly)} на час`
-                : 'Без ставка: сложи я в „Шкафове“'}
-            </p>
+            {hourly > 0 ? null : <p className="text-xs text-neutral-600">Без ставка: сложи я в „Шкафове“</p>}
           </div>
         )}
       </div>

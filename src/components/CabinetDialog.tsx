@@ -67,6 +67,8 @@ import {
   parseWardrobeParams,
   parseSlideKind,
   scaleCabinetResult,
+  repriceShelfPins,
+  walkShelfPinSpots,
   slideUnitPriceEur,
   remainingFrontHeight,
   equalDrawerFrontHeights,
@@ -2105,7 +2107,11 @@ function CabinetDialogForm({
         (item, index) => spanDoorCountOf(item.row) > 0 && attachmentTouchesHost(attachedGuests.map((guest) => guest.row), index),
       )
       const genParams = span ? { ...params, doorCount: 0 } : params
-      const generated = scaleCabinetResult(generateCabinet(typeId, { ...genParams }, settings), qty)
+      // Shelf pins at a spot a cabinet before this one already marked go quicker.
+      const generated = repriceShelfPins(
+        scaleCabinetResult(generateCabinet(typeId, { ...genParams }, settings), qty),
+        walkShelfPinSpots(projectCabinets, settings, editing?.id ?? null),
+      )
       if (attachedGuests.length === 0) return generated
       return withAttachments(
         generated,
@@ -2121,7 +2127,7 @@ function CabinetDialogForm({
     } catch {
       return null
     }
-  }, [typeId, params, qty, settings, attachedGuests, peerDrafts])
+  }, [typeId, params, qty, settings, attachedGuests, peerDrafts, projectCabinets, editing?.id])
 
   const estimate = result ? estimateFromPanels(result.panels) : null
   const breakdown = result

@@ -473,6 +473,15 @@ export function appendShelves(
       : `Кант: предната видима страна. Дълбочина ${shelfDepth} мм${frontInset > 0 ? ` (страницата минус ${frontInset} мм отпред)` : ''}.`,
     hole,
     ...(input.pieceKeys && input.pieceKeys.length > 0 ? { pieceKeys: input.pieceKeys } : {}),
+    // Where each shelf sits: the same text means its pins go exactly where they went before.
+    pinRows: Array.from({ length: count }, (_, i) =>
+      [
+        input.zoneLabel ?? '',
+        input.innerH,
+        input.sideD,
+        placements[i] ? JSON.stringify(placements[i]) : `even ${count}/${i}`,
+      ].join('|'),
+    ),
   })
 }
 

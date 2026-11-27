@@ -264,13 +264,7 @@ export interface AssemblyTimeSettings {
   /** Assembling wall-cabinet sides with the inner top and bottom (minutes). */
   assembleWallCarcassMinutes: number
 
-  /** Minutes for the first shelf’s pins on one cabinet when depth is not over the deep threshold. */
-  shelfPinPairMinutes: number
-  /** Minutes for each extra shelf’s pins on the same cabinet (shallow and deep). */
-  shelfPinExtraMinutes: number
-  /** Minutes for the first shelf’s pins when cabinet depth is over the deep threshold. */
-  shelfPinPairDeepMinutes: number
-  /** Deep shelf-pin time applies when cabinet depth is over this (mm). */
+  /** Deep drawer-slide time applies when cabinet depth is over this (mm). */
   shelfPinDeepMinDepthMm: number
 
   backSmallMinutes: number
@@ -379,9 +373,6 @@ export const DEFAULT_ASSEMBLY_TIME_SETTINGS: AssemblyTimeSettings = {
   installFrontFasciaMinutes: 6,
   prepareWallSidesMinutes: 6,
   assembleWallCarcassMinutes: 10,
-  shelfPinPairMinutes: 4,
-  shelfPinExtraMinutes: 2,
-  shelfPinPairDeepMinutes: 5,
   shelfPinDeepMinDepthMm: SHELF_PIN_DEEP_MIN_DEPTH_MM,
   backSmallMinutes: 6,
   backLargeMinutes: 10,
@@ -441,21 +432,6 @@ function numMm(src: Record<string, unknown>, key: string, fallback: number): num
   return typeof v === 'number' && Number.isFinite(v) && v > 0 ? Math.round(v) : fallback
 }
 
-/** Old model billed every shelf at shelfPinPairMinutes (default 3). Extra missing + 3 → new first=4. */
-function parseShelfPinMinutes(
-  src: Record<string, unknown>,
-  d: AssemblyTimeSettings,
-): Pick<AssemblyTimeSettings, 'shelfPinPairMinutes' | 'shelfPinExtraMinutes' | 'shelfPinPairDeepMinutes'> {
-  const hasExtra = typeof src.shelfPinExtraMinutes === 'number' && Number.isFinite(src.shelfPinExtraMinutes)
-  let first = numPositive(src, 'shelfPinPairMinutes', d.shelfPinPairMinutes)
-  if (!hasExtra && first === 3) first = d.shelfPinPairMinutes
-  return {
-    shelfPinPairMinutes: first,
-    shelfPinExtraMinutes: numPositive(src, 'shelfPinExtraMinutes', d.shelfPinExtraMinutes),
-    shelfPinPairDeepMinutes: numPositive(src, 'shelfPinPairDeepMinutes', d.shelfPinPairDeepMinutes),
-  }
-}
-
 /**
  * First item at `firstMinutes`, each extra item at `extraMinutes`.
  */
@@ -465,10 +441,132 @@ export function firstPlusExtraMinutes(count: number, firstMinutes: number, extra
 }
 
 /**
- * Per cabinet: first shelf at `firstMinutes`, each extra shelf on that cabinet at `extraMinutes`.
+ * Shelf pins, 4 per shelf (2 on each side), done on the bench with both sides at once.
+ *
+ * - Working out where the pins go: 1 minute per cabinet, skipped when every shelf's pins
+ *   sit exactly where they sat on a cabinet before it in the project.
+ * - Marking one shelf's 4 pins: the first pin is measured, the other 3 copied. When the same
+ *   spot was already marked on an earlier cabinet, 30 seconds less.
+ *   The bench is 90 cm deep and 2 m wide: two sides fit on it together unless the cabinet is
+ *   deeper than 45 cm and taller than 90 cm. Then one side is marked, lifted off and leaned on
+ *   the wall, and the other put on the bench, which takes longer the bigger the side.
+ * - Awl and hammer for the 4 dents, drill 4.5 for the 4 holes, then knocking the 4 pins in.
  */
-export function shelfPinInstallMinutes(shelfCount: number, firstMinutes: number, extraMinutes: number): number {
-  return firstPlusExtraMinutes(shelfCount, firstMinutes, extraMinutes)
+export const SHELF_PIN_CALC_SECONDS = 60
+export const SHELF_PIN_DENT_SECONDS = 30
+export const SHELF_PIN_DRILL_SECONDS = 25
+/** Knocking the 4 pins of one shelf in with the hammer. */
+export const SHELF_PIN_KNOCK_SECONDS = 20
+/** Marking a repeat spot takes this much less than the first time. */
+export const SHELF_PIN_REPEAT_SAVES_SECONDS = 30
+/** Two sides fit on the bench together up to this depth (bench 90 cm deep, sides lengthwise)… */
+export const BENCH_TWO_SIDES_MAX_DEPTH_MM = 450
+/** …or up to this height (sides across the bench). */
+export const BENCH_TWO_SIDES_MAX_HEIGHT_MM = 900
+
+/** Seconds to mark the 4 pins of one shelf: the first time, and when the spot repeats. */
+export function shelfPinMarkSeconds(heightMm: number, depthMm: number): { full: number; repeat: number; swap: boolean } {
+  const swap = depthMm > BENCH_TWO_SIDES_MAX_DEPTH_MM && heightMm > BENCH_TWO_SIDES_MAX_HEIGHT_MM
+  const full = !swap ? 55 : heightMm > 2000 ? 150 : heightMm > 1500 ? 120 : 90
+  return { full, repeat: full - SHELF_PIN_REPEAT_SAVES_SECONDS, swap }
+}
+
+/** One shelf's row of 4 pins. `key` is the same for pins at exactly the same spot. */
+export interface ShelfPinRow {
+  key: string
+  fullSeconds: number
+  repeatSeconds: number
+}
+
+/**
+ * The working-out and marking steps for a cabinet's shelf pins. `known` holds the spots already
+ * marked earlier in the project; `copies` is how many of this cabinet are made (the copies after
+ * the first are all repeats). Returns the steps and the spots this cabinet adds.
+ */
+export function shelfPinMarkingSteps(
+  rows: ShelfPinRow[],
+  known: ReadonlySet<string> = new Set(),
+  copies = 1,
+): { steps: AssemblyStep[]; keys: string[] } {
+  if (rows.length === 0) return { steps: [], keys: [] }
+  const seen = new Set(known)
+  let fresh = 0
+  let freshSec = 0
+  let repeat = 0
+  let repeatSec = 0
+  for (const row of rows) {
+    if (seen.has(row.key)) {
+      repeat += 1
+      repeatSec += row.repeatSeconds
+    } else {
+      seen.add(row.key)
+      fresh += 1
+      freshSec += row.fullSeconds
+    }
+  }
+  const n = Math.max(1, Math.floor(copies))
+  for (let i = 1; i < n; i++) {
+    for (const row of rows) {
+      repeat += 1
+      repeatSec += row.repeatSeconds
+    }
+  }
+  const steps: AssemblyStep[] = []
+  if (fresh > 0) {
+    steps.push({
+      id: 'mark-shelf-pins-calc',
+      kind: 'mark',
+      label: 'Изчисление къде са рафтоносачите',
+      minutes: SHELF_PIN_CALC_SECONDS / 60,
+      calc: '1 мин на шкаф',
+      hint: 'пропуска се, когато рафтоносачите са на същото място като при шкаф преди него',
+    })
+  }
+  const parts: string[] = []
+  if (fresh > 0) parts.push(`${shelfQty(fresh)} × ${secText(freshSec / fresh)}`)
+  if (repeat > 0) parts.push(`${shelfQty(repeat)} ${repeat === 1 ? 'повтарящ се' : 'повтарящи се'} × ${secText(repeatSec / repeat)}`)
+  const total = freshSec + repeatSec
+  steps.push({
+    id: 'mark-shelf-pins',
+    kind: 'mark',
+    label: 'Начертаване за рафтоносачи',
+    minutes: total / 60,
+    quantity: fresh + repeat,
+    unitOne: 'рафт',
+    unitMany: 'рафта',
+    calc: `${parts.join(' + ')} = ${secText(total)}`,
+    hint: 'по 4 рафтоносача на рафт · първият се мери, другите 3 се пренасят',
+    pinRows: rows,
+    pinCopies: n,
+  })
+  return { steps, keys: [...seen].filter((key) => !known.has(key)) }
+}
+
+function shelfQty(n: number): string {
+  return `${formatQty(n)} ${n === 1 ? 'рафт' : 'рафта'}`
+}
+
+/** Exact to the second: „55 сек“, „1 мин 30 сек“. */
+function secText(seconds: number): string {
+  const total = Math.round(seconds)
+  const m = Math.floor(total / 60)
+  const sec = total % 60
+  if (m === 0) return `${sec} сек`
+  return sec === 0 ? `${m} мин` : `${m} мин ${sec} сек`
+}
+
+/** Shelf-pin steps are timed to the second, so they skip the usual 0.1-minute rounding. */
+function pushExact(steps: AssemblyStep[], step: AssemblyStep): void {
+  if (step.minutes > 0) steps.push(step)
+}
+
+/** Puts new working-out and marking steps in place of the old ones, where they stood. */
+export function replaceShelfPinMarking(steps: AssemblyStep[], next: AssemblyStep[]): AssemblyStep[] {
+  const at = steps.findIndex((step) => step.id === 'mark-shelf-pins-calc' || step.id === 'mark-shelf-pins')
+  if (at < 0) return steps
+  const rest = steps.filter((step) => step.id !== 'mark-shelf-pins-calc' && step.id !== 'mark-shelf-pins')
+  const kept = next.filter((step) => step.minutes > 0)
+  return [...rest.slice(0, at), ...kept, ...rest.slice(at)]
 }
 
 /** Old inverted pair was small=6 / deep=5; a missing deep field with small=6 is the pre-split default. */
@@ -546,7 +644,6 @@ export function parseAssemblyTimeSettings(raw: unknown): AssemblyTimeSettings {
     installFrontFasciaMinutes: numPositive(src, 'installFrontFasciaMinutes', d.installFrontFasciaMinutes),
     prepareWallSidesMinutes: numPositive(src, 'prepareWallSidesMinutes', d.prepareWallSidesMinutes),
     assembleWallCarcassMinutes: numPositive(src, 'assembleWallCarcassMinutes', d.assembleWallCarcassMinutes),
-    ...parseShelfPinMinutes(src, d),
     shelfPinDeepMinDepthMm: numMm(src, 'shelfPinDeepMinDepthMm', d.shelfPinDeepMinDepthMm),
     backSmallMinutes: numPositive(src, 'backSmallMinutes', d.backSmallMinutes),
     backLargeMinutes: numPositive(src, 'backLargeMinutes', d.backLargeMinutes),
@@ -724,6 +821,10 @@ export interface AssemblyStep {
   calc?: string
   /** Recalculate from total quantity when merging cabinets (project-wide first + extra). */
   projectFirstExtra?: { firstMinutes: number; extraMinutes: number }
+  /** Shelf-pin marking: each shelf's spot, so repeats across the project are priced lower. */
+  pinRows?: ShelfPinRow[]
+  /** How many of this cabinet are made, for `pinRows`. */
+  pinCopies?: number
 }
 
 export function assemblyMinutesFromSteps(steps: AssemblyStep[]): number {
@@ -805,6 +906,8 @@ export function describeAssemblyCalc(step: AssemblyStep): string {
 }
 
 export interface AssemblyPanelInput {
+  /** Movable shelves: where each shelf sits in the cabinet, one entry per shelf. */
+  pinRows?: string[]
   role: string
   name: string
   width: number
@@ -987,19 +1090,6 @@ export function collectCabinetAssembly(input: {
     const extra = detailMarkPer * partitions
     const extraCalc = `${partitionPagesPhrase(partitions)} × ${minText(detailMarkPer)} (${sizeWord} шкаф) = ${minText(extra)}`
     const extraHint = `${size} · по ${minText(detailMarkPer)} на разделителна страница, защото разделителите усложняват чертежа`
-    if (input.shelfCount > 0) {
-      pushStep(steps, {
-        id: 'mark-shelf-pins',
-        kind: 'mark',
-        label: 'Начертаване за рафтоносачи',
-        minutes: extra,
-        quantity: partitions,
-        unitOne: 'страница',
-        unitMany: 'страници',
-        calc: extraCalc,
-        hint: extraHint,
-      })
-    }
     if (input.drawerCount > 0) {
       pushStep(steps, {
         id: 'mark-drawer-guides',
@@ -1148,28 +1238,48 @@ export function collectCabinetAssembly(input: {
   }
 
   if (input.shelfCount > 0) {
-    const deep = isDeepCabinet(input.depth, s)
-    const first = deep ? s.shelfPinPairDeepMinutes : s.shelfPinPairMinutes
-    const extra = s.shelfPinExtraMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.shelfPinExtraMinutes
     const n = input.shelfCount
-    const extraN = Math.max(0, n - 1)
-    const minutes = shelfPinInstallMinutes(n, first, extra)
-    const threshold = s.shelfPinDeepMinDepthMm ?? DEEP_CABINET_MIN_DEPTH_MM
-    const calc =
-      extraN > 0
-        ? `1 × ${minText(first)} + ${extraN} × ${minText(extra)} = ${minText(minutes)}`
-        : `1 рафт × ${minText(first)} = ${minText(minutes)}`
-    pushStep(steps, {
-      id: 'shelf-pins',
-      label: 'Слагане на рафтоносачи',
-      minutes,
+    const { full, repeat, swap } = shelfPinMarkSeconds(input.height, input.depth)
+    // Each shelf's spot: the cabinet's height and depth plus where in it the shelf sits.
+    const spots = input.panels.flatMap((panel) => panel.pinRows ?? [])
+    const rows: ShelfPinRow[] = Array.from({ length: n }, (_, i) => ({
+      key: `${input.height}|${input.depth}|${spots[i] ?? `shelf-${i}`}`,
+      fullSeconds: full,
+      repeatSeconds: repeat,
+    }))
+    for (const step of shelfPinMarkingSteps(rows).steps) pushExact(steps, step)
+    const where = swap
+      ? `по една страница на масата (над ${BENCH_TWO_SIDES_MAX_DEPTH_MM / 10} см дълбок и над ${BENCH_TWO_SIDES_MAX_HEIGHT_MM / 10} см висок)`
+      : 'двете страници заедно на масата'
+    pushExact(steps, {
+      id: 'shelf-pins-dent',
+      label: 'Рафтоносачи: център с шило и чук',
+      minutes: (SHELF_PIN_DENT_SECONDS * n) / 60,
       quantity: n,
       unitOne: 'рафт',
       unitMany: 'рафта',
-      calc,
-      hint: deep
-        ? `на 1 шкаф · първи ${first} мин, всеки следващ ${extra} мин · дълбочина над ${threshold} мм`
-        : `на 1 шкаф · първи ${first} мин, всеки следващ ${extra} мин · дълбочина до ${threshold} мм`,
+      calc: `${shelfQty(n)} × ${secText(SHELF_PIN_DENT_SECONDS)} = ${secText(SHELF_PIN_DENT_SECONDS * n)}`,
+      hint: `4 рафтоносача на рафт · ${where}`,
+    })
+    pushExact(steps, {
+      id: 'shelf-pins-drill',
+      label: 'Рафтоносачи: пробиване с бургия 4,5',
+      minutes: (SHELF_PIN_DRILL_SECONDS * n) / 60,
+      quantity: n,
+      unitOne: 'рафт',
+      unitMany: 'рафта',
+      calc: `${shelfQty(n)} × ${secText(SHELF_PIN_DRILL_SECONDS)} = ${secText(SHELF_PIN_DRILL_SECONDS * n)}`,
+      hint: '4 дупки на рафт',
+    })
+    pushExact(steps, {
+      id: 'shelf-pins',
+      label: 'Набиване на рафтоносачите с чук',
+      minutes: (SHELF_PIN_KNOCK_SECONDS * n) / 60,
+      quantity: n,
+      unitOne: 'рафт',
+      unitMany: 'рафта',
+      calc: `${shelfQty(n)} × ${secText(SHELF_PIN_KNOCK_SECONDS)} = ${secText(SHELF_PIN_KNOCK_SECONDS * n)}`,
+      hint: '4 рафтоносача на рафт',
     })
   }
 

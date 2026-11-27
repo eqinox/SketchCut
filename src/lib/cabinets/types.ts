@@ -185,6 +185,8 @@ export interface GeneratedPanel {
    * A board chosen on that piece replaces the carcass or front decor for that copy only.
    */
   pieceKeys?: string[]
+  /** Movable shelves: where each shelf sits in the cabinet, one entry per shelf (for repeat pricing). */
+  pinRows?: string[]
   /** Group ID for visually related panels (e.g., combined cutting) */
   groupId?: string
   /** If true, this panel is for reference only and should not be included in cutting layout */

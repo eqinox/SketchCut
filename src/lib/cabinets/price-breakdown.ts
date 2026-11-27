@@ -403,7 +403,7 @@ function mergeAssemblySteps(groups: AssemblyStep[][]): AssemblyStep[] {
       if (prev.kind === 'mark' || step.kind === 'mark') {
         merged.hint = prev.hint ?? step.hint
       } else {
-        merged.hint = 'първи рафт по-дълго, всеки следващ по-кратко — на всеки шкаф отделно'
+        merged.hint = '4 рафтоносача на рафт'
       }
     }
     map.set(step.id, merged)

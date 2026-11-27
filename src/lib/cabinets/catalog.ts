@@ -12,6 +12,8 @@ import type { CabinetGeneratorResult, CabinetTypeDefinition } from './types'
 import {
   assemblyMinutesFromSteps,
   rescaleProjectScopedStep,
+  replaceShelfPinMarking,
+  shelfPinMarkingSteps,
   type AssemblyStep,
 } from '@/lib/assembly-time'
 
@@ -65,7 +67,9 @@ export function scaleCabinetResult(
 ): CabinetGeneratorResult {
   const q = Math.max(1, Math.floor(quantity) || 1)
   if (q === 1) return result
-  const assemblySteps = (result.labor.assemblySteps ?? []).map((step: AssemblyStep) => {
+  const scaled = (result.labor.assemblySteps ?? []).map((step: AssemblyStep) => {
+    // Shelf-pin marking is priced again below: the copies after the first repeat the first.
+    if (step.id === 'mark-shelf-pins-calc' || step.pinRows) return step
     if (step.projectFirstExtra && step.quantity != null) {
       return rescaleProjectScopedStep(step, step.quantity * q)
     }
@@ -76,6 +80,8 @@ export function scaleCabinetResult(
       calc: undefined,
     }
   })
+  const rows = scaled.find((step) => step.pinRows)?.pinRows
+  const assemblySteps = rows ? replaceShelfPinMarking(scaled, shelfPinMarkingSteps(rows, new Set(), q).steps) : scaled
   return {
     ...result,
     panels: result.panels.map((p) => ({
@@ -90,6 +96,50 @@ export function scaleCabinetResult(
       assemblySteps,
     },
   }
+}
+
+/** The shelf-pin spots a cabinet marks (see `shelfPinMarkingSteps`). */
+export function shelfPinSpots(result: CabinetGeneratorResult): string[] {
+  const rows = result.labor.assemblySteps?.find((step) => step.pinRows)?.pinRows ?? []
+  return rows.map((row) => row.key)
+}
+
+/**
+ * Prices the cabinet's shelf-pin marking again, knowing the spots already marked on cabinets
+ * before it in the project: those skip the working-out and are marked 30 seconds quicker.
+ */
+export function repriceShelfPins(result: CabinetGeneratorResult, known: ReadonlySet<string>): CabinetGeneratorResult {
+  const steps = result.labor.assemblySteps ?? []
+  const mark = steps.find((step) => step.pinRows)
+  if (!mark?.pinRows || known.size === 0) return result
+  const next = shelfPinMarkingSteps(mark.pinRows, known, mark.pinCopies ?? 1).steps
+  const assemblySteps = replaceShelfPinMarking(steps, next)
+  return {
+    ...result,
+    labor: { ...result.labor, assemblySteps, assemblyMinutes: assemblyMinutesFromSteps(assemblySteps) },
+  }
+}
+
+/**
+ * Cabinets of a project in list order, each priced with the shelf-pin spots of the ones before it.
+ * `stopAt` ends the walk before that cabinet and returns the spots known up to it.
+ */
+export function walkShelfPinSpots<T extends { id: string; typeId: string; params: Record<string, unknown>; quantity: number }>(
+  cabinets: T[],
+  settings: unknown,
+  stopAt: string | null,
+): Set<string> {
+  const known = new Set<string>()
+  for (const cabinet of cabinets) {
+    if (cabinet.id === stopAt) break
+    if (cabinet.typeId === COMBINATION_TYPE) continue
+    try {
+      for (const key of shelfPinSpots(generateCabinet(cabinet.typeId, cabinet.params, settings))) known.add(key)
+    } catch {
+      // A cabinet that fails to build marks nothing.
+    }
+  }
+  return known
 }
 
 export function cabinetDisplayName(typeId: string, params: Record<string, unknown>): string {

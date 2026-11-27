@@ -19,7 +19,7 @@ export type { CabinetInstance } from '@/types'
 
 export { clothesRailLengthMm, parseInteriorFittings, parseDimFontScale, shelfFrontInsetMm, shelfPanelDepth, DEFAULT_DIM_FONT_SCALE, DIM_FONT_SCALE_MIN, DIM_FONT_SCALE_MAX, appendHangingFascias, backNailGeometry } from './fronts'
 export type { InteriorFittings } from './fronts'
-export { CABINET_TYPES, getCabinetType, generateCabinet, scaleCabinetResult, cabinetDisplayName } from './catalog'
+export { CABINET_TYPES, getCabinetType, generateCabinet, scaleCabinetResult, cabinetDisplayName, repriceShelfPins, shelfPinSpots, walkShelfPinSpots } from './catalog'
 export { measureCarcass, evenShelfBottoms, evenShelfGap, KITCHEN_BASE_JOINERY, KITCHEN_WALL_JOINERY } from './joinery'
 export {
   MAX_FIXED_SHELVES,

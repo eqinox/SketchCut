@@ -23,6 +23,8 @@ import {
   parseKitchenWallParams,
   fittingsCountsFromParams,
   scaleCabinetResult,
+  repriceShelfPins,
+  shelfPinSpots,
   type CabinetInstance,
 } from '@/lib/cabinets'
 import { isCombinationType, parseCombination, type AttachedCabinet } from '@/lib/cabinets/compose'
@@ -78,10 +80,13 @@ export function CabinetsPanel({
   const [joinGuest, setJoinGuest] = useState('')
   const [openCabinetId, setOpenCabinetId] = useState<string | null>(null)
   const hourly = hourlyRateEur(dailyRateEur)
+  // Shelf pins at a spot an earlier cabinet already marked go quicker.
+  const pinSpots = new Set<string>()
   const priced = cabinets.flatMap((c) => {
     if (isCombinationType(c.typeId)) return []
     try {
-      const result = scaleCabinetResult(generateCabinet(c.typeId, c.params, settings), c.quantity)
+      const result = repriceShelfPins(scaleCabinetResult(generateCabinet(c.typeId, c.params, settings), c.quantity), pinSpots)
+      for (const key of shelfPinSpots(result)) pinSpots.add(key)
       const perCabinetHardware = { ...settings.hardware, billWholeSheets: false, billWholeHardboardSheets: false }
       return [
         {
