@@ -1,5 +1,5 @@
 import { useContext, useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { ChevronLeft, ChevronRight, FastForward, Pause, Play, RotateCcw } from 'lucide-react'
+import { ChevronLeft, ChevronRight, FastForward, Pause, Play, RotateCcw, Turtle } from 'lucide-react'
 import { DecorSheetContext } from '@/lib/cabinets/draw-3d'
 import type { CaptureStore } from '@/lib/cabinets/scene-solids'
 import { AssemblyFilmContext } from '@/lib/assembly-context'
@@ -80,6 +80,8 @@ export function AssemblyFilm({ store }: { store: CaptureStore }) {
   const [at, setAt] = useState(0)
   const [playing, setPlaying] = useState(true)
   const [fast, setFast] = useState(false)
+  /** Every repeat as slow as the first ones (otherwise the rest of a long job is hurried). */
+  const [allSlow, setAllSlow] = useState(false)
   /** True while the bar under the picture is held: the film stands still under the finger. */
   const [scrubbing, setScrubbing] = useState(false)
   /** How fast the 3D work runs: 0 while paused or held. */
@@ -181,6 +183,11 @@ export function AssemblyFilm({ store }: { store: CaptureStore }) {
     benchRef.current?.setSpeed(pace)
     studioRef.current?.setSpeed(pace)
   }, [pace, benchKey, ready])
+
+  useEffect(() => {
+    benchRef.current?.setAllSlow(allSlow)
+    studioRef.current?.setFilmAllSlow(allSlow)
+  }, [allSlow, benchKey, ready])
 
   // Beside the tool or the piece: what is done, its time and its price.
   const allSteps = film?.steps ?? []
@@ -346,6 +353,16 @@ export function AssemblyFilm({ store }: { store: CaptureStore }) {
               >
                 <FastForward className="h-4 w-4" />
                 По-бързо
+              </button>
+              <button
+                type="button"
+                className={`${button} ${allSlow ? 'border-neutral-900 bg-neutral-900 text-white' : ''}`}
+                aria-pressed={allSlow}
+                title="Всяко повторение толкова бавно, колкото първите — без забързване"
+                onClick={() => setAllSlow((on) => !on)}
+              >
+                <Turtle className="h-4 w-4" />
+                Всичко бавно
               </button>
               <button
                 type="button"

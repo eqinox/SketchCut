@@ -47,6 +47,8 @@ export type Workbench = {
   setSpeed(speed: number): void
   /** Jumps the job now playing to this point (0 → 1), back or forward, like a video. */
   seek(fraction: number): void
+  /** On: every repeat at the slow pace of the first ones, none hurried. Takes effect from the same point. */
+  setAllSlow(on: boolean): void
   /** How far the job has played, 0 → 1. */
   progress(): number
   dispose(): void
@@ -78,6 +80,8 @@ const span = (p: number, a: number, b: number) => clamp01((p - a) / (b - a))
 export function mountWorkbench(host: HTMLElement, group: BenchGroup, soft: boolean): Workbench {
   const boards = group.boards
   const jobs: BenchJob[] = benchJobs(group)
+  /** Every repeat at the slow pace of the first ones (set from the film's „Всичко бавно“). */
+  let allSlow = false
   const renderer = new WebGLRenderer({ antialias: true })
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5))
   renderer.outputColorSpace = SRGBColorSpace
@@ -552,7 +556,7 @@ export function mountWorkbench(host: HTMLElement, group: BenchGroup, soft: boole
     })
 
     const film: Action[][] = jobs.map(() => [])
-    const slow = (count: number) => (count < SLOW_REPEATS ? 1 : FAST)
+    const slow = (count: number) => (allSlow || count < SLOW_REPEATS ? 1 : FAST)
     let count = 0
 
     // One by one: the first board on the bench, the others leaning on the wall.
@@ -981,6 +985,15 @@ export function mountWorkbench(host: HTMLElement, group: BenchGroup, soft: boole
     }
   }
 
+  const progressNow = () => {
+    const total = queue.reduce((sum, action) => sum + action.seconds, 0)
+    if (total <= 0) return 1
+    let doneSeconds = 0
+    for (let i = 0; i < current && i < queue.length; i++) doneSeconds += queue[i].seconds
+    if (current < queue.length) doneSeconds += elapsed
+    return Math.min(1, doneSeconds / total)
+  }
+
   return {
     play: start,
     seek(fraction) {
@@ -990,13 +1003,18 @@ export function mountWorkbench(host: HTMLElement, group: BenchGroup, soft: boole
       const total = queue.reduce((sum, action) => sum + action.seconds, 0)
       elapsed = Math.max(0, Math.min(1, fraction)) * total
     },
+    setAllSlow(on) {
+      if (on === allSlow) return
+      // Built again at the new pace, at the same point of the job.
+      const at = progressNow()
+      allSlow = on
+      if (lastJob >= 0 && lastDone) {
+        start(lastJob, lastDone)
+        elapsed = at * queue.reduce((sum, action) => sum + action.seconds, 0)
+      }
+    },
     progress() {
-      const total = queue.reduce((sum, action) => sum + action.seconds, 0)
-      if (total <= 0) return 1
-      let doneSeconds = 0
-      for (let i = 0; i < current && i < queue.length; i++) doneSeconds += queue[i].seconds
-      if (current < queue.length) doneSeconds += elapsed
-      return Math.min(1, doneSeconds / total)
+      return progressNow()
     },
     setDescribe(next) {
       describe = next

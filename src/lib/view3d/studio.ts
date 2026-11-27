@@ -92,6 +92,8 @@ export type CabinetStudio = {
   seekFilm(fraction: number): void
   /** How far the scene has played, 0 → 1 (1 when nothing moves in it). */
   filmProgress(): number
+  /** On: every piece and nail at the slow pace of the first ones. Takes effect from the same point. */
+  setFilmAllSlow(on: boolean): void
   dispose(): void
 }
 
@@ -605,6 +607,7 @@ export function mountCabinetStudio(
     })
   }
   let lastAssembly: Parameters<CabinetStudio['setAssembly']> | null = null
+  let filmAllSlow = false
   const filmTotal = () => filmActions.reduce((sum, action) => sum + action.seconds, 0)
   const api: CabinetStudio = wakeOnCall({
     toggle,
@@ -724,7 +727,7 @@ export function mountCabinetStudio(
       const out = (p: number) => 1 - (1 - p) ** 3
       motion.batches.forEach((batch, index) => {
         const group = batchGroups[index]
-        const quick = index >= 4
+        const quick = !filmAllSlow && index >= 4
         if (batch.mode === 'flip') {
           // Turned over about its own middle, lifted clear of the floor while it turns.
           const { center, size } = flips[index]!
@@ -772,7 +775,7 @@ export function mountCabinetStudio(
         })
       })
       nails.forEach((nail, index) => {
-        const slow = index < 3
+        const slow = filmAllSlow || index < 3
         actions.push({
           seconds: slow ? 0.7 : 0.09,
           anchor: () => hammer.position.clone().add(new Vector3(0, 60, 0)),
@@ -831,6 +834,12 @@ export function mountCabinetStudio(
       // Built again from the start of the scene, then run on to that point.
       api.setAssembly(...lastAssembly)
       filmElapsed = Math.max(0, Math.min(1, fraction)) * filmTotal()
+    },
+    setFilmAllSlow(on) {
+      if (on === filmAllSlow) return
+      const at = api.filmProgress()
+      filmAllSlow = on
+      if (lastAssembly) api.seekFilm(at)
     },
     filmProgress() {
       const total = filmTotal()
