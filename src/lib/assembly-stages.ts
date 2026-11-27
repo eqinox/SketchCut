@@ -2,6 +2,7 @@ import type { AssemblyStep } from '@/lib/assembly-time'
 import type { SceneSolid } from '@/lib/cabinets/scene-solids'
 import {
   benchJobs,
+  benchLayout,
   isFixedShelf,
   jobCounts,
   mainBoxes,
@@ -150,9 +151,12 @@ export function assemblyStages(solids: SceneSolid[], steps: AssemblyStep[], grou
         if (counts.lines > 0) what.push(`${counts.lines} ${counts.lines === 1 ? 'линия' : 'линии'}`)
         if (counts.crosses > 0) what.push(`${counts.crosses} ${counts.crosses === 1 ? 'кръстче за лоста' : 'кръстчета за лоста'}`)
         if (counts.points > 0) what.push(`${counts.points} точки за рафтоносачи`)
-        if (group.key === 'sides') {
+        if (group.key === 'sides' && benchLayout(group) === 'one-by-one') {
+          title = `${group.title} една по една: чертаене`
+          note = `Двете не се събират на масата (90 см): чертаеш едната, вдигаш я и я облягаш на стената, после слагаш другата на масата. С молив: къде идва дъното, фиксираните рафтове и рафтовете, къде седи лостът. ${what.join(', ')}.`
+        } else if (group.key === 'sides') {
           title = `${group.title} една до друга: чертаене`
-          note = `Лежат една до друга с вътрешната страна нагоре, една линия минава и през двете. С молив: къде идва дъното, фиксираните рафтове и рафтовете, къде седи лостът. ${what.join(', ')}.`
+          note = `Лежат една до друга на масата с вътрешната страна нагоре${benchLayout(group) === 'across' ? ', долният край към теб' : ''}, една линия минава и през двете. С молив: къде идва дъното, фиксираните рафтове и рафтовете, къде седи лостът. ${what.join(', ')}.`
         } else if (group.key === 'bottom' || group.key === 'top') {
           title = `${group.title}: къде стоят разделителните страници`
           note = `С молив двете линии на всяка разделителна страница, която стои ${group.key === 'bottom' ? 'на дъното' : 'под плота'}. ${what.join(', ')}.`

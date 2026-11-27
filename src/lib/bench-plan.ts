@@ -37,6 +37,25 @@ export interface BenchGroup {
   mirrorSecond: boolean
 }
 
+/** The assembly bench in the workshop. */
+export const BENCH_TABLE = { widthMm: 2000, depthMm: 900, heightMm: 850 }
+
+/**
+ * How a group's boards lie on the bench:
+ * - `lengthwise`: along the bench's 2 m, side by side across its 90 cm depth (narrow boards);
+ * - `across`: across the bench, their bottom edge toward you, side by side along it (short boards);
+ * - `one-by-one`: they don't fit together, so one is marked, leaned on the wall, then the next.
+ */
+export type BenchLayout = 'lengthwise' | 'across' | 'one-by-one'
+
+export function benchLayout(group: BenchGroup): BenchLayout {
+  const widths = group.boards.reduce((sum, board) => sum + board.v, 0)
+  const longest = group.boards.reduce((most, board) => Math.max(most, board.u), 0)
+  if (widths <= BENCH_TABLE.depthMm) return 'lengthwise'
+  if (longest <= BENCH_TABLE.depthMm && widths <= BENCH_TABLE.widthMm) return 'across'
+  return group.boards.length > 1 ? 'one-by-one' : 'lengthwise'
+}
+
 /** Shelf pins: one pair per shelf on each side, this far in from the front and the back edge. */
 export const PIN_EDGE_MM = 50
 /** The pin's hole sits this far under the shelf. */

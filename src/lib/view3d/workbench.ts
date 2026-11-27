@@ -14,6 +14,8 @@ import {
   PCFSoftShadowMap,
   PerspectiveCamera,
   PlaneGeometry,
+  Quaternion,
+  SphereGeometry,
   SRGBColorSpace,
   Scene,
   Vector3,
@@ -21,7 +23,7 @@ import {
 } from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { attachJoysticks } from '@/lib/view3d/joysticks'
-import { benchJobs, type BenchGroup, type BenchJob } from '@/lib/bench-plan'
+import { BENCH_TABLE, benchJobs, benchLayout, type BenchGroup, type BenchJob } from '@/lib/bench-plan'
 
 export type Workbench = {
   /** Lays the boards out again with the earlier jobs done, and plays job `index` of `benchJobs(group)`. */
@@ -32,7 +34,13 @@ export type Workbench = {
 }
 
 /** One timed piece of a film: `run` is called with 0 → 1 as it goes, and with 1 at the end. */
-type Action = { seconds: number; run: (p: number) => void; focus?: Vector3 | (() => Vector3) }
+type Action = {
+  seconds: number
+  run: (p: number) => void
+  focus?: Vector3 | (() => Vector3)
+  /** How far the camera stays from the focus (default: close in on the tool). */
+  distance?: number
+}
 
 /** Boards lie side by side, this far apart. */
 const GAP_MM = 6
@@ -232,11 +240,14 @@ export function mountWorkbench(host: HTMLElement, group: BenchGroup, soft: boole
   const table = new Group()
   scene.add(table)
 
-  // The boards side by side across the bench, their top edges (u = 0) in a row.
+  const layout = benchLayout(group)
+  const oneByOne = layout === 'one-by-one'
+  // The boards side by side across the bench, their top edges (u = 0) in a row. One by one,
+  // every board takes the same spot in turn.
   const placed = boards.map((board, index) => {
-    const z = boards.slice(0, index).reduce((sum, item) => sum + item.v + GAP_MM, 0)
+    const z = oneByOne ? 0 : boards.slice(0, index).reduce((sum, item) => sum + item.v + GAP_MM, 0)
     // The two sides: the first one turned round, so the front edges meet in the middle.
-    const mirror = group.mirrorSecond && index === 0 && boards.length > 1
+    const mirror = !oneByOne && group.mirrorSecond && index === 0 && boards.length > 1
     return { board, z, mirror, center: new Vector3(board.u / 2, board.thickness / 2, z + board.v / 2) }
   })
   const totalU = boards.reduce((most, board) => Math.max(most, board.u), 0)
@@ -259,23 +270,189 @@ export function mountWorkbench(host: HTMLElement, group: BenchGroup, soft: boole
     return local
   }
 
+  // The workshop bench: 2 m long, 90 cm deep, its top level with the boards' underside (y = 0).
+  // Lengthwise the boards run along it; across, the bench is turned and you stand at their bottom edge.
+  const TABLE_H = BENCH_TABLE.heightMm
+  const floorY = -TABLE_H
+  const tableX = layout === 'across' ? BENCH_TABLE.depthMm : BENCH_TABLE.widthMm
+  const tableZ = layout === 'across' ? BENCH_TABLE.widthMm : BENCH_TABLE.depthMm
+  const tableCenter = new Vector3(totalU / 2, 0, totalV / 2)
+  {
+    const benchWood = mat('#8a6a45', 0.75)
+    const top = box(tableX, 40, tableZ, benchWood)
+    top.position.set(tableCenter.x, -20, tableCenter.z)
+    table.add(top)
+    for (const sx of [-1, 1]) {
+      for (const sz of [-1, 1]) {
+        const leg = box(60, TABLE_H - 40, 60, benchWood)
+        leg.position.set(tableCenter.x + sx * (tableX / 2 - 60), floorY + (TABLE_H - 40) / 2, tableCenter.z + sz * (tableZ / 2 - 60))
+        table.add(leg)
+      }
+    }
+  }
+  // One by one: the board not being worked on leans on the wall past the right end of the bench.
+  const wallX = tableCenter.x + tableX / 2 + 900
+  const LEAN = (84 * Math.PI) / 180
+  const leanTurn = new Quaternion().setFromAxisAngle(new Vector3(0, 0, 1), LEAN)
+  const wallSpot = (index: number) => {
+    const { board } = placed[index]
+    const step = boards.reduce((most, item) => Math.max(most, item.v), 0) + 200
+    const z = tableCenter.z + (index - (boards.length - 1) / 2) * step
+    const x = wallX - (board.u / 2) * Math.cos(LEAN) - (board.thickness / 2) * Math.sin(LEAN) - 4
+    const y = floorY + (board.u / 2) * Math.sin(LEAN) + (board.thickness / 2) * Math.cos(LEAN)
+    return new Vector3(x, y, z)
+  }
+  if (oneByOne) {
+    const wall = box(40, 2600, Math.max(3000, boards.length * 900), mat('#e4e0d8', 0.9))
+    wall.position.set(wallX + 20, floorY + 1300, tableCenter.z)
+    table.add(wall)
+  }
+
+  // Someone at the bench: on the far side facing you, or, across, at the boards' bottom edge.
+  const person = new Group()
+  const upper = new Group()
+  const arms: Group[] = []
+  {
+    const skin = mat('#d8a585', 0.8)
+    const shirt = mat('#46658c', 0.85)
+    const trousers = mat('#33373e', 0.85)
+    const shoes = mat('#1c1c1c', 0.7)
+    for (const side of [-1, 1]) {
+      const leg = cyl(62, 50, 800, trousers, 12)
+      leg.position.set(side * 95, 400 + 40, 0)
+      const shoe = box(110, 50, 260, shoes)
+      shoe.position.set(side * 95, 25, 50)
+      person.add(leg, shoe)
+    }
+    // The upper body bends at the hips toward the work.
+    upper.position.y = 840
+    const hips = box(330, 140, 200, trousers)
+    hips.position.y = 30
+    const torso = box(380, 520, 220, shirt)
+    torso.position.y = 100 + 260
+    const neck = cyl(45, 45, 70, skin, 10)
+    neck.position.y = 620 + 35
+    const headGeo = new SphereGeometry(105, 18, 14)
+    bin.push(headGeo)
+    const head = new Mesh(headGeo, skin)
+    head.castShadow = true
+    head.scale.y = 1.15
+    head.position.y = 690 + 110
+    upper.add(hips, torso, neck, head)
+    for (const side of [-1, 1]) {
+      // Each arm points along its +z from the shoulder, so it can be aimed with lookAt.
+      const arm = new Group()
+      arm.position.set(side * 225, 580, 0)
+      const sleeve = cyl(48, 42, 300, shirt, 10)
+      sleeve.rotation.x = Math.PI / 2
+      sleeve.position.z = 150
+      const forearm = cyl(38, 32, 300, skin, 10)
+      forearm.rotation.x = Math.PI / 2
+      forearm.position.z = 450
+      const hand = box(70, 40, 90, skin)
+      hand.position.z = 640
+      arm.add(sleeve, forearm, hand)
+      upper.add(arm)
+      arms.push(arm)
+    }
+    person.add(upper)
+    scene.add(person)
+  }
+  const ARM_MM = 660
+  /** Where the person stands while following the work, and which way they face. */
+  const standAt = (work: Vector3) =>
+    layout === 'across'
+      ? { spot: new Vector3(tableCenter.x + tableX / 2 + 260, floorY, work.z), facing: -Math.PI / 2 }
+      : { spot: new Vector3(work.x, floorY, tableCenter.z - tableZ / 2 - 260), facing: 0 }
+  /** Where the hand holds each tool, in the tool's own space. */
+  const gripOf = new Map<Object3D, Vector3>([
+    [pencil, new Vector3(0, 80, 0)],
+    [awl, new Vector3(0, 105, 0)],
+    [hammer, new Vector3(250, 52, 0)],
+    [drill, new Vector3(95, 225, 0)],
+    [driver, new Vector3(95, 195, 0)],
+  ])
+  /** Set by the job that moves a board: the person carries it instead of following the tools. */
+  let carrying: { spot: Vector3; facing: number; hands: [Vector3, Vector3] } | null = null
+  const personAt = new Vector3()
+  const shoulder = new Vector3()
+  const aim = new Vector3()
+  const reach = (hands: [Vector3, Vector3]) => {
+    // Bend at the hips toward the hands, then point each arm at its hand.
+    const mid = hands[0].clone().add(hands[1]).multiplyScalar(0.5)
+    const local = person.worldToLocal(mid.clone())
+    const flat = Math.hypot(local.x, local.z)
+    upper.rotation.x = Math.min(0.75, Math.max(0, (flat - 380) / 900)) * Math.sign(local.z || 1)
+    upper.updateMatrixWorld(true)
+    arms.forEach((arm, i) => {
+      arm.getWorldPosition(shoulder)
+      aim.copy(hands[i]).sub(shoulder)
+      if (aim.length() > ARM_MM) aim.setLength(ARM_MM)
+      arm.lookAt(shoulder.clone().add(aim))
+    })
+  }
+  const restHands = (): [Vector3, Vector3] => {
+    const front = new Vector3(0, 0, 1).applyAxisAngle(new Vector3(0, 1, 0), person.rotation.y)
+    const side = new Vector3(1, 0, 0).applyAxisAngle(new Vector3(0, 1, 0), person.rotation.y)
+    const base = person.position.clone().add(new Vector3(0, 900, 0)).addScaledVector(front, 120)
+    return [base.clone().addScaledVector(side, -260), base.clone().addScaledVector(side, 260)]
+  }
+  const placePerson = (delta: number) => {
+    const tool = tools.find((item) => item.visible)
+    let hands: [Vector3, Vector3]
+    if (carrying) {
+      person.position.copy(carrying.spot)
+      person.rotation.y = carrying.facing
+      person.updateMatrixWorld(true)
+      hands = carrying.hands
+    } else {
+      const work = tool ? tool.position : personAt.lengthSq() > 0 ? personAt : tableCenter
+      const { spot, facing } = standAt(work)
+      const k = 1 - Math.exp(-delta * 5)
+      if (person.position.lengthSq() === 0) person.position.copy(spot)
+      person.position.lerp(spot, k)
+      person.rotation.y = facing
+      person.updateMatrixWorld(true)
+      if (tool) {
+        personAt.copy(tool.position)
+        // One hand on the tool, the other on the board beside it.
+        tool.updateMatrixWorld(true)
+        const grip = tool.localToWorld(gripOf.get(tool)?.clone() ?? new Vector3(0, 150, 0))
+        const other = tool.position.clone().add(layout === 'across' ? new Vector3(0, 10, 180) : new Vector3(-200, 10, 0))
+        hands = [other, grip]
+      } else {
+        hands = restHands()
+      }
+    }
+    reach(hands)
+  }
+
+  // Everything in view: the bench, the boards, the person and the wall.
+  const minX = Math.min(0, tableCenter.x - tableX / 2, layout === 'across' ? tableCenter.x : 0)
+  const maxX = Math.max(totalU, tableCenter.x + tableX / 2 + (layout === 'across' ? 600 : 0), oneByOne ? wallX : 0)
+  const minZ = Math.min(0, tableCenter.z - tableZ / 2 - 500)
+  const maxZ = Math.max(totalV, tableCenter.z + tableZ / 2)
+  const spanX = maxX - minX
+  const spanZ = maxZ - minZ
+
   const floor = new Mesh(new PlaneGeometry(1, 1), mat('#cbb48f', 0.85))
   bin.push(floor.geometry)
   floor.rotation.x = -Math.PI / 2
   floor.receiveShadow = true
-  floor.scale.set(totalU + 1600, totalV + 1600, 1)
-  floor.position.set(totalU / 2, -0.5, totalV / 2)
+  floor.scale.set(spanX + 3000, spanZ + 3000, 1)
+  floor.position.set((minX + maxX) / 2, floorY - 0.5, (minZ + maxZ) / 2)
   table.add(floor)
 
-  const radius = Math.max(totalU, totalV, 600)
+  // The standing person reaches well above the bench: leave room for them too.
+  const radius = Math.max(spanX, spanZ, 600) + 700
   /** Where the camera looks from when it shows all the boards. */
-  const home = { target: new Vector3(totalU / 2, 0, totalV / 2), camera: new Vector3() }
+  const home = { target: new Vector3((minX + maxX) / 2, -150, (minZ + maxZ) / 2), camera: new Vector3() }
   /** Far enough back that the whole length fits, on a narrow phone screen too. */
   const placeHome = () => {
     const look = new Vector3(0, 0.75, 0.72).normalize()
     const half = Math.tan(((camera.fov / 2) * Math.PI) / 180)
     const across = half * Math.max(0.3, camera.aspect)
-    const distance = Math.max(radius * 1.04, (totalU / 2) * 1.12 / across + totalV / 2)
+    const distance = Math.max(radius * 1.04, ((spanX / 2) * 1.12) / across + spanZ / 2 + 900)
     home.camera.copy(home.target).addScaledVector(look, distance)
   }
   placeHome()
@@ -284,15 +461,15 @@ export function mountWorkbench(host: HTMLElement, group: BenchGroup, soft: boole
     camera.position.copy(home.camera)
     camera.updateProjectionMatrix()
     controls.update()
-    sun.position.set(totalU * 0.3, radius * 1.4, totalV + radius * 0.6)
-    sun.target.position.set(totalU / 2, 0, totalV / 2)
+    sun.position.set(minX + spanX * 0.3, radius * 1.4, maxZ + radius * 0.6)
+    sun.target.position.set((minX + maxX) / 2, floorY, (minZ + maxZ) / 2)
     const cam = sun.shadow.camera
     cam.left = -radius
     cam.right = radius
     cam.top = radius
     cam.bottom = -radius
     cam.near = 10
-    cam.far = radius * 5
+    cam.far = radius * 6
     cam.updateProjectionMatrix()
   }
   frame()
@@ -353,17 +530,88 @@ export function mountWorkbench(host: HTMLElement, group: BenchGroup, soft: boole
     const slow = (count: number) => (count < SLOW_REPEATS ? 1 : FAST)
     let count = 0
 
+    // One by one: the first board on the bench, the others leaning on the wall.
+    let onTable = 0
+    const turnedTo = placed.map(() => 0)
+    const flipOf = (index: number) => new Quaternion().setFromAxisAngle(new Vector3(1, 0, 0), turnedTo[index] * Math.PI)
+    const leanPose = (flip: Quaternion) => leanTurn.clone().multiply(flip)
+    if (oneByOne) {
+      for (let index = 1; index < placed.length; index++) {
+        slabs[index].position.copy(wallSpot(index))
+        slabs[index].quaternion.copy(leanPose(flipOf(index)))
+      }
+    }
+    /** Carries the board on the bench to the wall, then brings `next` from the wall to the bench. */
+    const swap = (next: number): Action => {
+      const away = onTable
+      const awayFlip = flipOf(away)
+      const nextFlip = flipOf(next)
+      const benchSpot = (index: number) => placed[index].center.clone()
+      const moveBoard = (index: number, flip: Quaternion, from: 'bench' | 'wall', t: number) => {
+        const q = from === 'bench' ? t : 1 - t
+        const a = benchSpot(index)
+        const b = wallSpot(index)
+        const pos = a.clone().lerp(b, ease(q))
+        pos.y += Math.sin(Math.PI * t) * 380
+        slabs[index].position.copy(pos)
+        slabs[index].quaternion.copy(new Quaternion().slerp(leanTurn, ease(span(q, 0.35, 1))).multiply(flip))
+        return pos
+      }
+      const holding = (pos: Vector3, index: number) => {
+        // Hands on the board's far long edge (on the bench) or its ends (going up against the wall).
+        const half = placed[index].board.u / 4
+        return {
+          // Never inside the wall: at the wall they stand beside the board.
+          spot: new Vector3(Math.min(pos.x, wallX - 420), floorY, pos.z - placed[index].board.v / 2 - 240),
+          facing: 0,
+          hands: [pos.clone().add(new Vector3(-half, 30, -placed[index].board.v / 2)), pos.clone().add(new Vector3(half, 30, -placed[index].board.v / 2))] as [Vector3, Vector3],
+        }
+      }
+      let watch = benchSpot(away)
+      onTable = next
+      return {
+        seconds: 5,
+        distance: Math.max(2600, radius * 1.1),
+        focus: () => watch,
+        run: (p) => {
+          const t1 = span(p, 0.04, 0.46)
+          const t2 = span(p, 0.54, 0.96)
+          const awayPos = moveBoard(away, awayFlip, 'bench', t1)
+          const nextPos = moveBoard(next, nextFlip, 'wall', t2)
+          if (p >= 1) {
+            carrying = null
+            watch = benchSpot(next)
+            return
+          }
+          if (p < 0.5) {
+            watch = awayPos
+            carrying = holding(awayPos, away)
+          } else {
+            watch = nextPos
+            carrying = holding(nextPos, next)
+          }
+        },
+      }
+    }
+
     jobs.forEach((job, jobIndex) => {
       const actions = film[jobIndex]
       const face = job.face
-      const onFace = placed.flatMap(({ board }, index) => (board.faces[face] ? [{ index, marks: board.faces[face] }] : []))
+      const all = placed.flatMap(({ board }, index) => (board.faces[face] ? [{ index, marks: board.faces[face] }] : []))
+      // One by one: the board on the bench first, then each of the others brought over in turn.
+      const batches = oneByOne
+        ? [...all].sort((a, b) => (a.index === onTable ? -1 : b.index === onTable ? 1 : a.index - b.index)).map((item) => [item])
+        : [all]
+      for (const onFace of batches) {
+        if (oneByOne && onFace[0] && onFace[0].index !== onTable) actions.push(swap(onFace[0].index))
 
       if (job.phase === 'mark') {
         // The second face: each board that has work on it is lifted and turned over.
         if (face > 0) {
           const turning = onFace.map((item) => item.index)
+          for (const index of turning) turnedTo[index] = face
           actions.push({
-            focus: new Vector3(totalU / 2, 0, totalV / 2),
+            focus: placed[turning[0] ?? 0].center.clone(),
             seconds: 1.8,
             run: (p) => {
               const q = ease(p)
@@ -585,6 +833,7 @@ export function mountWorkbench(host: HTMLElement, group: BenchGroup, soft: boole
           }
         }
       }
+      }
     })
     return film
   }
@@ -641,7 +890,7 @@ export function mountWorkbench(host: HTMLElement, group: BenchGroup, soft: boole
           offset.copy(camera.position).sub(controls.target)
           controls.target.lerp(typeof action.focus === 'function' ? action.focus() : action.focus, k)
           const length = offset.length()
-          offset.setLength(length + (FOLLOW_MM - length) * k)
+          offset.setLength(length + ((action.distance ?? FOLLOW_MM) - length) * k)
           camera.position.copy(controls.target).add(offset)
         }
       }
@@ -661,6 +910,7 @@ export function mountWorkbench(host: HTMLElement, group: BenchGroup, soft: boole
       camera.position.lerp(home.camera, k)
       if (backOut >= 1) backOut = -1
     }
+    placePerson(delta)
     controls.update()
     renderer.render(scene, camera)
   }
@@ -669,6 +919,7 @@ export function mountWorkbench(host: HTMLElement, group: BenchGroup, soft: boole
   return {
     play(index, onDone) {
       film = script()
+      carrying = null
       for (const tool of tools) tool.visible = false
       // Earlier jobs are already done when this one starts.
       for (const earlier of film.slice(0, index)) {

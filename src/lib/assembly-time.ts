@@ -456,7 +456,7 @@ export const SHELF_PIN_CALC_SECONDS = 60
 export const SHELF_PIN_DENT_SECONDS = 30
 export const SHELF_PIN_DRILL_SECONDS = 25
 /** Knocking the 4 pins of one shelf in with the hammer. */
-export const SHELF_PIN_KNOCK_SECONDS = 20
+export const SHELF_PIN_KNOCK_SECONDS = 35
 /** Marking a repeat spot takes this much less than the first time. */
 export const SHELF_PIN_REPEAT_SAVES_SECONDS = 30
 /** Two sides fit on the bench together up to this depth (bench 90 cm deep, sides lengthwise)… */
