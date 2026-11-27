@@ -40,7 +40,7 @@ export type BenchOp =
 
 export type Workbench = {
   /** The text beside the tool for each kind of job (null: no label). */
-  setDescribe(describe: ((op: BenchOp) => string | null) | null): void
+  setDescribe(describe: ((op: BenchOp, part: number) => string | null) | null): void
   /** Lays the boards out again with the earlier jobs done, and plays job `index` of `benchJobs(group)`. */
   play(index: number, onDone: () => void): void
   /** 1 is the normal pace; higher is faster. */
@@ -63,6 +63,8 @@ type Action = {
   distance?: number
   /** What is being done, for the label beside the tool. */
   op?: BenchOp
+  /** The share of the scene's work of this kind done on the board(s) now on the bench (1: all of it). */
+  part?: number
 }
 
 /** Boards lie side by side, this far apart. */
@@ -95,7 +97,7 @@ export function mountWorkbench(host: HTMLElement, group: BenchGroup, soft: boole
   host.appendChild(renderer.domElement)
   // Beside the tool: what the job is, its time and its price.
   const tag = createToolTag(host, 76)
-  let describe: ((op: BenchOp) => string | null) | null = null
+  let describe: ((op: BenchOp, part: number) => string | null) | null = null
   const tagAt = new Vector3()
 
   const scene = new Scene()
@@ -632,8 +634,22 @@ export function mountWorkbench(host: HTMLElement, group: BenchGroup, soft: boole
       const batches = oneByOne
         ? [...all].sort((a, b) => (a.index === onTable ? -1 : b.index === onTable ? 1 : a.index - b.index)).map((item) => [item])
         : [all]
+      // How much of each kind of work is on the board(s) of a batch, out of the whole scene.
+      type Marks = (typeof all)[number]['marks']
+      const sum = (list: typeof all, pick: (marks: Marks) => number) => list.reduce((total, item) => total + pick(item.marks), 0)
+      const pickFor = (op: BenchOp): ((marks: Marks) => number) | null => {
+        if (op.startsWith('line:')) {
+          const kind = op.slice(5)
+          return (marks) => marks.lines.filter((line) => (line.kind ?? 'bottom') === kind).length
+        }
+        if (op === 'cross') return (marks) => marks.crosses.length
+        if (op === 'point' || op === 'dent' || op === 'drill' || op === 'pin') return (marks) => marks.points.length
+        if (op === 'slide' || op === 'screw') return (marks) => marks.slides.length
+        return null
+      }
       for (const onFace of batches) {
         if (oneByOne && onFace[0] && onFace[0].index !== onTable) actions.push(swap(onFace[0].index))
+        const firstAction = actions.length
 
       if (job.phase === 'mark') {
         // The second face: each board that has work on it is lifted and turned over.
@@ -870,6 +886,15 @@ export function mountWorkbench(host: HTMLElement, group: BenchGroup, soft: boole
           }
         }
       }
+        // One board at a time: the label counts only the board on the bench.
+        if (oneByOne) {
+          for (const action of actions.slice(firstAction)) {
+            const pick = action.op ? pickFor(action.op) : null
+            if (!pick) continue
+            const whole = sum(all, pick)
+            action.part = whole > 0 ? sum(onFace, pick) / whole : 1
+          }
+        }
       }
     })
     return film
@@ -952,7 +977,7 @@ export function mountWorkbench(host: HTMLElement, group: BenchGroup, soft: boole
     const working = current < queue.length ? queue[current] : null
     const anchor = working?.focus ? (typeof working.focus === 'function' ? working.focus() : working.focus) : null
     tag.place(
-      working?.op && describe ? describe(working.op) : null,
+      working?.op && describe ? describe(working.op, working.part ?? 1) : null,
       anchor ? tagAt.copy(anchor).add(new Vector3(0, 40, 0)) : null,
       camera,
     )

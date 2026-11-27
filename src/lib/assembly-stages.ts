@@ -191,7 +191,13 @@ export function assemblyStages(solids: SceneSolid[], steps: AssemblyStep[], grou
     targets.forEach((item, i) => item.stage.steps.push(...share(taken, total > 0 ? weights[i] / total : 1 / targets.length)))
   }
   const benchWhere = (test: (item: BenchItem) => boolean) => benchStages.filter(test)
-  giveTo(claimIds('mark-bottom', 'mark-fixed-shelf', 'mark-sides-swap', 'mark-clothes-rail', 'mark-shelf'), benchWhere((item) => item.group.key === 'sides' && item.phase === 'mark'))
+  // Each bench scene gets the time of what it shows: its own lines, crosses and pin points.
+  const marking = (item: BenchItem) => item.phase === 'mark'
+  giveTo(claimIds('mark-bottom'), benchWhere((item) => marking(item) && item.counts.linesOf('bottom') > 0), (item) => item.counts.linesOf('bottom'))
+  giveTo(claimIds('mark-fixed-shelf'), benchWhere((item) => marking(item) && item.counts.linesOf('fixed') > 0), (item) => item.counts.linesOf('fixed'))
+  giveTo(claimIds('mark-sides-swap'), benchWhere((item) => item.group.key === 'sides' && marking(item)))
+  giveTo(claimIds('mark-clothes-rail'), benchWhere((item) => marking(item) && item.counts.crosses > 0), (item) => item.counts.crosses)
+  giveTo(claimIds('mark-shelf'), benchWhere((item) => marking(item) && item.counts.points > 0), (item) => item.counts.points)
   giveTo(claimIds('mark-drawer-guides', 'mark-drawer'), benchWhere((item) => item.phase === 'mark' && item.counts.slides > 0), (item) => item.counts.slides)
   giveTo(claimIds('mark-partition-bottom'), benchWhere((item) => item.group.key === 'bottom'))
   giveTo(claimIds('mark-partition-top'), benchWhere((item) => item.group.key === 'top'))

@@ -207,10 +207,14 @@ export function AssemblyFilm({ store }: { store: CaptureStore }) {
   const allSteps = film?.steps ?? []
   // This scene's part of the job, the same as in the list under the picture; the whole cabinet's
   // only when the scene's list does not have that job.
-  const describe = (op: BenchOp) => {
+  // One board at a time on the bench: `part` is that board's share, so the label is for what is
+  // on the bench now.
+  const describe = (op: BenchOp, part: number) => {
     const job = BENCH_OPS[op]
     const here = (stage?.steps ?? []).filter((step) => job.steps(step.id))
-    return tagText(job.title, here.length > 0 ? here : allSteps.filter((step) => job.steps(step.id)), priceOf, job.otherwise)
+    const steps = here.length > 0 ? here : allSteps.filter((step) => job.steps(step.id))
+    const scaled = part < 1 ? steps.map((step) => ({ ...step, minutes: step.minutes * part })) : steps
+    return tagText(job.title, scaled, priceOf, job.otherwise)
   }
   const stageTag = stage && !stage.bench ? tagText(stage.title, stage.steps, priceOf, 'без отделно време') : null
   useEffect(() => {

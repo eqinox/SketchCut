@@ -284,5 +284,7 @@ export function jobCounts(group: BenchGroup, face: number) {
     crosses: all.reduce((sum, item) => sum + item.crosses.length, 0),
     points: all.reduce((sum, item) => sum + item.points.length, 0),
     slides: all.reduce((sum, item) => sum + item.slides.length, 0),
+    /** Pencil lines of one kind (the bottom, fixed shelves, slides, dividers). */
+    linesOf: (kind: BenchLineKind) => all.reduce((sum, item) => sum + item.lines.filter((line) => line.kind === kind).length, 0),
   }
 }
