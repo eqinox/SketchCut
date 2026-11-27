@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { AssemblyFilmContext } from '@/lib/assembly-context'
 import { PULL_CHOICES, parsePullSku, pullName, taraPull, type PullSku } from '@/lib/cabinets/pulls'
-import { Box, ChevronDown, ChevronRight, Plus, Trash2 } from 'lucide-react'
+import { Box, Check, ChevronDown, ChevronRight, ClipboardCopy, Plus, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -3286,6 +3286,59 @@ function CabinetDialogForm({
     )
   }
 
+  const [copiedForClaude, setCopiedForClaude] = useState(false)
+  /**
+   * The cabinet as text to paste into a chat with Claude: its type and settings (enough to build
+   * it again exactly), plus the parts, hardware and assembly steps as they come out now.
+   */
+  const copyForClaude = async () => {
+    const data = {
+      sketchcut: 1,
+      name: editing?.name ?? null,
+      typeId,
+      quantity: qty,
+      params,
+      panels: (result?.panels ?? []).map((panel) => ({
+        name: panel.name,
+        role: panel.role,
+        w: panel.width,
+        h: panel.height,
+        qty: panel.quantity,
+        edges: panel.edges,
+        ...(panel.note ? { note: panel.note } : {}),
+        ...(panel.excludeFromCutting ? { excludeFromCutting: true } : {}),
+      })),
+      hardware: (result?.hardware ?? []).map((item) => ({ name: item.name, qty: item.quantity, ...(item.note ? { note: item.note } : {}) })),
+      assemblySteps: (result?.labor.assemblySteps ?? []).map((step) => ({ id: step.id, label: step.label, minutes: step.minutes })),
+      notes: result?.notes ?? [],
+    }
+    const text = `Шкаф от SketchCut:\n\`\`\`json\n${JSON.stringify(data)}\n\`\`\``
+    let ok = false
+    try {
+      await navigator.clipboard.writeText(text)
+      ok = true
+    } catch {
+      const area = document.createElement('textarea')
+      area.value = text
+      area.style.position = 'fixed'
+      area.style.opacity = '0'
+      document.body.appendChild(area)
+      area.select()
+      try {
+        ok = document.execCommand('copy')
+      } catch {
+        // left as not copied
+      }
+      area.remove()
+    }
+    if (!ok) {
+      window.alert('Не успях да копирам. Опитай пак или от друг браузър.')
+      return
+    }
+    setCopiedForClaude(true)
+    window.setTimeout(() => setCopiedForClaude(false), 2000)
+  }
+
   const handleSave = () => {
     if (error) return
     onSave({ typeId, params: { ...params }, quantity: qty })
@@ -3346,6 +3399,15 @@ function CabinetDialogForm({
               <option value="line">Чертеж</option>
             </select>
           </label>
+          <button
+            type="button"
+            className="flex h-8 items-center gap-1.5 rounded-md border border-[var(--color-border)] px-2.5 text-sm"
+            onClick={() => void copyForClaude()}
+            title="Копира шкафа като текст, който да поставиш в чата с Claude"
+          >
+            {copiedForClaude ? <Check className="h-4 w-4" /> : <ClipboardCopy className="h-4 w-4" />}
+            {copiedForClaude ? 'Копирано' : 'Копирай за Claude'}
+          </button>
           <label className="flex items-center gap-2 text-sm">
             Дръжка
             <select
