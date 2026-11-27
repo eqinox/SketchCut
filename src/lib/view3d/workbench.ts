@@ -114,8 +114,6 @@ export function mountWorkbench(host: HTMLElement, group: BenchGroup, soft: boole
   const slideMat = soft ? mat('#a9aeb3', 0.35, 0.7) : mat('#f3f2ee', 0.45)
   const wheelMat = mat('#e6d9bb', 0.6)
   const red = mat('#d62a2a', 0.5)
-  const toolBody = mat('#2f6e4a', 0.5)
-  const toolGrip = mat('#25272a', 0.8)
 
   // Tools: each group's origin is the working tip, pointing down.
   const pencil = new Group()
@@ -141,39 +139,90 @@ export function mountWorkbench(host: HTMLElement, group: BenchGroup, soft: boole
   }
   const hammer = new Group()
   {
-    // Origin at the face of the head; the handle runs off to the right, away from the view.
-    const head = box(28, 28, 110, darkSteel)
-    head.position.y = 14
-    const handle = box(300, 20, 26, wood)
-    handle.position.set(165, 20, 0)
-    hammer.add(head, handle)
+    // Origin at the striking face: the square face points down, the tapered peen up,
+    // and the handle runs off to the right through the middle of the head.
+    const face = box(30, 10, 30, darkSteel)
+    face.position.y = 5
+    const neck = box(24, 60, 24, darkSteel)
+    neck.position.y = 10 + 30
+    // Square frustum: tapers from the body to a narrow peen.
+    const peen = cyl(3, 24 / Math.SQRT2, 38, darkSteel, 4)
+    peen.rotation.y = Math.PI / 4
+    peen.position.y = 70 + 19
+    const handle = box(300, 22, 28, wood)
+    handle.position.set(12 + 150, 52, 0)
+    hammer.add(face, neck, peen, handle)
   }
-  const drill = new Group()
-  {
-    const bit = cyl(2.25, 2.25, 60, steel, 10)
-    bit.position.y = 30
-    const chuck = cyl(13, 13, 40, darkSteel)
-    chuck.position.y = 60 + 20
-    const body = box(64, 64, 170, toolBody)
-    body.position.set(0, 60 + 40 + 32, -40)
-    const grip = box(44, 130, 50, toolGrip)
-    grip.position.set(0, 60 + 40 - 10, -110)
-    drill.add(bit, chuck, body, grip)
+
+  // Cordless drill-driver, standing chuck down: a black ribbed chuck in front of the clutch
+  // ring, the motor housing above, the grip and battery off to the right.
+  // Only `spin` (the bit and the chuck) turns.
+  const toolShell = mat('#e07a1f', 0.55)
+  const rubber = mat('#232427', 0.85)
+  const makeDriver = (bitRadius: number, bitLength: number) => {
+    const tool = new Group()
+    const spin = new Group()
+    const shank = bitLength * 0.55
+    const tip = cyl(bitRadius, bitRadius * 0.35, bitLength - shank, steel, 10)
+    tip.position.y = (bitLength - shank) / 2
+    const hex = cyl(3.2, 3.2, shank, steel, 6)
+    hex.position.y = bitLength - shank / 2
+    const nose = cyl(8, 9, 8, steel, 20)
+    nose.position.y = bitLength + 4
+    const chuck = cyl(17, 13, 42, rubber, 24)
+    chuck.position.y = bitLength + 8 + 21
+    spin.add(tip, hex, nose, chuck)
+    // Ribs on the chuck show it turning.
+    for (let i = 0; i < 8; i++) {
+      const rib = box(3, 36, 5, rubber)
+      const angle = (i / 8) * Math.PI * 2
+      rib.position.set(Math.cos(angle) * 16, bitLength + 8 + 21, Math.sin(angle) * 16)
+      rib.rotation.y = -angle
+      spin.add(rib)
+    }
+    const base = bitLength + 50
+    const clutch = cyl(21, 21, 16, rubber, 24)
+    clutch.position.y = base + 8
+    for (let i = 0; i < 5; i++) {
+      const tick = box(2, 5, 1, toolShell)
+      const angle = Math.PI * 0.15 + i * 0.28
+      tick.position.set(Math.cos(angle) * 21.3, base + 8, Math.sin(angle) * 21.3)
+      tick.rotation.y = -angle
+      tool.add(tick)
+    }
+    const gear = cyl(26, 24, 26, rubber, 24)
+    gear.position.y = base + 16 + 13
+    const housing = cyl(31, 29, 104, toolShell, 24)
+    housing.scale.z = 0.85
+    housing.position.y = base + 42 + 52
+    const cap = cyl(24, 31, 14, rubber, 24)
+    cap.scale.z = 0.85
+    cap.position.y = base + 146 + 7
+    for (let i = 0; i < 3; i++) {
+      const vent = box(1, 18, 22, rubber)
+      vent.position.set(-31.5, base + 118 + i * 9, 0)
+      tool.add(vent)
+    }
+    // Grip: leaves the housing to the right, leaning back toward the rear cap.
+    const lean = 0.28
+    const gripLength = 150
+    const grip = box(gripLength, 46, 40, rubber)
+    grip.rotation.z = lean
+    const root = new Vector3(18, base + 92, 0)
+    grip.position.set(root.x + (Math.cos(lean) * gripLength) / 2, root.y + (Math.sin(lean) * gripLength) / 2, 0)
+    const trigger = box(22, 16, 14, rubber)
+    trigger.rotation.z = lean
+    trigger.position.set(root.x + 22, root.y - 26, 0)
+    const end = new Vector3(root.x + Math.cos(lean) * gripLength, root.y + Math.sin(lean) * gripLength, 0)
+    const pack = box(34, 120, 82, toolShell)
+    pack.position.set(end.x + 6, end.y - 10, 0)
+    const packBase = box(26, 124, 84, rubber)
+    packBase.position.set(end.x + 6 + 30, end.y - 10, 0)
+    tool.add(spin, clutch, gear, housing, cap, grip, trigger, pack, packBase)
+    return { tool, spin }
   }
-  const driver = new Group()
-  {
-    const bit = cyl(3, 3, 40, steel, 8)
-    bit.position.y = 20
-    const chuck = cyl(11, 11, 30, toolGrip)
-    chuck.position.y = 40 + 15
-    const body = box(56, 56, 150, toolBody)
-    body.position.set(0, 40 + 30 + 28, -30)
-    const grip = box(40, 120, 46, toolGrip)
-    grip.position.set(0, 40 + 30 - 20, -90)
-    const battery = box(70, 30, 90, toolGrip)
-    battery.position.set(0, 40 + 30 - 85, -95)
-    driver.add(bit, chuck, body, grip, battery)
-  }
+  const { tool: drill, spin: drillSpin } = makeDriver(2.25, 60)
+  const { tool: driver, spin: driverSpin } = makeDriver(3, 30)
   const tools = [pencil, awl, hammer, drill, driver]
   for (const tool of tools) {
     tool.visible = false
@@ -399,7 +448,7 @@ export function mountWorkbench(host: HTMLElement, group: BenchGroup, soft: boole
         })
         points.forEach(({ c }, i) => {
           actions.push({
-            focus: c,
+            focus: c.clone().add(new Vector3(0, 90, 0)),
             seconds: 1.3 * slow(i),
             run: (p) => {
               awl.visible = p < 1
@@ -420,13 +469,13 @@ export function mountWorkbench(host: HTMLElement, group: BenchGroup, soft: boole
         })
         points.forEach(({ c }, i) => {
           actions.push({
-            focus: c,
+            focus: c.clone().add(new Vector3(0, 90, 0)),
             seconds: 1.3 * slow(i),
             run: (p) => {
               drill.visible = p < 1
               const down = span(p, 0.15, 0.6) - span(p, 0.7, 1)
               drill.position.set(c.x, c.y + 40 - down * 52, c.z)
-              drill.rotation.y = p * 40
+              drillSpin.rotation.y = p * 60
               if (p >= 0.55) {
                 holes[i].visible = true
                 dents[i].visible = false
@@ -519,7 +568,7 @@ export function mountWorkbench(host: HTMLElement, group: BenchGroup, soft: boole
               put(screw, index, face, spot)
               const seat = screw.position.clone()
               actions.push({
-                focus: spot,
+                focus: spot.clone().add(new Vector3(0, 90, 0)),
                 seconds: 1.2 * slow(screwCount++),
                 run: (p) => {
                   screw.visible = true
@@ -529,7 +578,7 @@ export function mountWorkbench(host: HTMLElement, group: BenchGroup, soft: boole
                   screw.position.y += up * (1 - sink) * 16
                   screw.rotation.y = sink * 30
                   driver.position.set(spot.x, spot.y + (1 - sink) * 16 + 2.6 + (1 - span(p, 0, 0.25)) * 60, spot.z)
-                  driver.rotation.y = sink * 30
+                  driverSpin.rotation.y = sink * 30
                 },
               })
             }

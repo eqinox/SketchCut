@@ -140,6 +140,24 @@ export function AssemblyFilm({ store }: { store: CaptureStore }) {
       <div className="relative h-[440px] w-full">
         <div ref={hostRef} className={`absolute inset-0 ${onBench ? 'invisible' : ''}`} />
         <div ref={benchHostRef} className={`absolute inset-0 ${onBench ? '' : 'invisible'}`} />
+        {stage && (
+          // On the picture itself: what the whole assembly takes and costs, and how far it has got.
+          <div className="pointer-events-none absolute left-2 top-2 rounded-md bg-white/90 px-2.5 py-1.5 text-neutral-900 shadow-sm">
+            <p className="text-sm font-semibold">
+              Целият шкаф: {formatMinutes(totalMinutes)}
+              {priceOf(totalMinutes) ? ` · ${priceOf(totalMinutes)}` : ''}
+            </p>
+            <p className="text-xs">
+              Досега: {formatMinutes(doneMinutes)}
+              {priceOf(doneMinutes) ? ` · ${priceOf(doneMinutes)}` : ''}
+            </p>
+            <p className="text-xs text-neutral-600">
+              {hourly > 0
+                ? `${formatEur(film?.dailyRateEur ?? 0)} на ден = ${formatEur(hourly)} на час`
+                : 'Без ставка: сложи я в „Шкафове“'}
+            </p>
+          </div>
+        )}
       </div>
       {stage && (
         <div className="mt-2 rounded-md border border-neutral-200 bg-white p-3 text-neutral-900">
