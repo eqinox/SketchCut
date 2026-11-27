@@ -10,7 +10,7 @@ export type ToolTag = {
   dispose(): void
 }
 
-/** `minTop` keeps the label below whatever sits at the top of the picture (the running total). */
+/** `minTop` (or the host's `data-tag-top`) keeps the label below whatever sits at the top of the picture. */
 export function createToolTag(host: HTMLElement, minTop = 6): ToolTag {
   const el = document.createElement('div')
   el.className =
@@ -40,7 +40,7 @@ export function createToolTag(host: HTMLElement, minTop = 6): ToolTag {
       const height = host.clientHeight
       // Up and to the right of the point, kept inside the picture.
       const x = Math.min(width - el.offsetWidth - 6, Math.max(6, ((point.x + 1) / 2) * width + 22))
-      const y = Math.min(height - el.offsetHeight - 6, Math.max(minTop, ((1 - point.y) / 2) * height - el.offsetHeight - 14))
+      const y = Math.min(height - el.offsetHeight - 6, Math.max(Number(host.dataset.tagTop) || minTop, ((1 - point.y) / 2) * height - el.offsetHeight - 14))
       el.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`
     },
     dispose() {
