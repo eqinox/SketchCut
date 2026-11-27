@@ -120,8 +120,10 @@ function uprightFaces(board: Box, solids: SceneSolid[], withBottom: boolean): Ma
     const face = at(faceOf(shelf, board, 30))
     if (!face) continue
     if (isFixedShelf(piece(shelf))) {
-      // A fixed shelf is screwed through the board: a line where its middle comes.
-      line(face, shelf.y + shelf.h / 2 - board.y, ...span(shelf))
+      // A fixed shelf is screwed through the board: two lines, one per face of the shelf,
+      // a shelf's thickness apart; the shelf sits between them.
+      line(face, shelf.y - board.y, ...span(shelf))
+      line(face, shelf.y + shelf.h - board.y, ...span(shelf))
     } else {
       const u = shelf.y + shelf.h + PIN_UNDER_SHELF_MM - board.y
       for (const v of [PIN_EDGE_MM, board.d - PIN_EDGE_MM]) {
