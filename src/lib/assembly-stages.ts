@@ -234,7 +234,7 @@ export function assemblyStages(solids: SceneSolid[], steps: AssemblyStep[], grou
     plinthList.forEach((plinth, index) => {
       const title =
         plinthList.length === 2 ? (index === 0 ? 'Предният цокъл към дъното' : 'Задният цокъл към дъното') : `Цокъл ${index + 1} към дъното`
-      build(`plinth-${index}`, title, share(plinthSteps, plinthList.length), [{ solids: plinth }], {
+      build(`plinth-${index}`, title, share(plinthSteps, 1 / plinthList.length), [{ solids: plinth }], {
         pose: UPSIDE_DOWN,
         note: 'Цокълът е с канта надолу, винтовете 5×60 минават през дъното.',
       })
@@ -250,7 +250,7 @@ export function assemblyStages(solids: SceneSolid[], steps: AssemblyStep[], grou
   sides.forEach((side, index) => {
     const left = pieceOf(side) === 'side-left'
     const title = sides.length === 2 ? (index === 0 ? 'Едната страница' : 'Другата страница') : 'Страницата'
-    build(`side-${index}`, title, share(sideSteps, sides.length), [{ solids: withSlides(side), from: [left ? -600 : 600, 0, 0] }], {
+    build(`side-${index}`, title, share(sideSteps, 1 / sides.length), [{ solids: withSlides(side), from: [left ? -600 : 600, 0, 0] }], {
       note: 'Хваща се към дъното с 2 винта 5×60 през страницата.',
     })
   })
@@ -276,7 +276,7 @@ export function assemblyStages(solids: SceneSolid[], steps: AssemblyStep[], grou
     for (const rail of mine) batches.push({ solids: [rail], from: [0, 0, -700] })
     const title =
       (full.length > 1 ? `Разделителна страница ${index + 1}` : 'Средната разделителна страница') + (mine.length > 0 ? ' и лостовете' : '')
-    const taken = [...share(partitionSteps, dividerScenes), ...(mine.length > 0 && !railsPlaced ? railSteps : [])]
+    const taken = [...share(partitionSteps, 1 / dividerScenes), ...(mine.length > 0 && !railsPlaced ? railSteps : [])]
     if (mine.length > 0) railsPlaced = true
     build(`divider-${index}`, title, taken, batches, {
       note: mine.length > 0 ? 'Страницата сяда на дъното и под плота; лостовете влизат между нея и страниците.' : 'Сяда на дъното и под плота, винтове 5×60.',
@@ -286,7 +286,7 @@ export function assemblyStages(solids: SceneSolid[], steps: AssemblyStep[], grou
     build(
       'short-dividers',
       short.length > 1 ? 'Малките разделителни страници' : 'Малката разделителна страница',
-      share(partitionSteps, dividerScenes),
+      share(partitionSteps, 1 / dividerScenes),
       short.map((divider) => ({ solids: withSlides(divider), from: [0, 0, -900] as [number, number, number] })),
       { note: 'Сядат на дъното, с водачите вече на тях.' },
     )
@@ -370,7 +370,7 @@ export function assemblyStages(solids: SceneSolid[], steps: AssemblyStep[], grou
         build(
           `back-${index}`,
           pieces.length > 1 ? `Гръб ${index + 1} от ${pieces.length}: фазер с пирони` : 'Гърбът: фазер с пирони',
-          share(backSteps, pieces.length),
+          share(backSteps, 1 / pieces.length),
           [{ solids: [sheet] }],
           { pose: FACE_DOWN, nails, note: `${nails.length} пирона по ръба, по рафтовете и по разделителните страници.` },
         )

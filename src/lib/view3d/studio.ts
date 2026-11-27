@@ -87,7 +87,7 @@ export type CabinetStudio = {
   /** 1 is the normal pace of the film; higher is faster. */
   setSpeed(speed: number): void
   /** The label beside the work in the assembly film (null: none). */
-  setTag(text: string | null): void
+  setTag(text: string | null | ((piece: { index: number; count: number } | null) => string | null)): void
   /** Jumps the scene to this point (0 → 1), back or forward, like a video. */
   seekFilm(fraction: number): void
   /** How far the scene has played, 0 → 1 (1 when nothing moves in it). */
@@ -117,6 +117,8 @@ type FilmAction = {
   run: (p: number) => void
   /** Where the label goes while this plays: the piece moving in, or the hammer. */
   anchor?: () => Vector3 | null
+  /** Which of the scene's pieces this is, when it brings in one of several. */
+  piece?: { index: number; count: number }
 }
 
 function movingKeyOf(object: Object3D | null): { kind: 'door' | 'drawer'; animKey: string; pullKey: string } | null {
@@ -180,7 +182,8 @@ export function mountCabinetStudio(
   host.appendChild(labels.domElement)
   // Beside the piece going in: what the step is, its time and its price.
   const tag = createToolTag(host, 76)
-  let tagText: string | null = null
+  let tagText: string | null | ((piece: { index: number; count: number } | null) => string | null) = null
+  let tagPiece: { index: number; count: number } | null = null
   const tagPoint = new Vector3()
   let tagShown = false
   const centerOf = (object: Object3D): Vector3 | null => {
@@ -534,6 +537,7 @@ export function mountCabinetStudio(
       if (filmAt < filmActions.length) {
         filmActions[filmAt].run(filmElapsed / filmActions[filmAt].seconds)
         const at = filmActions[filmAt].anchor?.()
+        tagPiece = filmActions[filmAt].piece ?? null
         if (at) {
           tagPoint.copy(at)
           tagShown = true
@@ -548,7 +552,7 @@ export function mountCabinetStudio(
       moving = true
       shadowUntil = now + 300
     }
-    tag.place(tagShown ? tagText : null, tagPoint, camera)
+    tag.place(tagShown ? (typeof tagText === 'function' ? tagText(tagPiece) : tagText) : null, tagPoint, camera)
     // Draw only when something changed: the camera turned, a door is moving, or the picture was
     // touched or updated a moment ago. A still picture costs nothing, which matters with mirrors.
     const turned = controls.update()
@@ -699,6 +703,7 @@ export function mountCabinetStudio(
       pose.updateMatrixWorld(true)
       // Until something moves, the label sits on what stands already.
       const standingAt = centerOf(pose)
+      tagPiece = null
       tagShown = !!standingAt
       if (standingAt) tagPoint.copy(standingAt)
 
@@ -725,6 +730,8 @@ export function mountCabinetStudio(
         })
       }
       const out = (p: number) => 1 - (1 - p) ** 3
+      const pieceCount = motion.batches.filter((batch) => batch.mode !== 'flip').length
+      let pieceIndex = 0
       motion.batches.forEach((batch, index) => {
         const group = batchGroups[index]
         const quick = !filmAllSlow && index >= 4
@@ -754,6 +761,8 @@ export function mountCabinetStudio(
         actions.push({
           seconds: quick ? 0.45 : 1.1,
           anchor: () => centerOf(group),
+          // One of several pieces brought in: the label tells its own share of the time.
+          ...(pieceCount > 1 ? { piece: { index: pieceIndex++, count: pieceCount } } : {}),
           run: (p) => {
             group.visible = true
             const q = out(p)

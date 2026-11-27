@@ -216,7 +216,19 @@ export function AssemblyFilm({ store }: { store: CaptureStore }) {
     const scaled = part < 1 ? steps.map((step) => ({ ...step, minutes: step.minutes * part })) : steps
     return tagText(job.title, scaled, priceOf, job.otherwise)
   }
-  const stageTag = stage && !stage.bench ? tagText(stage.title, stage.steps, priceOf, 'без отделно време') : null
+  // Several pieces in one scene (fixed shelves one by one, the short dividers): each its share.
+  const stageTag =
+    stage && !stage.bench
+      ? (piece: { index: number; count: number } | null) =>
+          piece
+            ? tagText(
+                `${stage.title} — ${piece.index + 1} от ${piece.count}`,
+                stage.steps.map((step) => ({ ...step, minutes: step.minutes / piece.count })),
+                priceOf,
+                'без отделно време',
+              )
+            : tagText(stage.title, stage.steps, priceOf, 'без отделно време')
+      : null
   useEffect(() => {
     benchRef.current?.setDescribe(describe)
     studioRef.current?.setTag(stageTag)
