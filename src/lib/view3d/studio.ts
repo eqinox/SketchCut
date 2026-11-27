@@ -28,6 +28,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { attachJoysticks } from '@/lib/view3d/joysticks'
 import { CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js'
 import { constantWheelZoom } from '@/lib/view3d/wheel-zoom'
+import { createToolTag } from '@/lib/view3d/tool-tag'
 import { addDimensions } from '@/lib/view3d/dimensions'
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
 import type { DecorSheet } from '@/lib/finish-photo'
@@ -85,6 +86,8 @@ export type CabinetStudio = {
   ): void
   /** 1 is the normal pace of the film; higher is faster. */
   setSpeed(speed: number): void
+  /** The label beside the work in the assembly film (null: none). */
+  setTag(text: string | null): void
   dispose(): void
 }
 
@@ -103,7 +106,12 @@ export type FilmBatch = {
 }
 /** `pose`: the whole cabinet turned about the x axis (0 standing, π upside down, π/2 on its front). */
 export type FilmMotion = { batches: FilmBatch[]; pose?: number; fromPose?: number; nails?: FilmNail[] }
-type FilmAction = { seconds: number; run: (p: number) => void }
+type FilmAction = {
+  seconds: number
+  run: (p: number) => void
+  /** Where the label goes while this plays: the piece moving in, or the hammer. */
+  anchor?: () => Vector3 | null
+}
 
 function movingKeyOf(object: Object3D | null): { kind: 'door' | 'drawer'; animKey: string; pullKey: string } | null {
   let current = object
@@ -164,6 +172,15 @@ export function mountCabinetStudio(
   labels.domElement.style.inset = '0'
   labels.domElement.style.pointerEvents = 'none'
   host.appendChild(labels.domElement)
+  // Beside the piece going in: what the step is, its time and its price.
+  const tag = createToolTag(host, 76)
+  let tagText: string | null = null
+  const tagPoint = new Vector3()
+  let tagShown = false
+  const centerOf = (object: Object3D): Vector3 | null => {
+    const box = new Box3().setFromObject(object)
+    return box.isEmpty() ? null : box.getCenter(new Vector3())
+  }
   renderer.setSize(host.clientWidth || 640, host.clientHeight || 520, false)
   renderer.setClearColor(0xe6dfd4)
 
@@ -508,7 +525,14 @@ export function mountCabinetStudio(
         filmElapsed -= filmActions[filmAt].seconds
         filmAt += 1
       }
-      if (filmAt < filmActions.length) filmActions[filmAt].run(filmElapsed / filmActions[filmAt].seconds)
+      if (filmAt < filmActions.length) {
+        filmActions[filmAt].run(filmElapsed / filmActions[filmAt].seconds)
+        const at = filmActions[filmAt].anchor?.()
+        if (at) {
+          tagPoint.copy(at)
+          tagShown = true
+        }
+      }
       else {
         hammer.visible = false
         const finish = filmDone
@@ -518,6 +542,7 @@ export function mountCabinetStudio(
       moving = true
       shadowUntil = now + 300
     }
+    tag.place(tagShown ? tagText : null, tagPoint, camera)
     // Draw only when something changed: the camera turned, a door is moving, or the picture was
     // touched or updated a moment ago. A still picture costs nothing, which matters with mirrors.
     const turned = controls.update()
@@ -662,6 +687,10 @@ export function mountCabinetStudio(
       const endPose = motion.pose ?? 0
       restAt(motion.fromPose ?? endPose)
       pose.updateMatrixWorld(true)
+      // Until something moves, the label sits on what stands already.
+      const standingAt = centerOf(pose)
+      tagShown = !!standingAt
+      if (standingAt) tagPoint.copy(standingAt)
 
       const actions: FilmAction[] = []
       const flips = motion.batches.map((batch, index) => {
@@ -677,6 +706,7 @@ export function mountCabinetStudio(
         const from = motion.fromPose
         actions.push({
           seconds: 2,
+          anchor: () => centerOf(pose),
           run: (p) => {
             const q = p < 0.5 ? 2 * p * p : 1 - (-2 * p + 2) ** 2 / 2
             restAt(from + (endPose - from) * q, Math.sin(Math.PI * q) * 160)
@@ -694,6 +724,7 @@ export function mountCabinetStudio(
           const clear = Math.max(size.y, size.z) / 2 + 20
           actions.push({
             seconds: quick ? 0.6 : 1.3,
+            anchor: () => centerOf(group),
             run: (p) => {
               const q = out(p)
               const angle = Math.PI * (1 - q)
@@ -712,6 +743,7 @@ export function mountCabinetStudio(
         const from = batch.from ? new Vector3(batch.from[0], -batch.from[1], -batch.from[2]) : null
         actions.push({
           seconds: quick ? 0.45 : 1.1,
+          anchor: () => centerOf(group),
           run: (p) => {
             group.visible = true
             const q = out(p)
@@ -736,6 +768,7 @@ export function mountCabinetStudio(
         const slow = index < 3
         actions.push({
           seconds: slow ? 0.7 : 0.09,
+          anchor: () => hammer.position.clone().add(new Vector3(0, 60, 0)),
           run: (p) => {
             if (p >= 0.5) nail.visible = true
             const spot = nail.getWorldPosition(new Vector3())
@@ -757,6 +790,7 @@ export function mountCabinetStudio(
       }
     },
     setContent(solids, sheets) {
+      tagShown = false
       assemblyFramed = false
       filmActions = []
       filmDone = null
@@ -782,8 +816,12 @@ export function mountCabinetStudio(
       if (seeThrough) applySeeThrough()
       frameCabinet()
     },
+    setTag(text) {
+      tagText = text
+    },
     dispose() {
       disposed = true
+      tag.dispose()
       stopSticks()
       cancelAnimationFrame(frame)
       observer.disconnect()

@@ -8,13 +8,57 @@ import { benchGroups } from '@/lib/bench-plan'
 import { isSoftCloseSlide } from '@/lib/cabinets/hardware'
 import { formatEur, formatMinutes, hourlyRateEur } from '@/lib/cabinets/estimate'
 import { mountCabinetStudio, type CabinetStudio } from '@/lib/view3d/studio'
-import { mountWorkbench, type Workbench } from '@/lib/view3d/workbench'
+import { mountWorkbench, type BenchOp, type Workbench } from '@/lib/view3d/workbench'
+import type { AssemblyStep } from '@/lib/assembly-time'
 
 /** How long a scene with nothing moving stays on screen while playing. */
 const SCENE_MS = 3200
 /** After a scene's work ends, a short pause before the next one. */
 const AFTER_MS = 900
 const FAST_SPEED = 3
+
+/** Each job on the bench: its name on the label and the priced steps it belongs to. */
+const BENCH_OPS: Record<BenchOp, { title: string; steps: (id: string) => boolean; otherwise: string }> = {
+  'line:bottom': { title: 'Линия: къде идва дъното', steps: () => false, otherwise: 'без отделно време' },
+  'line:fixed': { title: 'Линии за фиксиран рафт', steps: (id) => id === 'mark-fixed-shelf', otherwise: 'без отделно време' },
+  'line:slide': { title: 'Линия за водач', steps: (id) => id.startsWith('mark-drawer'), otherwise: 'във времето за водачите' },
+  'line:divider': {
+    title: 'Линии за разделителна страница',
+    steps: (id) => id === 'mark-partition-bottom' || id === 'mark-partition-top',
+    otherwise: 'без отделно време',
+  },
+  cross: { title: 'Кръстче за лоста', steps: (id) => id === 'mark-clothes-rail', otherwise: 'във времето за лоста' },
+  point: {
+    title: 'Изчисление и точки за рафтоносачи',
+    steps: (id) => id === 'mark-shelf-pins' || id === 'mark-shelf-pins-calc',
+    otherwise: 'без отделно време',
+  },
+  dent: { title: 'Център с шило и чук', steps: (id) => id === 'shelf-pins-dent', otherwise: 'без отделно време' },
+  drill: { title: 'Пробиване с бургия 4,5', steps: (id) => id === 'shelf-pins-drill', otherwise: 'без отделно време' },
+  pin: { title: 'Набиване на рафтоносачите', steps: (id) => id === 'shelf-pins', otherwise: 'без отделно време' },
+  slide: { title: 'Водачите на местата им', steps: (id) => id.startsWith('drawer-guides'), otherwise: 'без отделно време' },
+  screw: { title: 'Винтовете на водачите', steps: (id) => id.startsWith('drawer-guides'), otherwise: 'без отделно време' },
+  swap: { title: 'Смяна на плоскостта на масата', steps: (id) => id.endsWith('-swap'), otherwise: 'без отделно време' },
+}
+
+/** To the second: „55 сек“, „1 мин 30 сек“, „1 ч 5 мин“. */
+function clock(minutes: number): string {
+  const total = Math.round(minutes * 60)
+  const h = Math.floor(total / 3600)
+  const m = Math.floor((total % 3600) / 60)
+  const sec = total % 60
+  if (h > 0) return m > 0 ? `${h} ч ${m} мин` : `${h} ч`
+  if (m === 0) return `${sec} сек`
+  return sec > 0 ? `${m} мин ${sec} сек` : `${m} мин`
+}
+
+/** The label text: what is done, how long it takes in this cabinet altogether, and its price. */
+function tagText(title: string, steps: AssemblyStep[], price: (minutes: number) => string | null, otherwise: string): string {
+  if (steps.length === 0) return `${title} · ${otherwise}`
+  const minutes = steps.reduce((sum, step) => sum + step.minutes, 0)
+  const cost = price(minutes)
+  return `${title} · ${clock(minutes)}${cost ? ` · ${cost}` : ''}`
+}
 
 /**
  * The cabinet put together scene by scene, the way the workshop does it. First the loose boards on
@@ -100,6 +144,18 @@ export function AssemblyFilm({ store }: { store: CaptureStore }) {
     benchRef.current?.setSpeed(pace)
     studioRef.current?.setSpeed(pace)
   }, [pace, benchKey, ready])
+
+  // Beside the tool or the piece: what is done, its time and its price.
+  const allSteps = film?.steps ?? []
+  const describe = (op: BenchOp) => {
+    const job = BENCH_OPS[op]
+    return tagText(job.title, allSteps.filter((step) => job.steps(step.id)), priceOf, job.otherwise)
+  }
+  const stageTag = stage && !stage.bench ? tagText(stage.title, stage.steps, priceOf, 'без отделно време') : null
+  useEffect(() => {
+    benchRef.current?.setDescribe(describe)
+    studioRef.current?.setTag(stageTag)
+  })
 
   // The scene on screen: on the bench a job plays; otherwise what stands is shown and this
   // scene's work plays on it.

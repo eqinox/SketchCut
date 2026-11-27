@@ -9,7 +9,7 @@ import type { SceneSolid } from '@/lib/cabinets/scene-solids'
  */
 export interface BenchFace {
   /** Pencil lines: the bottom, fixed shelves and dividers (their middle, or both edges), slides. */
-  lines: { u0: number; v0: number; u1: number; v1: number }[]
+  lines: { u0: number; v0: number; u1: number; v1: number; kind?: BenchLineKind }[]
   /** A cross where the clothes rail's holder comes. */
   crosses: { u: number; v: number }[]
   /** Shelf-pin holes. */
@@ -90,6 +90,9 @@ function faceOf(part: { x: number; w: number; y: number; h: number }, board: Box
   return 0
 }
 
+/** What a pencil line is for: where the bottom comes, a fixed shelf, a drawer slide, a divider. */
+export type BenchLineKind = 'bottom' | 'fixed' | 'slide' | 'divider'
+
 const emptyFace = (): BenchFace => ({ lines: [], crosses: [], points: [], slides: [] })
 const work = (face: BenchFace) => face.lines.length + face.crosses.length + face.points.length + face.slides.length
 
@@ -101,9 +104,9 @@ function uprightFaces(board: Box, solids: SceneSolid[], withBottom: boolean): Ma
   ])
   const boxes = solids.filter(isBox)
   const at = (side: -1 | 0 | 1) => (side === 0 ? null : faces.get(side)!)
-  const line = (face: BenchFace, u: number, v0: number, v1: number) => {
+  const line = (face: BenchFace, kind: BenchLineKind, u: number, v0: number, v1: number) => {
     if (face.lines.some((item) => Math.abs(item.u0 - u) < 2 && Math.abs(item.v0 - v0) < 2)) return
-    face.lines.push({ u0: u, v0, u1: u, v1 })
+    face.lines.push({ u0: u, v0, u1: u, v1, kind })
   }
   const span = (part: Box) => {
     const v0 = Math.max(0, part.z - board.z)
@@ -113,7 +116,7 @@ function uprightFaces(board: Box, solids: SceneSolid[], withBottom: boolean): Ma
   if (withBottom) {
     for (const bottom of mainBoxes(solids, (name) => name === 'bottom')) {
       const face = at(faceOf(bottom, board, 30))
-      if (face) line(face, bottom.y + bottom.h / 2 - board.y, ...span(bottom))
+      if (face) line(face, 'bottom', bottom.y + bottom.h / 2 - board.y, ...span(bottom))
     }
   }
   for (const shelf of boxes.filter((box) => piece(box).startsWith('shelf-'))) {
@@ -122,8 +125,8 @@ function uprightFaces(board: Box, solids: SceneSolid[], withBottom: boolean): Ma
     if (isFixedShelf(piece(shelf))) {
       // A fixed shelf is screwed through the board: two lines, one per face of the shelf,
       // a shelf's thickness apart; the shelf sits between them.
-      line(face, shelf.y - board.y, ...span(shelf))
-      line(face, shelf.y + shelf.h - board.y, ...span(shelf))
+      line(face, 'fixed', shelf.y - board.y, ...span(shelf))
+      line(face, 'fixed', shelf.y + shelf.h - board.y, ...span(shelf))
     } else {
       const u = shelf.y + shelf.h + PIN_UNDER_SHELF_MM - board.y
       for (const v of [PIN_EDGE_MM, board.d - PIN_EDGE_MM]) {
@@ -143,7 +146,7 @@ function uprightFaces(board: Box, solids: SceneSolid[], withBottom: boolean): Ma
     const u = slide.y + slide.h - board.y
     if (face.slides.some((item) => Math.abs(item.u - u) < 2)) continue
     const [v0, v1] = span(slide)
-    line(face, u, v0, v1)
+    line(face, 'slide', u, v0, v1)
     face.slides.push({ u, v0, length: v1 - v0 })
   }
   return faces
@@ -172,7 +175,7 @@ function flatBoard(flat: Box, dividers: Box[], name: string): BenchBoard | null 
     const v0 = Math.max(0, divider.z - flat.z)
     const v1 = Math.min(flat.d, v0 + divider.d)
     for (const edge of [divider.x, divider.x + divider.w]) {
-      face.lines.push({ u0: edge - flat.x, v0, u1: edge - flat.x, v1 })
+      face.lines.push({ u0: edge - flat.x, v0, u1: edge - flat.x, v1, kind: 'divider' })
     }
   }
   if (face.lines.length === 0) return null

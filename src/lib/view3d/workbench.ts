@@ -23,9 +23,24 @@ import {
 } from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { attachJoysticks } from '@/lib/view3d/joysticks'
-import { BENCH_TABLE, benchJobs, benchLayout, type BenchGroup, type BenchJob } from '@/lib/bench-plan'
+import { BENCH_TABLE, benchJobs, benchLayout, type BenchGroup, type BenchJob, type BenchLineKind } from '@/lib/bench-plan'
+import { createToolTag } from '@/lib/view3d/tool-tag'
+
+/** What one moment of the bench film is: the label beside the tool says what it costs. */
+export type BenchOp =
+  | `line:${BenchLineKind}`
+  | 'cross'
+  | 'point'
+  | 'dent'
+  | 'drill'
+  | 'pin'
+  | 'slide'
+  | 'screw'
+  | 'swap'
 
 export type Workbench = {
+  /** The text beside the tool for each kind of job (null: no label). */
+  setDescribe(describe: ((op: BenchOp) => string | null) | null): void
   /** Lays the boards out again with the earlier jobs done, and plays job `index` of `benchJobs(group)`. */
   play(index: number, onDone: () => void): void
   /** 1 is the normal pace; higher is faster. */
@@ -40,6 +55,8 @@ type Action = {
   focus?: Vector3 | (() => Vector3)
   /** How far the camera stays from the focus (default: close in on the tool). */
   distance?: number
+  /** What is being done, for the label beside the tool. */
+  op?: BenchOp
 }
 
 /** Boards lie side by side, this far apart. */
@@ -68,6 +85,10 @@ export function mountWorkbench(host: HTMLElement, group: BenchGroup, soft: boole
   renderer.domElement.style.height = '100%'
   renderer.domElement.style.display = 'block'
   host.appendChild(renderer.domElement)
+  // Beside the tool: what the job is, its time and its price.
+  const tag = createToolTag(host, 76)
+  let describe: ((op: BenchOp) => string | null) | null = null
+  const tagAt = new Vector3()
 
   const scene = new Scene()
   scene.add(new HemisphereLight(0xffffff, 0xb9b2a6, 1.1))
@@ -571,6 +592,7 @@ export function mountWorkbench(host: HTMLElement, group: BenchGroup, soft: boole
       onTable = next
       return {
         seconds: 5,
+        op: 'swap',
         distance: Math.max(2600, radius * 1.1),
         focus: () => watch,
         run: (p) => {
@@ -624,7 +646,7 @@ export function mountWorkbench(host: HTMLElement, group: BenchGroup, soft: boole
           })
         }
         // Pencil lines: a line at the same place on boards lying side by side is one stroke.
-        const strokes: { x: number; z0: number; z1: number; parts: { index: number; a: Vector3; b: Vector3 }[] }[] = []
+        const strokes: { x: number; z0: number; z1: number; kind: BenchLineKind; parts: { index: number; a: Vector3; b: Vector3 }[] }[] = []
         for (const { index, marks } of onFace) {
           for (const line of marks.lines) {
             const a = at(index, face, line.u0, line.v0)
@@ -638,7 +660,7 @@ export function mountWorkbench(host: HTMLElement, group: BenchGroup, soft: boole
               joined.z1 = Math.max(joined.z1, p1.z)
               joined.parts.push({ index, a: p0, b: p1 })
             } else {
-              strokes.push({ x: p0.x, z0: p0.z, z1: p1.z, parts: [{ index, a: p0, b: p1 }] })
+              strokes.push({ x: p0.x, z0: p0.z, z1: p1.z, kind: line.kind ?? 'bottom', parts: [{ index, a: p0, b: p1 }] })
             }
           }
         }
@@ -649,6 +671,7 @@ export function mountWorkbench(host: HTMLElement, group: BenchGroup, soft: boole
           const length = stroke.z1 - stroke.z0
           actions.push({
             focus: () => new Vector3(pencil.position.x, y, pencil.position.z),
+            op: `line:${stroke.kind}`,
             seconds: (1.2 + length / 900) * slow(count++),
             run: (p) => {
               const q = ease(span(p, 0.15, 0.9))
@@ -662,8 +685,8 @@ export function mountWorkbench(host: HTMLElement, group: BenchGroup, soft: boole
         // A cross where the clothes rail's holder goes, then a small one at every shelf-pin point.
         for (const { index, marks } of onFace) {
           const spots = [
-            ...marks.crosses.map((item) => ({ ...item, half: 14 })),
-            ...marks.points.map((item) => ({ ...item, half: 7 })),
+            ...marks.crosses.map((item) => ({ ...item, half: 14, op: 'cross' as const })),
+            ...marks.points.map((item) => ({ ...item, half: 7, op: 'point' as const })),
           ]
           for (const spot of spots) {
             const c = at(index, face, spot.u, spot.v)
@@ -671,6 +694,7 @@ export function mountWorkbench(host: HTMLElement, group: BenchGroup, soft: boole
             const two = pencilTick(index, face, c, 'z', spot.half)
             actions.push({
               focus: c,
+              op: spot.op,
               seconds: 0.9 * slow(count++),
               run: (p) => {
                 one(span(p, 0.1, 0.5))
@@ -697,6 +721,7 @@ export function mountWorkbench(host: HTMLElement, group: BenchGroup, soft: boole
         points.forEach(({ c }, i) => {
           actions.push({
             focus: c.clone().add(new Vector3(0, 90, 0)),
+            op: 'dent',
             seconds: 1.3 * slow(i),
             run: (p) => {
               awl.visible = p < 1
@@ -718,6 +743,7 @@ export function mountWorkbench(host: HTMLElement, group: BenchGroup, soft: boole
         points.forEach(({ c }, i) => {
           actions.push({
             focus: c.clone().add(new Vector3(0, 90, 0)),
+            op: 'drill',
             seconds: 1.3 * slow(i),
             run: (p) => {
               drill.visible = p < 1
@@ -744,6 +770,7 @@ export function mountWorkbench(host: HTMLElement, group: BenchGroup, soft: boole
           const up = face % 2 === 1 ? -1 : 1
           actions.push({
             focus: c,
+            op: 'pin',
             seconds: 1.1 * slow(i),
             run: (p) => {
               pin.visible = true
@@ -795,6 +822,7 @@ export function mountWorkbench(host: HTMLElement, group: BenchGroup, soft: boole
             const top = soft ? 14 : 1.4
             actions.push({
               focus: front.clone().add(new Vector3(0, 0, (toBack * slide.length) / 2)),
+              op: 'slide',
               seconds: 0.9 * slow(screwCount),
               run: (p) => {
                 inner.visible = true
@@ -817,6 +845,7 @@ export function mountWorkbench(host: HTMLElement, group: BenchGroup, soft: boole
               const seat = screw.position.clone()
               actions.push({
                 focus: spot.clone().add(new Vector3(0, 90, 0)),
+                op: 'screw',
                 seconds: 1.2 * slow(screwCount++),
                 run: (p) => {
                   screw.visible = true
@@ -912,6 +941,13 @@ export function mountWorkbench(host: HTMLElement, group: BenchGroup, soft: boole
     }
     placePerson(delta)
     controls.update()
+    const working = current < queue.length ? queue[current] : null
+    const anchor = working?.focus ? (typeof working.focus === 'function' ? working.focus() : working.focus) : null
+    tag.place(
+      working?.op && describe ? describe(working.op) : null,
+      anchor ? tagAt.copy(anchor).add(new Vector3(0, 40, 0)) : null,
+      camera,
+    )
     renderer.render(scene, camera)
   }
   frameId = requestAnimationFrame(tick)
@@ -937,12 +973,16 @@ export function mountWorkbench(host: HTMLElement, group: BenchGroup, soft: boole
         onDone()
       }
     },
+    setDescribe(next) {
+      describe = next
+    },
     setSpeed(next) {
       speed = next
     },
     dispose() {
       disposed = true
       stopSticks()
+      tag.dispose()
       cancelAnimationFrame(frameId)
       observer.disconnect()
       controls.dispose()
