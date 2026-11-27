@@ -36,6 +36,8 @@ export function AssemblyFilm({ store }: { store: CaptureStore }) {
   const [at, setAt] = useState(0)
   const [playing, setPlaying] = useState(true)
   const [fast, setFast] = useState(false)
+  /** How fast the 3D work runs: 0 while paused. */
+  const pace = playing ? (fast ? FAST_SPEED : 1) : 0
   const [sceneDone, setSceneDone] = useState('')
 
   const soft = film?.slideKind ? isSoftCloseSlide(film.slideKind) : false
@@ -82,7 +84,7 @@ export function AssemblyFilm({ store }: { store: CaptureStore }) {
     } catch {
       return
     }
-    bench.setSpeed(fast ? FAST_SPEED : 1)
+    bench.setSpeed(pace)
     benchRef.current = bench
     return () => {
       bench.dispose()
@@ -91,10 +93,11 @@ export function AssemblyFilm({ store }: { store: CaptureStore }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [benchKey])
 
+  // Paused, everything on screen stands still where it is; „По-бързо“ runs it three times as fast.
   useEffect(() => {
-    benchRef.current?.setSpeed(fast ? FAST_SPEED : 1)
-    studioRef.current?.setSpeed(fast ? FAST_SPEED : 1)
-  }, [fast, benchKey, ready])
+    benchRef.current?.setSpeed(pace)
+    studioRef.current?.setSpeed(pace)
+  }, [pace, benchKey, ready])
 
   // The scene on screen: on the bench a job plays; otherwise what stands is shown and this
   // scene's work plays on it.
@@ -131,7 +134,6 @@ export function AssemblyFilm({ store }: { store: CaptureStore }) {
   }
 
   const go = (next: number) => {
-    setPlaying(false)
     setAt(Math.max(0, Math.min(last, next)))
   }
   const button = 'flex items-center gap-1 rounded-md border border-neutral-300 bg-white px-2.5 py-1.5 text-sm text-neutral-900 disabled:opacity-40'
