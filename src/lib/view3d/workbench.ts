@@ -9,6 +9,7 @@ import {
   HemisphereLight,
   Material,
   Mesh,
+  Object3D,
   MeshStandardMaterial,
   PCFSoftShadowMap,
   PerspectiveCamera,
@@ -19,15 +20,11 @@ import {
   WebGLRenderer,
 } from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
-import type { BenchBoard } from '@/lib/bench-plan'
-
-/** The three jobs done on the bench, in order. */
-export type BenchPhase = 'mark' | 'pins' | 'slides'
-export const BENCH_PHASES: BenchPhase[] = ['mark', 'pins', 'slides']
+import { benchJobs, type BenchGroup, type BenchJob } from '@/lib/bench-plan'
 
 export type Workbench = {
-  /** Lays the boards out again with earlier phases done, and plays this one. */
-  play(phase: BenchPhase, onDone: () => void): void
+  /** Lays the boards out again with the earlier jobs done, and plays job `index` of `benchJobs(group)`. */
+  play(index: number, onDone: () => void): void
   /** 1 is the normal pace; higher is faster. */
   setSpeed(speed: number): void
   dispose(): void
@@ -36,7 +33,8 @@ export type Workbench = {
 /** One timed piece of a film: `run` is called with 0 → 1 as it goes, and with 1 at the end. */
 type Action = { seconds: number; run: (p: number) => void; focus?: Vector3 | (() => Vector3) }
 
-const GAP_MM = 160
+/** Boards lie side by side, this far apart. */
+const GAP_MM = 6
 const SCREW_HOLES = 3
 /** The first few repeats of a job are shown slowly; the rest go quickly. */
 const SLOW_REPEATS = 2
@@ -47,7 +45,9 @@ const clamp01 = (p: number) => Math.min(1, Math.max(0, p))
 /** Part of `p` between `a` and `b`, as 0 → 1. */
 const span = (p: number, a: number, b: number) => clamp01((p - a) / (b - a))
 
-export function mountWorkbench(host: HTMLElement, boards: BenchBoard[], soft: boolean): Workbench {
+export function mountWorkbench(host: HTMLElement, group: BenchGroup, soft: boolean): Workbench {
+  const boards = group.boards
+  const jobs: BenchJob[] = benchJobs(group)
   const renderer = new WebGLRenderer({ antialias: true })
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5))
   renderer.outputColorSpace = SRGBColorSpace
@@ -179,37 +179,61 @@ export function mountWorkbench(host: HTMLElement, boards: BenchBoard[], soft: bo
 
   const table = new Group()
   scene.add(table)
-  let built = new Group()
-  table.add(built)
 
-  // The boards side by side on the bench, marked face up.
+  // The boards side by side across the bench, their top edges (u = 0) in a row.
   const placed = boards.map((board, index) => {
-    const x = boards.slice(0, index).reduce((sum, item) => sum + item.u + GAP_MM, 0)
-    return { board, x }
+    const z = boards.slice(0, index).reduce((sum, item) => sum + item.v + GAP_MM, 0)
+    // The two sides: the first one turned round, so the front edges meet in the middle.
+    const mirror = group.mirrorSecond && index === 0 && boards.length > 1
+    return { board, z, mirror, center: new Vector3(board.u / 2, board.thickness / 2, z + board.v / 2) }
   })
-  const totalU = placed.reduce((sum, item) => Math.max(sum, item.x + item.board.u), 0)
-  const maxV = boards.reduce((sum, board) => Math.max(sum, board.v), 0)
-  const at = (index: number, u: number, v: number, y = 0) => {
-    const { board, x } = placed[index]
-    return new Vector3(x + u, board.thickness + y, v)
+  const totalU = boards.reduce((most, board) => Math.max(most, board.u), 0)
+  const totalV = placed.reduce((most, item) => Math.max(most, item.z + item.board.v), 0)
+  /** Where a mark of face `face` lands on the bench while that face is up. */
+  const at = (index: number, face: number, u: number, v: number, y = 0) => {
+    const { board, z, mirror } = placed[index]
+    const flipped = face % 2 === 1
+    const across = mirror !== flipped ? board.v - v : v
+    return new Vector3(u, board.thickness + y, z + across)
+  }
+  /** World point (with that face up) to the board's own space. */
+  const toLocal = (index: number, face: number, point: Vector3) => {
+    const c = placed[index].center
+    const local = point.clone().sub(c)
+    if (face % 2 === 1) {
+      local.y = -local.y
+      local.z = -local.z
+    }
+    return local
   }
 
   const floor = new Mesh(new PlaneGeometry(1, 1), mat('#cbb48f', 0.85))
   bin.push(floor.geometry)
   floor.rotation.x = -Math.PI / 2
   floor.receiveShadow = true
-  floor.scale.set(totalU + 1200, maxV + 1200, 1)
-  floor.position.set(totalU / 2, -0.5, maxV / 2)
+  floor.scale.set(totalU + 1600, totalV + 1600, 1)
+  floor.position.set(totalU / 2, -0.5, totalV / 2)
   table.add(floor)
 
+  const radius = Math.max(totalU, totalV, 600)
+  /** Where the camera looks from when it shows all the boards. */
+  const home = { target: new Vector3(totalU / 2, 0, totalV / 2), camera: new Vector3() }
+  /** Far enough back that the whole length fits, on a narrow phone screen too. */
+  const placeHome = () => {
+    const look = new Vector3(0, 0.75, 0.72).normalize()
+    const half = Math.tan(((camera.fov / 2) * Math.PI) / 180)
+    const across = half * Math.max(0.3, camera.aspect)
+    const distance = Math.max(radius * 1.04, (totalU / 2) * 1.12 / across + totalV / 2)
+    home.camera.copy(home.target).addScaledVector(look, distance)
+  }
+  placeHome()
   const frame = () => {
-    const radius = Math.max(totalU, maxV, 600)
-    controls.target.set(totalU / 2, 0, maxV / 2)
-    camera.position.set(totalU / 2, radius * 0.75, maxV / 2 + radius * 0.72)
+    controls.target.copy(home.target)
+    camera.position.copy(home.camera)
     camera.updateProjectionMatrix()
     controls.update()
-    sun.position.set(totalU * 0.3, radius * 1.4, maxV + radius * 0.6)
-    sun.target.position.set(totalU / 2, 0, maxV / 2)
+    sun.position.set(totalU * 0.3, radius * 1.4, totalV + radius * 0.6)
+    sun.target.position.set(totalU / 2, 0, totalV / 2)
     const cam = sun.shadow.camera
     cam.left = -radius
     cam.right = radius
@@ -221,215 +245,299 @@ export function mountWorkbench(host: HTMLElement, boards: BenchBoard[], soft: bo
   }
   frame()
 
-  /** A thin pencil line from a to b on the board face, drawn up to `p`. */
-  const pencilLine = (a: Vector3, b: Vector3) => {
-    const length = a.distanceTo(b)
-    const direction = b.clone().sub(a).normalize()
-    const alongV = Math.abs(direction.z) >= Math.abs(direction.x)
+  let built = new Group()
+  table.add(built)
+  let slabs: Group[] = []
+
+  /** Puts a mark or a fitting on board `index`, given where it is on the bench while `face` is up. */
+  const put = (object: Object3D, index: number, face: number, point: Vector3) => {
+    object.position.copy(toLocal(index, face, point))
+    if (face % 2 === 1) object.rotation.x += Math.PI
+    slabs[index].add(object)
+  }
+
+  /** A thin pencil line on one board, drawn along z from a to b: `draw(q)` shows it up to q. */
+  const pencilLine = (index: number, face: number, a: Vector3, b: Vector3) => {
     const line = box(1, 0.3, 1, graphite)
     line.castShadow = false
-    built.add(line)
-    return (p: number) => {
-      const drawn = Math.max(0.01, length * p)
-      line.scale.set(alongV ? 1.8 : drawn, 1, alongV ? drawn : 1.8)
-      const mid = a.clone().addScaledVector(direction, drawn / 2)
-      line.position.set(mid.x, a.y + 0.15, mid.z)
+    put(line, index, face, a)
+    line.visible = false
+    return (q: number) => {
+      const drawn = Math.abs(b.z - a.z) * q
+      line.visible = drawn > 0.5
+      line.scale.set(1.8, 1, Math.max(0.01, drawn))
+      const mid = a.clone().add(new Vector3(0, 0.15, Math.sign(b.z - a.z) * (drawn / 2)))
+      line.position.copy(toLocal(index, face, mid))
+    }
+  }
+  /** A short pencil stroke along x (for crosses). */
+  const pencilTick = (index: number, face: number, c: Vector3, along: 'x' | 'z', half: number) => {
+    const line = box(along === 'x' ? half * 2 : 1.8, 0.3, along === 'x' ? 1.8 : half * 2, graphite)
+    line.castShadow = false
+    put(line, index, face, c.clone().add(new Vector3(0, 0.15, 0)))
+    line.visible = false
+    return (q: number) => {
+      line.visible = q > 0.05
+      if (along === 'x') line.scale.x = Math.max(0.01, q)
+      else line.scale.z = Math.max(0.01, q)
     }
   }
 
-  /** Builds the scene and the whole film; nothing is shown until the actions run. */
+  /** Builds the boards and the whole film; nothing is shown until the actions run. */
   const script = () => {
     built.removeFromParent()
     built = new Group()
     table.add(built)
-    placed.forEach(({ board, x }) => {
+    slabs = placed.map(({ board, center }) => {
+      const holder = new Group()
+      holder.position.copy(center)
       const slab = box(board.u, board.thickness, board.v, mat(board.color, 0.7))
-      slab.position.set(x + board.u / 2, board.thickness / 2, board.v / 2)
-      built.add(slab)
+      holder.add(slab)
+      built.add(holder)
+      return holder
     })
 
-    const phases: Record<BenchPhase, Action[]> = { mark: [], pins: [], slides: [] }
+    const film: Action[][] = jobs.map(() => [])
     const slow = (count: number) => (count < SLOW_REPEATS ? 1 : FAST)
-
-    // Pencil: every line, then a small cross at every pin point.
     let count = 0
-    placed.forEach(({ board }, index) => {
-      for (const line of board.lines) {
-        const a = at(index, line.u0, line.v0)
-        const b = at(index, line.u1, line.v1)
-        const draw = pencilLine(a, b)
-        draw(0)
-        phases.mark.push({
-          // Follow the pencil along the line, at the board's face.
-          focus: () => new Vector3(pencil.position.x, a.y, pencil.position.z),
-          seconds: 1.4 * slow(count++),
-          run: (p) => {
-            const q = ease(span(p, 0.15, 0.9))
-            draw(q)
-            pencil.visible = p < 1
-            pencil.position.copy(a.clone().lerp(b, q))
-            pencil.position.y = a.y + (1 - span(p, 0, 0.15)) * 40
-          },
-        })
-      }
-      for (const point of board.points) {
-        const c = at(index, point.u, point.v)
-        const one = pencilLine(c.clone().add(new Vector3(-7, 0, 0)), c.clone().add(new Vector3(7, 0, 0)))
-        const two = pencilLine(c.clone().add(new Vector3(0, 0, -7)), c.clone().add(new Vector3(0, 0, 7)))
-        one(0)
-        two(0)
-        phases.mark.push({
-          focus: c,
-          seconds: 0.9 * slow(count++),
-          run: (p) => {
-            one(span(p, 0.1, 0.5))
-            two(span(p, 0.55, 0.95))
-            pencil.visible = p < 1
-            pencil.position.copy(c)
-            pencil.position.y = c.y + (1 - span(p, 0, 0.1)) * 30
-          },
-        })
-      }
-    })
 
-    // Shelf pins: a dent with the awl and hammer at every point, then every hole drilled,
-    // then every pin knocked in.
-    const points = placed.flatMap(({ board }, index) => board.points.map((point) => at(index, point.u, point.v)))
-    const dents = points.map((c) => {
-      const dent = cyl(1.4, 1.4, 0.4, hole, 10)
-      dent.position.set(c.x, c.y + 0.2, c.z)
-      dent.visible = false
-      built.add(dent)
-      return dent
-    })
-    points.forEach((c, i) => {
-      phases.pins.push({
-        focus: c,
-        seconds: 1.3 * slow(i),
-        run: (p) => {
-          awl.visible = p < 1
-          hammer.visible = p < 1
-          awl.position.set(c.x, c.y + (1 - span(p, 0, 0.2)) * 50, c.z)
-          // Two blows: the head drops on the awl's handle and lifts again.
-          const blow = Math.sin(span(p, 0.25, 0.95) * Math.PI * 2) ** 2
-          hammer.position.set(c.x, c.y + 150 + 2 + (1 - blow) * 90, c.z)
-          if (p >= 0.5) dents[i].visible = true
-        },
-      })
-    })
-    const holes = points.map((c) => {
-      const dot = cyl(2.25, 2.25, 0.5, hole, 14)
-      dot.position.set(c.x, c.y + 0.25, c.z)
-      dot.visible = false
-      built.add(dot)
-      return dot
-    })
-    points.forEach((c, i) => {
-      phases.pins.push({
-        focus: c,
-        seconds: 1.3 * slow(i),
-        run: (p) => {
-          drill.visible = p < 1
-          const down = span(p, 0.15, 0.6) - span(p, 0.7, 1)
-          drill.position.set(c.x, c.y + 40 - down * 52, c.z)
-          drill.rotation.y = p * 40
-          if (p >= 0.55) {
-            holes[i].visible = true
-            dents[i].visible = false
-          }
-        },
-      })
-    })
-    points.forEach((c, i) => {
-      const pin = new Group()
-      const peg = cyl(2.4, 2.4, 10, steel, 10)
-      peg.position.y = -5
-      const plate = box(12, 2, 9, steel)
-      plate.position.set(0, 1, 2)
-      pin.add(peg, plate)
-      pin.visible = false
-      built.add(pin)
-      phases.pins.push({
-        focus: c,
-        seconds: 1.1 * slow(i),
-        run: (p) => {
-          pin.visible = true
-          hammer.visible = p < 1
-          const sink = span(p, 0.3, 0.9)
-          pin.position.set(c.x, c.y + 10 - sink * 10 + (1 - span(p, 0, 0.25)) * 40, c.z)
-          const blow = Math.sin(span(p, 0.3, 0.95) * Math.PI * 2) ** 2
-          hammer.position.set(c.x, c.y + 3 + (1 - blow) * 70, c.z)
-        },
-      })
-    })
+    jobs.forEach((job, jobIndex) => {
+      const actions = film[jobIndex]
+      const face = job.face
+      const onFace = placed.flatMap(({ board }, index) => (board.faces[face] ? [{ index, marks: board.faces[face] }] : []))
 
-    // Slides: each one laid on its line, then three screws — the first hole, the last, the middle.
-    let screwCount = 0
-    placed.forEach(({ board }, index) => {
-      for (const slide of board.slides) {
-        const group = new Group()
-        const web = soft ? 38 : 28
-        const plate = box(web, soft ? 14 : 1.4, slide.length, slideMat)
-        plate.position.set(-web / 2, (soft ? 14 : 1.4) / 2, slide.length / 2)
-        group.add(plate)
-        if (soft) {
-          const clip = box(22, 10, 34, red)
-          clip.position.set(-web / 2, 19, 20)
-          group.add(clip)
-        } else {
-          const flange = box(1.4, 12, slide.length, slideMat)
-          flange.position.set(-0.7, 6, slide.length / 2)
-          const wheel = cyl(11, 11, 8, wheelMat, 18)
-          wheel.rotation.z = Math.PI / 2
-          wheel.position.set(-web / 2, 11, slide.length - 14)
-          group.add(flange, wheel)
-        }
-        // The slide's bottom edge runs on the pencil line (larger u is lower on the side).
-        const base = at(index, slide.u, slide.v0)
-        group.position.copy(base)
-        group.visible = false
-        built.add(group)
-        const top = soft ? 14 : 1.4
-        phases.slides.push({
-          focus: base.clone().add(new Vector3(0, 0, slide.length / 2)),
-          seconds: 0.9 * slow(screwCount),
-          run: (p) => {
-            group.visible = true
-            group.position.y = base.y + (1 - ease(p)) * 120
-          },
-        })
-        const spots = [10, slide.length - 10, slide.length / 2].slice(0, SCREW_HOLES)
-        for (const v of spots) {
-          const screw = new Group()
-          const head = cyl(4, 3.2, 2.6, steel, 14)
-          const slotA = box(6.5, 0.6, 1, hole)
-          slotA.position.y = 1.4
-          const slotB = box(1, 0.6, 6.5, hole)
-          slotB.position.y = 1.4
-          screw.add(head, slotA, slotB)
-          screw.visible = false
-          built.add(screw)
-          const spot = base.clone().add(new Vector3(-web / 2, top + 1.3, v))
-          phases.slides.push({
-            focus: spot,
-            seconds: 1.2 * slow(screwCount++),
+      if (job.phase === 'mark') {
+        // The second face: each board that has work on it is lifted and turned over.
+        if (face > 0) {
+          const turning = onFace.map((item) => item.index)
+          actions.push({
+            focus: new Vector3(totalU / 2, 0, totalV / 2),
+            seconds: 1.8,
             run: (p) => {
-              screw.visible = true
-              driver.visible = p < 1
-              const sink = ease(span(p, 0.25, 0.85))
-              screw.position.set(spot.x, spot.y + (1 - sink) * 16, spot.z)
-              screw.rotation.y = sink * 30
-              driver.position.set(spot.x, screw.position.y + 2.6 + (1 - span(p, 0, 0.25)) * 60, spot.z)
-              driver.rotation.y = sink * 30
+              const q = ease(p)
+              for (const index of turning) {
+                const { board, center } = placed[index]
+                slabs[index].rotation.x = (face - 1 + q) * Math.PI
+                slabs[index].position.y = center.y + Math.sin(Math.PI * q) * (board.v / 2 + 60)
+              }
             },
           })
         }
+        // Pencil lines: a line at the same place on boards lying side by side is one stroke.
+        const strokes: { x: number; z0: number; z1: number; parts: { index: number; a: Vector3; b: Vector3 }[] }[] = []
+        for (const { index, marks } of onFace) {
+          for (const line of marks.lines) {
+            const a = at(index, face, line.u0, line.v0)
+            const b = at(index, face, line.u1, line.v1)
+            const [p0, p1] = a.z <= b.z ? [a, b] : [b, a]
+            const joined = strokes.find(
+              (item) => Math.abs(item.x - p0.x) < 1 && p0.z - item.z1 <= GAP_MM + 2 && item.z0 - p1.z <= GAP_MM + 2,
+            )
+            if (joined) {
+              joined.z0 = Math.min(joined.z0, p0.z)
+              joined.z1 = Math.max(joined.z1, p1.z)
+              joined.parts.push({ index, a: p0, b: p1 })
+            } else {
+              strokes.push({ x: p0.x, z0: p0.z, z1: p1.z, parts: [{ index, a: p0, b: p1 }] })
+            }
+          }
+        }
+        strokes.sort((a, b) => a.x - b.x)
+        for (const stroke of strokes) {
+          const draws = stroke.parts.map((part) => ({ part, draw: pencilLine(part.index, face, part.a, part.b) }))
+          const y = stroke.parts[0].a.y
+          const length = stroke.z1 - stroke.z0
+          actions.push({
+            focus: () => new Vector3(pencil.position.x, y, pencil.position.z),
+            seconds: (1.2 + length / 900) * slow(count++),
+            run: (p) => {
+              const q = ease(span(p, 0.15, 0.9))
+              const z = stroke.z0 + length * q
+              for (const { part, draw } of draws) draw(span(z, part.a.z, part.b.z))
+              pencil.visible = p < 1
+              pencil.position.set(stroke.x, y + (1 - span(p, 0, 0.15)) * 40, z)
+            },
+          })
+        }
+        // A cross where the clothes rail's holder goes, then a small one at every shelf-pin point.
+        for (const { index, marks } of onFace) {
+          const spots = [
+            ...marks.crosses.map((item) => ({ ...item, half: 14 })),
+            ...marks.points.map((item) => ({ ...item, half: 7 })),
+          ]
+          for (const spot of spots) {
+            const c = at(index, face, spot.u, spot.v)
+            const one = pencilTick(index, face, c, 'x', spot.half)
+            const two = pencilTick(index, face, c, 'z', spot.half)
+            actions.push({
+              focus: c,
+              seconds: 0.9 * slow(count++),
+              run: (p) => {
+                one(span(p, 0.1, 0.5))
+                two(span(p, 0.55, 0.95))
+                pencil.visible = p < 1
+                pencil.position.set(c.x, c.y + (1 - span(p, 0, 0.1)) * 30, c.z)
+              },
+            })
+          }
+        }
+      }
+
+      if (job.phase === 'pins') {
+        // A dent with the awl and hammer at every point, then every hole drilled, then every pin knocked in.
+        const points = onFace.flatMap(({ index, marks }) =>
+          marks.points.map((point) => ({ index, c: at(index, face, point.u, point.v) })),
+        )
+        const dents = points.map(({ index, c }) => {
+          const dent = cyl(1.4, 1.4, 0.4, hole, 10)
+          put(dent, index, face, c.clone().add(new Vector3(0, 0.2, 0)))
+          dent.visible = false
+          return dent
+        })
+        points.forEach(({ c }, i) => {
+          actions.push({
+            focus: c,
+            seconds: 1.3 * slow(i),
+            run: (p) => {
+              awl.visible = p < 1
+              hammer.visible = p < 1
+              awl.position.set(c.x, c.y + (1 - span(p, 0, 0.2)) * 50, c.z)
+              // Two blows: the head drops on the awl's handle and lifts again.
+              const blow = Math.sin(span(p, 0.25, 0.95) * Math.PI * 2) ** 2
+              hammer.position.set(c.x, c.y + 150 + 2 + (1 - blow) * 90, c.z)
+              if (p >= 0.5) dents[i].visible = true
+            },
+          })
+        })
+        const holes = points.map(({ index, c }) => {
+          const dot = cyl(2.25, 2.25, 0.5, hole, 14)
+          put(dot, index, face, c.clone().add(new Vector3(0, 0.25, 0)))
+          dot.visible = false
+          return dot
+        })
+        points.forEach(({ c }, i) => {
+          actions.push({
+            focus: c,
+            seconds: 1.3 * slow(i),
+            run: (p) => {
+              drill.visible = p < 1
+              const down = span(p, 0.15, 0.6) - span(p, 0.7, 1)
+              drill.position.set(c.x, c.y + 40 - down * 52, c.z)
+              drill.rotation.y = p * 40
+              if (p >= 0.55) {
+                holes[i].visible = true
+                dents[i].visible = false
+              }
+            },
+          })
+        })
+        points.forEach(({ index, c }, i) => {
+          const pin = new Group()
+          const peg = cyl(2.4, 2.4, 10, steel, 10)
+          peg.position.y = -5
+          const plate = box(12, 2, 9, steel)
+          plate.position.set(0, 1, 2)
+          pin.add(peg, plate)
+          pin.visible = false
+          put(pin, index, face, c)
+          const rest = pin.position.clone()
+          const up = face % 2 === 1 ? -1 : 1
+          actions.push({
+            focus: c,
+            seconds: 1.1 * slow(i),
+            run: (p) => {
+              pin.visible = true
+              hammer.visible = p < 1
+              const sink = span(p, 0.3, 0.9)
+              pin.position.copy(rest)
+              pin.position.y += up * (10 - sink * 10 + (1 - span(p, 0, 0.25)) * 40)
+              const blow = Math.sin(span(p, 0.3, 0.95) * Math.PI * 2) ** 2
+              hammer.position.set(c.x, c.y + 3 + (1 - blow) * 70, c.z)
+            },
+          })
+        })
+      }
+
+      if (job.phase === 'slides') {
+        // Each slide laid on its line, then three screws: the first hole, the last, the middle.
+        let screwCount = 0
+        for (const { index, marks } of onFace) {
+          for (const slide of marks.slides) {
+            const holder = new Group()
+            const web = soft ? 38 : 28
+            const plate = box(web, soft ? 14 : 1.4, slide.length, slideMat)
+            plate.position.set(-web / 2, (soft ? 14 : 1.4) / 2, slide.length / 2)
+            holder.add(plate)
+            if (soft) {
+              const clip = box(22, 10, 34, red)
+              clip.position.set(-web / 2, 19, 20)
+              holder.add(clip)
+            } else {
+              const flange = box(1.4, 12, slide.length, slideMat)
+              flange.position.set(-0.7, 6, slide.length / 2)
+              const wheel = cyl(11, 11, 8, wheelMat, 18)
+              wheel.rotation.z = Math.PI / 2
+              wheel.position.set(-web / 2, 11, slide.length - 14)
+              holder.add(flange, wheel)
+            }
+            // The slide's bottom edge runs on the pencil line, its front at the board's front edge.
+            const front = at(index, face, slide.u, slide.v0)
+            const back = at(index, face, slide.u, slide.v0 + slide.length)
+            const toBack = Math.sign(back.z - front.z) || 1
+            const inner = new Group()
+            inner.add(holder)
+            // Laid the other way round on the bench: the slide runs toward -z.
+            if (toBack < 0) holder.scale.z = -1
+            put(inner, index, face, front)
+            const rest = inner.position.clone()
+            const up = face % 2 === 1 ? -1 : 1
+            inner.visible = false
+            const top = soft ? 14 : 1.4
+            actions.push({
+              focus: front.clone().add(new Vector3(0, 0, (toBack * slide.length) / 2)),
+              seconds: 0.9 * slow(screwCount),
+              run: (p) => {
+                inner.visible = true
+                inner.position.copy(rest)
+                inner.position.y += up * (1 - ease(p)) * 120
+              },
+            })
+            const spots = [10, slide.length - 10, slide.length / 2].slice(0, SCREW_HOLES)
+            for (const v of spots) {
+              const screw = new Group()
+              const head = cyl(4, 3.2, 2.6, steel, 14)
+              const slotA = box(6.5, 0.6, 1, hole)
+              slotA.position.y = 1.4
+              const slotB = box(1, 0.6, 6.5, hole)
+              slotB.position.y = 1.4
+              screw.add(head, slotA, slotB)
+              screw.visible = false
+              const spot = front.clone().add(new Vector3(-web / 2, top + 1.3, toBack * v))
+              put(screw, index, face, spot)
+              const seat = screw.position.clone()
+              actions.push({
+                focus: spot,
+                seconds: 1.2 * slow(screwCount++),
+                run: (p) => {
+                  screw.visible = true
+                  driver.visible = p < 1
+                  const sink = ease(span(p, 0.25, 0.85))
+                  screw.position.copy(seat)
+                  screw.position.y += up * (1 - sink) * 16
+                  screw.rotation.y = sink * 30
+                  driver.position.set(spot.x, spot.y + (1 - sink) * 16 + 2.6 + (1 - span(p, 0, 0.25)) * 60, spot.z)
+                  driver.rotation.y = sink * 30
+                },
+              })
+            }
+          }
+        }
       }
     })
-    return phases
+    return film
   }
 
-  let phases = script()
+  let film = script()
   let queue: Action[] = []
   let current = 0
   let elapsed = 0
@@ -440,6 +548,7 @@ export function mountWorkbench(host: HTMLElement, boards: BenchBoard[], soft: bo
   let last = performance.now()
   // The camera follows the tool at work, close in, until the viewer turns it by hand.
   let follow = true
+  let backOut = -1
   const FOLLOW_MM = 700
   controls.addEventListener('start', () => {
     follow = false
@@ -452,6 +561,9 @@ export function mountWorkbench(host: HTMLElement, boards: BenchBoard[], soft: bo
     renderer.setSize(width, height, false)
     camera.aspect = width / Math.max(1, height)
     camera.updateProjectionMatrix()
+    const wasHome = camera.position.distanceTo(home.camera) < 1
+    placeHome()
+    if (wasHome) camera.position.copy(home.camera)
   }
   const observer = new ResizeObserver(resize)
   observer.observe(host)
@@ -483,10 +595,19 @@ export function mountWorkbench(host: HTMLElement, boards: BenchBoard[], soft: bo
       }
       else {
         for (const tool of tools) tool.visible = false
+        // The job is done: back out to see all the boards.
+        if (follow) backOut = 0
         const finish = done
         done = null
         finish?.()
       }
+    }
+    if (backOut >= 0 && current >= queue.length) {
+      backOut = Math.min(1, backOut + delta / 1.4)
+      const k = 1 - Math.exp(-delta * 4)
+      controls.target.lerp(home.target, k)
+      camera.position.lerp(home.camera, k)
+      if (backOut >= 1) backOut = -1
     }
     controls.update()
     renderer.render(scene, camera)
@@ -494,16 +615,17 @@ export function mountWorkbench(host: HTMLElement, boards: BenchBoard[], soft: bo
   frameId = requestAnimationFrame(tick)
 
   return {
-    play(phase, onDone) {
-      phases = script()
+    play(index, onDone) {
+      film = script()
       for (const tool of tools) tool.visible = false
       // Earlier jobs are already done when this one starts.
-      for (const earlier of BENCH_PHASES.slice(0, BENCH_PHASES.indexOf(phase))) {
-        for (const action of phases[earlier]) action.run(1)
+      for (const earlier of film.slice(0, index)) {
+        for (const action of earlier) action.run(1)
       }
       for (const tool of tools) tool.visible = false
-      queue = phases[phase]
+      queue = film[index] ?? []
       follow = true
+      backOut = -1
       current = 0
       elapsed = 0
       done = onDone
@@ -524,14 +646,5 @@ export function mountWorkbench(host: HTMLElement, boards: BenchBoard[], soft: bo
       renderer.dispose()
       if (renderer.domElement.parentElement === host) host.removeChild(renderer.domElement)
     },
-  }
-}
-
-/** For the film's caption: how many of each thing the bench jobs make. */
-export function benchCounts(boards: BenchBoard[]) {
-  return {
-    lines: boards.reduce((sum, board) => sum + board.lines.length, 0),
-    points: boards.reduce((sum, board) => sum + board.points.length, 0),
-    slides: boards.reduce((sum, board) => sum + board.slides.length, 0),
   }
 }

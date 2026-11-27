@@ -11,6 +11,7 @@ import {
   HalfFloatType,
   WebGLCubeRenderTarget,
   BoxGeometry,
+  CylinderGeometry,
   Object3D,
   PCFSoftShadowMap,
   PMREMGenerator,
@@ -70,12 +71,38 @@ export type CabinetStudio = {
   /** Makes mirror glass see-through, to show what is fixed behind it (the light's frame and strip). */
   setSeeThroughMirrors(on: boolean): void
   /**
-   * The assembly film: `done` stands in place, `adding` drops into place from above.
-   * The camera is framed once on `all`, so it stays put from step to step.
+   * One scene of the assembly film: `standing` is in place, then `motion` plays (the cabinet
+   * turned, pieces arriving one batch after another, nails hammered in) and `onDone` is called.
+   * The camera is framed once on `all`, so it stays put from scene to scene.
    */
-  setAssembly(done: SceneSolid[], adding: SceneSolid[], all: SceneSolid[], sheets: ReadonlyMap<string, DecorSheet>): void
+  setAssembly(
+    standing: SceneSolid[],
+    motion: FilmMotion,
+    all: SceneSolid[],
+    sheets: ReadonlyMap<string, DecorSheet>,
+    onDone?: () => void,
+  ): void
+  /** 1 is the normal pace of the film; higher is faster. */
+  setSpeed(speed: number): void
   dispose(): void
 }
+
+/** A nail on a back or a drawer bottom, in drawing millimetres; its head faces `dir`. */
+export type FilmNail = { x: number; y: number; z: number; dir: 'back' | 'up' }
+/**
+ * Pieces arriving together. `drop` (the default without `from`): from above. `from`: from that
+ * offset (drawing mm), straight, or `via: 'front'` first up in front of the place, then pushed in.
+ * `flip`: turned over in place, the way a drawer box is turned the right way up.
+ */
+export type FilmBatch = {
+  solids: SceneSolid[]
+  mode?: 'drop' | 'flip'
+  from?: [number, number, number]
+  via?: 'front'
+}
+/** `pose`: the whole cabinet turned about the x axis (0 standing, π upside down, π/2 on its front). */
+export type FilmMotion = { batches: FilmBatch[]; pose?: number; fromPose?: number; nails?: FilmNail[] }
+type FilmAction = { seconds: number; run: (p: number) => void }
 
 function movingKeyOf(object: Object3D | null): { kind: 'door' | 'drawer'; animKey: string; pullKey: string } | null {
   let current = object
@@ -107,7 +134,7 @@ function pieceOf(object: Object3D | null): string | null {
  */
 /** In the assembly film, new pieces drop this far and take this long to land. */
 const ARRIVE_LIFT_MM = 450
-const ARRIVE_S = 1.1
+const X_AXIS = new Vector3(1, 0, 0)
 
 export function mountCabinetStudio(
   host: HTMLElement,
@@ -232,9 +259,29 @@ export function mountCabinetStudio(
   let drawers: AnimatedDrawer[] = []
   let bin: Disposable[] = []
   let userMoved = false
-  // The assembly film: the group of pieces dropping into place, and how far along it is (0–1).
-  let arriving: Group | null = null
-  let arriveT = 1
+  // The assembly film: the scene's timed actions, where it is, and what to call at the end.
+  let filmActions: FilmAction[] = []
+  let filmAt = 0
+  let filmElapsed = 0
+  let filmSpeed = 1
+  let filmDone: (() => void) | null = null
+  let floorLevel = 0
+  const hammer = new Group()
+  {
+    const headGeo = new BoxGeometry(28, 28, 110)
+    const handleGeo = new BoxGeometry(26, 300, 20)
+    const head = new Mesh(headGeo, new MeshStandardMaterial({ color: 0x4b4f55, roughness: 0.4, metalness: 0.7 }))
+    head.position.y = 14
+    const handle = new Mesh(handleGeo, new MeshStandardMaterial({ color: 0xb07a43, roughness: 0.7 }))
+    handle.position.set(0, 14, 0)
+    handle.rotation.z = Math.PI / 2
+    handle.position.x = 165
+    head.castShadow = true
+    handle.castShadow = true
+    hammer.add(head, handle)
+    hammer.visible = false
+    scene.add(hammer)
+  }
   let assemblyFramed = false
   let assemblyShape = ''
   let frame = 0
@@ -292,6 +339,7 @@ export function mountCabinetStudio(
     const span = Math.max(radius * 4, 2400)
     floor.scale.set(span, span, 1)
     floor.position.set(center.x, bounds.min.y - 1, center.z)
+    floorLevel = bounds.min.y
     backWall.scale.set(span, span * 0.7, 1)
     backWall.position.set(center.x, bounds.min.y + span * 0.28, bounds.min.z - radius * 0.35)
     mirrorRoom.scale.set(span, span * 0.7, span)
@@ -450,11 +498,22 @@ export function mountCabinetStudio(
       angle.now += gap * (1 - Math.exp(-delta * 7))
     }
     if (moving) applyMotion()
-    if (arriving && arriveT < 1) {
-      arriveT = Math.min(1, arriveT + delta / ARRIVE_S)
-      const eased = 1 - (1 - arriveT) ** 3
-      arriving.position.y = ARRIVE_LIFT_MM * (1 - eased)
+    if (filmAt < filmActions.length) {
+      filmElapsed += delta * filmSpeed
+      while (filmAt < filmActions.length && filmElapsed >= filmActions[filmAt].seconds) {
+        filmActions[filmAt].run(1)
+        filmElapsed -= filmActions[filmAt].seconds
+        filmAt += 1
+      }
+      if (filmAt < filmActions.length) filmActions[filmAt].run(filmElapsed / filmActions[filmAt].seconds)
+      else {
+        hammer.visible = false
+        const finish = filmDone
+        filmDone = null
+        finish?.()
+      }
       moving = true
+      shadowUntil = now + 300
     }
     // Draw only when something changed: the camera turned, a door is moving, or the picture was
     // touched or updated a moment ago. A still picture costs nothing, which matters with mirrors.
@@ -519,11 +578,12 @@ export function mountCabinetStudio(
       seeThrough = on
       applySeeThrough()
     },
-    setAssembly(done, adding, all, sheets) {
-      const build = (list: SceneSolid[], parent: Group) => {
-        const built = buildCabinet(parent, list.filter((solid) => solid.kind !== 'dim'), sheets, anisotropy, bin)
-        return built
-      }
+    setSpeed(speed) {
+      filmSpeed = speed
+    },
+    setAssembly(standing, motion, all, sheets, onDone) {
+      const build = (list: SceneSolid[], parent: Group) =>
+        buildCabinet(parent, list.filter((solid) => solid.kind !== 'dim'), sheets, anisotropy, bin)
       for (const item of bin) item.dispose()
       bin = []
       root.clear()
@@ -545,22 +605,159 @@ export function mountCabinetStudio(
         root.clear()
         assemblyFramed = true
       }
-      const first = build(done, root)
-      arriving = new Group()
-      root.add(arriving)
-      const second = build(adding, arriving)
-      doors = [...first.doors, ...second.doors]
-      drawers = [...first.drawers, ...second.drawers]
+      root.updateMatrixWorld(true)
+
+      // Everything turns together when the cabinet is laid down or turned over.
+      const pose = new Group()
+      root.add(pose)
+      const builds = [build(standing, pose)]
+      const batchGroups = motion.batches.map((batch) => {
+        const group = new Group()
+        pose.add(group)
+        builds.push(build(batch.solids, group))
+        return group
+      })
+      const nailGeo = new CylinderGeometry(3.2, 3.2, 1.6, 12)
+      const nailMat = new MeshStandardMaterial({ color: 0x9aa0a6, roughness: 0.35, metalness: 0.8 })
+      bin.push(nailGeo, nailMat)
+      const nails = (motion.nails ?? []).map((nail) => {
+        const mesh = new Mesh(nailGeo, nailMat)
+        if (nail.dir === 'back') {
+          mesh.rotation.x = Math.PI / 2
+          mesh.position.set(nail.x, -nail.y, -nail.z - 0.8)
+        } else {
+          mesh.position.set(nail.x, -nail.y + 0.8, -nail.z)
+        }
+        mesh.visible = false
+        pose.add(mesh)
+        return mesh
+      })
+      doors = builds.flatMap((item) => item.doors)
+      drawers = builds.flatMap((item) => item.drawers)
       for (const door of doors) angles.set(door.key, { now: 0, target: 0, kind: 'door', from: 0, glide: 1 })
       for (const drawer of drawers) angles.set(drawer.key, { now: 0, target: 0, kind: 'drawer', from: 0, glide: 1 })
       applyMotion()
-      arriveT = adding.length > 0 ? 0 : 1
-      arriving.position.y = arriveT < 1 ? ARRIVE_LIFT_MM : 0
-      shadowUntil = performance.now() + ARRIVE_S * 1000 + 600
+
+      // The size of what is there by the end of the scene, standing: the turn is about its middle,
+      // and it is lifted so it rests on the floor whichever way it lies.
+      pose.updateMatrixWorld(true)
+      const content = new Box3().setFromObject(pose)
+      const middle = content.isEmpty() ? new Vector3() : content.getCenter(new Vector3())
+      const half = content.isEmpty() ? new Vector3() : content.getSize(new Vector3()).multiplyScalar(0.5)
+      const restAt = (angle: number, lift = 0) => {
+        pose.rotation.x = angle
+        if (angle === 0 && lift === 0) {
+          pose.position.set(0, 0, 0)
+          return
+        }
+        // Turned about `middle`, then set down on the floor.
+        const turned = middle.clone().applyAxisAngle(X_AXIS, angle)
+        const lowest = middle.y - (Math.abs(Math.cos(angle)) * half.y + Math.abs(Math.sin(angle)) * half.z)
+        pose.position.set(0, middle.y - turned.y, middle.z - turned.z)
+        pose.position.y += floorLevel - lowest + lift
+      }
+      const endPose = motion.pose ?? 0
+      restAt(motion.fromPose ?? endPose)
+      pose.updateMatrixWorld(true)
+
+      const actions: FilmAction[] = []
+      const flips = motion.batches.map((batch, index) => {
+        if (batch.mode !== 'flip') return null
+        const box = new Box3().setFromObject(batchGroups[index])
+        return {
+          center: box.getCenter(new Vector3()).applyMatrix4(pose.matrixWorld.clone().invert()),
+          size: box.getSize(new Vector3()),
+        }
+      })
+      for (const group of batchGroups) group.visible = false
+      if (motion.fromPose !== undefined && motion.fromPose !== endPose) {
+        const from = motion.fromPose
+        actions.push({
+          seconds: 2,
+          run: (p) => {
+            const q = p < 0.5 ? 2 * p * p : 1 - (-2 * p + 2) ** 2 / 2
+            restAt(from + (endPose - from) * q, Math.sin(Math.PI * q) * 160)
+            if (p >= 1) restAt(endPose)
+          },
+        })
+      }
+      const out = (p: number) => 1 - (1 - p) ** 3
+      motion.batches.forEach((batch, index) => {
+        const group = batchGroups[index]
+        const quick = index >= 4
+        if (batch.mode === 'flip') {
+          // Turned over about its own middle, lifted clear of the floor while it turns.
+          const { center, size } = flips[index]!
+          const clear = Math.max(size.y, size.z) / 2 + 20
+          actions.push({
+            seconds: quick ? 0.6 : 1.3,
+            run: (p) => {
+              const q = out(p)
+              const angle = Math.PI * (1 - q)
+              group.visible = true
+              group.rotation.x = angle
+              const turned = center.clone().applyAxisAngle(X_AXIS, angle)
+              group.position.set(0, center.y - turned.y + Math.sin(Math.PI * q) * clear, center.z - turned.z)
+              if (p >= 1) {
+                group.rotation.x = 0
+                group.position.set(0, 0, 0)
+              }
+            },
+          })
+          return
+        }
+        const from = batch.from ? new Vector3(batch.from[0], -batch.from[1], -batch.from[2]) : null
+        actions.push({
+          seconds: quick ? 0.45 : 1.1,
+          run: (p) => {
+            group.visible = true
+            const q = out(p)
+            if (!from) {
+              // From above, whichever way the cabinet lies: "up" in the cabinet's own turned space.
+              const up = new Vector3(0, 1, 0).applyAxisAngle(X_AXIS, -pose.rotation.x)
+              group.position.copy(up.multiplyScalar(ARRIVE_LIFT_MM * (1 - q)))
+            } else if (batch.via === 'front') {
+              // Up and across in front of its place, then pushed straight in.
+              const a = Math.min(1, p / 0.55)
+              const b = Math.max(0, (p - 0.55) / 0.45)
+              const lift = 1 - out(a)
+              group.position.set(from.x * lift, from.y * lift, from.z * (1 - out(b)))
+            } else {
+              group.position.copy(from).multiplyScalar(1 - q)
+            }
+            if (p >= 1) group.position.set(0, 0, 0)
+          },
+        })
+      })
+      nails.forEach((nail, index) => {
+        const slow = index < 3
+        actions.push({
+          seconds: slow ? 0.7 : 0.09,
+          run: (p) => {
+            if (p >= 0.5) nail.visible = true
+            const spot = nail.getWorldPosition(new Vector3())
+            hammer.visible = p < 1
+            const blow = slow ? Math.sin(Math.min(1, p / 0.95) * Math.PI * 2) ** 2 : Math.sin(p * Math.PI) ** 2
+            hammer.position.set(spot.x, spot.y + 2 + (1 - blow) * (slow ? 110 : 45), spot.z)
+          },
+        })
+      })
+      filmActions = actions
+      filmAt = 0
+      filmElapsed = 0
+      filmDone = onDone ?? null
+      hammer.visible = false
+      shadowUntil = performance.now() + 1500
+      if (actions.length === 0) {
+        filmDone = null
+        onDone?.()
+      }
     },
     setContent(solids, sheets) {
       assemblyFramed = false
-      arriving = null
+      filmActions = []
+      filmDone = null
+      hammer.visible = false
       for (const item of bin) item.dispose()
       bin = []
       root.clear()

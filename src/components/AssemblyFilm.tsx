@@ -4,23 +4,24 @@ import { DecorSheetContext } from '@/lib/cabinets/draw-3d'
 import type { CaptureStore } from '@/lib/cabinets/scene-solids'
 import { AssemblyFilmContext } from '@/lib/assembly-context'
 import { assemblyStages } from '@/lib/assembly-stages'
-import { benchPlan } from '@/lib/bench-plan'
+import { benchGroups } from '@/lib/bench-plan'
 import { isSoftCloseSlide } from '@/lib/cabinets/hardware'
 import { formatEur, formatMinutes, hourlyRateEur } from '@/lib/cabinets/estimate'
 import { mountCabinetStudio, type CabinetStudio } from '@/lib/view3d/studio'
-import { benchCounts, mountWorkbench, type Workbench } from '@/lib/view3d/workbench'
+import { mountWorkbench, type Workbench } from '@/lib/view3d/workbench'
 
-/** How long one assembly scene stays on screen while playing. */
+/** How long a scene with nothing moving stays on screen while playing. */
 const SCENE_MS = 3200
-/** After a bench job ends, a short pause before the next scene. */
-const AFTER_BENCH_MS = 900
+/** After a scene's work ends, a short pause before the next one. */
+const AFTER_MS = 900
 const FAST_SPEED = 3
 
 /**
- * The cabinet put together scene by scene. First the jobs on the loose boards, on the bench:
- * pencil marks, shelf-pin holes and pins, drawer slides with their screws. Then the carcass
- * and the rest, each scene dropping its pieces into place. Each scene says what is done, how long
- * it takes and what the work costs; below, the running total.
+ * The cabinet put together scene by scene, the way the workshop does it. First the loose boards on
+ * the bench, a group at a time: pencil marks, shelf-pin holes and pins, drawer slides with their
+ * screws. Then the carcass piece by piece, the backs nailed on with the cabinet on its front, and
+ * the drawers. Each scene says what is done, how long it takes and what the work costs; below, the
+ * running total.
  */
 export function AssemblyFilm({ store }: { store: CaptureStore }) {
   const solids = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot)
@@ -35,20 +36,18 @@ export function AssemblyFilm({ store }: { store: CaptureStore }) {
   const [at, setAt] = useState(0)
   const [playing, setPlaying] = useState(true)
   const [fast, setFast] = useState(false)
-  const [benchDone, setBenchDone] = useState('')
+  const [sceneDone, setSceneDone] = useState('')
 
   const soft = film?.slideKind ? isSoftCloseSlide(film.slideKind) : false
-  const boards = benchPlan(solids)
-  const counts = benchCounts(boards)
-  const stages = assemblyStages(solids, film?.steps ?? [], {
-    mark: counts.lines + counts.points > 0,
-    pins: counts.points > 0,
-    slides: counts.slides > 0,
-  })
+  const groups = benchGroups(solids)
+  const stages = assemblyStages(solids, film?.steps ?? [], groups)
   const last = Math.max(0, stages.length - 1)
   const index = Math.min(at, last)
   const stage = stages[index]
   const onBench = !!stage?.bench
+  const benchGroup = stage?.bench ? groups[stage.bench.group] : null
+  // A scene where nothing moves (the edge band) just stays a while.
+  const still = !stage?.bench && (stage?.build?.motion.batches.length ?? 0) === 0 && stage?.build?.motion.fromPose === undefined
   const hourly = hourlyRateEur(film?.dailyRateEur ?? 0)
   const priceOf = (minutes: number) => (hourly > 0 ? formatEur((minutes / 60) * hourly) : null)
   const doneMinutes = stages.slice(0, index + 1).reduce((sum, item) => sum + item.minutes, 0)
@@ -72,17 +71,18 @@ export function AssemblyFilm({ store }: { store: CaptureStore }) {
     }
   }, [])
 
-  // The bench: built again only when the boards or their marks change.
-  const benchKey = `${soft}:${JSON.stringify(boards)}`
+  // The bench: built again only when another group of boards comes on, or its marks change.
+  const benchKey = benchGroup ? `${soft}:${stage?.bench?.group}:${JSON.stringify(benchGroup)}` : ''
   useEffect(() => {
     const host = benchHostRef.current
-    if (!host || boards.length === 0) return
+    if (!host || !benchGroup) return
     let bench: Workbench
     try {
-      bench = mountWorkbench(host, boards, soft)
+      bench = mountWorkbench(host, benchGroup, soft)
     } catch {
       return
     }
+    bench.setSpeed(fast ? FAST_SPEED : 1)
     benchRef.current = bench
     return () => {
       bench.dispose()
@@ -93,37 +93,38 @@ export function AssemblyFilm({ store }: { store: CaptureStore }) {
 
   useEffect(() => {
     benchRef.current?.setSpeed(fast ? FAST_SPEED : 1)
-  }, [fast, benchKey])
+    studioRef.current?.setSpeed(fast ? FAST_SPEED : 1)
+  }, [fast, benchKey, ready])
 
-  // The scene on screen: on the bench a job plays; otherwise earlier scenes stand and this one's
-  // pieces drop in.
+  // The scene on screen: on the bench a job plays; otherwise what stands is shown and this
+  // scene's work plays on it.
   const sceneKey = stages.length > 0 ? `${index}/${stages.length}/${solids.length}/${benchKey}` : ''
   useEffect(() => {
     if (!stage) return
+    const key = sceneKey
     if (stage.bench) {
-      const key = sceneKey
-      benchRef.current?.play(stage.bench, () => setBenchDone(key))
+      benchRef.current?.play(stage.bench.job, () => setSceneDone(key))
       return
     }
     const studio = studioRef.current
-    if (!studio) return
-    const done = stages.slice(0, index).flatMap((item) => item.solids)
-    studio.setAssembly(done, stage.solids, solids, sheets)
+    if (!studio || !stage.build) return
+    // Framed on everything the film shows, the drawers made in front of the cabinet too.
+    const framing = [...new Set(stages.flatMap((item) => [...(item.build?.standing ?? []), ...(item.build?.motion.batches.flatMap((batch) => batch.solids) ?? [])]))]
+    studio.setAssembly(stage.build.standing, stage.build.motion, framing, sheets, () => setSceneDone(key))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sceneKey, ready, sheets])
 
-  // Playing: on to the next scene after a while (on the bench, once the job is done).
+  // Playing: on to the next scene a moment after this one's work is done.
   useEffect(() => {
-    if (!playing) return
-    if (index >= last && (!onBench || benchDone === sceneKey)) {
-      const stop = window.setTimeout(() => setPlaying(false), onBench ? AFTER_BENCH_MS : SCENE_MS)
+    if (!playing || sceneDone !== sceneKey) return
+    const wait = (still ? SCENE_MS : AFTER_MS) / (fast ? FAST_SPEED : 1)
+    if (index >= last) {
+      const stop = window.setTimeout(() => setPlaying(false), wait)
       return () => window.clearTimeout(stop)
     }
-    if (onBench && benchDone !== sceneKey) return
-    const wait = onBench ? AFTER_BENCH_MS : SCENE_MS / (fast ? FAST_SPEED : 1)
     const timer = window.setTimeout(() => setAt(index + 1), wait)
     return () => window.clearTimeout(timer)
-  }, [playing, index, last, onBench, benchDone, sceneKey, fast])
+  }, [playing, index, last, still, sceneDone, sceneKey, fast])
 
   if (failed) {
     return <p className="py-8 text-center text-sm text-neutral-600">Браузърът не пуска 3D картината.</p>
@@ -134,14 +135,6 @@ export function AssemblyFilm({ store }: { store: CaptureStore }) {
     setAt(Math.max(0, Math.min(last, next)))
   }
   const button = 'flex items-center gap-1 rounded-md border border-neutral-300 bg-white px-2.5 py-1.5 text-sm text-neutral-900 disabled:opacity-40'
-  const benchNote =
-    stage?.bench === 'mark'
-      ? `Детайлите лежат на масата с вътрешната страна нагоре. С молив: ${counts.lines} линии (водачи, неподвижни рафтове, разделители) и ${counts.points} точки за рафтоносачи.`
-      : stage?.bench === 'pins'
-        ? `На всяка от ${counts.points} точки: център с шило и чук, дупка с бормашина и свредло 4,5 мм, после рафтоносачът се набива с чук.`
-        : stage?.bench === 'slides'
-          ? `${counts.slides} ${soft ? 'водача с плавно прибиране' : 'ролкови водача'} по начертаните линии. На всеки по 3 винта: в първата дупка, в последната и в средата.`
-          : ''
   return (
     <div className="w-full">
       <div className="relative h-[440px] w-full">
@@ -186,7 +179,7 @@ export function AssemblyFilm({ store }: { store: CaptureStore }) {
                 className={button}
                 onClick={() => {
                   setAt(0)
-                  setBenchDone('')
+                  setSceneDone('')
                   setPlaying(true)
                 }}
                 aria-label="Отначало"
@@ -199,7 +192,7 @@ export function AssemblyFilm({ store }: { store: CaptureStore }) {
             {formatMinutes(stage.minutes)}
             {priceOf(stage.minutes) ? ` · ${priceOf(stage.minutes)} труд` : ''}
           </p>
-          {benchNote && <p className="mt-1 text-xs text-neutral-700">{benchNote}</p>}
+          {stage.note && <p className="mt-1 text-xs text-neutral-700">{stage.note}</p>}
           {stage.steps.length > 0 ? (
             <ul className="mt-1 list-disc pl-5 text-xs text-neutral-700">
               {stage.steps.map((step, i) => (
