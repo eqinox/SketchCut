@@ -45,6 +45,10 @@ export type Workbench = {
   play(index: number, onDone: () => void): void
   /** 1 is the normal pace; higher is faster. */
   setSpeed(speed: number): void
+  /** Jumps the job now playing to this point (0 → 1), back or forward, like a video. */
+  seek(fraction: number): void
+  /** How far the job has played, 0 → 1. */
+  progress(): number
   dispose(): void
 }
 
@@ -952,26 +956,47 @@ export function mountWorkbench(host: HTMLElement, group: BenchGroup, soft: boole
   }
   frameId = requestAnimationFrame(tick)
 
+  let lastJob = -1
+  let lastDone: (() => void) | null = null
+  const start = (index: number, onDone: () => void) => {
+    lastJob = index
+    lastDone = onDone
+    film = script()
+    carrying = null
+    for (const tool of tools) tool.visible = false
+    // Earlier jobs are already done when this one starts.
+    for (const earlier of film.slice(0, index)) {
+      for (const action of earlier) action.run(1)
+    }
+    for (const tool of tools) tool.visible = false
+    queue = film[index] ?? []
+    follow = true
+    backOut = -1
+    current = 0
+    elapsed = 0
+    done = onDone
+    if (queue.length === 0) {
+      done = null
+      onDone()
+    }
+  }
+
   return {
-    play(index, onDone) {
-      film = script()
-      carrying = null
-      for (const tool of tools) tool.visible = false
-      // Earlier jobs are already done when this one starts.
-      for (const earlier of film.slice(0, index)) {
-        for (const action of earlier) action.run(1)
-      }
-      for (const tool of tools) tool.visible = false
-      queue = film[index] ?? []
-      follow = true
-      backOut = -1
-      current = 0
-      elapsed = 0
-      done = onDone
-      if (queue.length === 0) {
-        done = null
-        onDone()
-      }
+    play: start,
+    seek(fraction) {
+      if (lastJob < 0 || !lastDone) return
+      // Laid out again from the start of the job, then run on to that point.
+      start(lastJob, lastDone)
+      const total = queue.reduce((sum, action) => sum + action.seconds, 0)
+      elapsed = Math.max(0, Math.min(1, fraction)) * total
+    },
+    progress() {
+      const total = queue.reduce((sum, action) => sum + action.seconds, 0)
+      if (total <= 0) return 1
+      let doneSeconds = 0
+      for (let i = 0; i < current && i < queue.length; i++) doneSeconds += queue[i].seconds
+      if (current < queue.length) doneSeconds += elapsed
+      return Math.min(1, doneSeconds / total)
     },
     setDescribe(next) {
       describe = next

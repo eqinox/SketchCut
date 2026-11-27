@@ -80,8 +80,10 @@ export function AssemblyFilm({ store }: { store: CaptureStore }) {
   const [at, setAt] = useState(0)
   const [playing, setPlaying] = useState(true)
   const [fast, setFast] = useState(false)
-  /** How fast the 3D work runs: 0 while paused. */
-  const pace = playing ? (fast ? FAST_SPEED : 1) : 0
+  /** True while the bar under the picture is held: the film stands still under the finger. */
+  const [scrubbing, setScrubbing] = useState(false)
+  /** How fast the 3D work runs: 0 while paused or held. */
+  const pace = playing && !scrubbing ? (fast ? FAST_SPEED : 1) : 0
   const [sceneDone, setSceneDone] = useState('')
   /** Goes up on „Отначало“, so the scene plays again even when it is already the one on screen. */
   const [round, setRound] = useState(0)
@@ -117,6 +119,41 @@ export function AssemblyFilm({ store }: { store: CaptureStore }) {
       studio.dispose()
       studioRef.current = null
     }
+  }, [])
+
+  // The bar under the picture, like a video's: one stretch per scene, the knob where the film is.
+  const barRef = useRef<HTMLDivElement>(null)
+  const fillRef = useRef<HTMLDivElement>(null)
+  const knobRef = useRef<HTMLDivElement>(null)
+  /** Where the bar is held (0 → 1 of the whole film), or null when it is not. */
+  const heldAt = useRef<number | null>(null)
+  /** A jump inside the scene on screen, done on the next frame (one per frame while dragging). */
+  const wantSeek = useRef<number | null>(null)
+  /** A jump into another scene, done once that scene is set up. */
+  const pendingSeek = useRef<number | null>(null)
+  const where = useRef({ index: 0, count: 1, onBench: false })
+  useEffect(() => {
+    where.current = { index, count: Math.max(1, stages.length), onBench }
+  })
+  useEffect(() => {
+    let frame = 0
+    const step = () => {
+      frame = requestAnimationFrame(step)
+      const { index: at, count, onBench: bench } = where.current
+      if (wantSeek.current !== null) {
+        const fraction = wantSeek.current
+        wantSeek.current = null
+        if (bench) benchRef.current?.seek(fraction)
+        else studioRef.current?.seekFilm(fraction)
+      }
+      const inScene = bench ? (benchRef.current?.progress() ?? 0) : (studioRef.current?.filmProgress() ?? 0)
+      const value = heldAt.current ?? (at + inScene) / count
+      const percent = `${Math.min(100, Math.max(0, value * 100))}%`
+      if (fillRef.current) fillRef.current.style.width = percent
+      if (knobRef.current) knobRef.current.style.left = percent
+    }
+    frame = requestAnimationFrame(step)
+    return () => cancelAnimationFrame(frame)
   }, [])
 
   // The bench: built again only when another group of boards comes on, or its marks change.
@@ -165,6 +202,8 @@ export function AssemblyFilm({ store }: { store: CaptureStore }) {
     const key = sceneKey
     if (stage.bench) {
       benchRef.current?.play(stage.bench.job, () => setSceneDone(key))
+      if (pendingSeek.current !== null) benchRef.current?.seek(pendingSeek.current)
+      pendingSeek.current = null
       return
     }
     const studio = studioRef.current
@@ -172,12 +211,14 @@ export function AssemblyFilm({ store }: { store: CaptureStore }) {
     // Framed on everything the film shows, the drawers made in front of the cabinet too.
     const framing = [...new Set(stages.flatMap((item) => [...(item.build?.standing ?? []), ...(item.build?.motion.batches.flatMap((batch) => batch.solids) ?? [])]))]
     studio.setAssembly(stage.build.standing, stage.build.motion, framing, sheets, () => setSceneDone(key))
+    if (pendingSeek.current !== null) studio.seekFilm(pendingSeek.current)
+    pendingSeek.current = null
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sceneKey, ready, sheets])
 
   // Playing: on to the next scene a moment after this one's work is done.
   useEffect(() => {
-    if (!playing || sceneDone !== sceneKey) return
+    if (!playing || scrubbing || sceneDone !== sceneKey) return
     const wait = (still ? SCENE_MS : AFTER_MS) / (fast ? FAST_SPEED : 1)
     if (index >= last) {
       const stop = window.setTimeout(() => setPlaying(false), wait)
@@ -185,7 +226,7 @@ export function AssemblyFilm({ store }: { store: CaptureStore }) {
     }
     const timer = window.setTimeout(() => setAt(index + 1), wait)
     return () => window.clearTimeout(timer)
-  }, [playing, index, last, still, sceneDone, sceneKey, fast])
+  }, [playing, scrubbing, index, last, still, sceneDone, sceneKey, fast])
 
   if (failed) {
     return <p className="py-8 text-center text-sm text-neutral-600">Браузърът не пуска 3D картината.</p>
@@ -193,6 +234,25 @@ export function AssemblyFilm({ store }: { store: CaptureStore }) {
 
   const go = (next: number) => {
     setAt(Math.max(0, Math.min(last, next)))
+  }
+  /** Held or dragged on the bar: to that scene, and to that point in it. */
+  const scrubTo = (clientX: number) => {
+    const bar = barRef.current
+    if (!bar || stages.length === 0) return
+    const box = bar.getBoundingClientRect()
+    const value = Math.min(0.99999, Math.max(0, (clientX - box.left) / Math.max(1, box.width)))
+    heldAt.current = value
+    const scaled = value * stages.length
+    const scene = Math.floor(scaled)
+    const fraction = scaled - scene
+    setSceneDone('')
+    if (scene !== index) {
+      pendingSeek.current = fraction
+      wantSeek.current = null
+      setAt(scene)
+    } else {
+      wantSeek.current = fraction
+    }
   }
   const button = 'flex items-center gap-1 rounded-md border border-neutral-300 bg-white px-2.5 py-1.5 text-sm text-neutral-900 disabled:opacity-40'
   return (
@@ -215,6 +275,45 @@ export function AssemblyFilm({ store }: { store: CaptureStore }) {
           </div>
         )}
       </div>
+      {stages.length > 0 && (
+        // Like a video's bar: hold it and move back or forward; each stretch is one step.
+        <div
+          ref={barRef}
+          className="relative mt-2 h-6 cursor-pointer touch-none select-none"
+          onPointerDown={(event) => {
+            event.currentTarget.setPointerCapture(event.pointerId)
+            setScrubbing(true)
+            scrubTo(event.clientX)
+          }}
+          onPointerMove={(event) => {
+            if (heldAt.current !== null) scrubTo(event.clientX)
+          }}
+          onPointerUp={() => {
+            heldAt.current = null
+            setScrubbing(false)
+          }}
+          onPointerCancel={() => {
+            heldAt.current = null
+            setScrubbing(false)
+          }}
+        >
+          <div className="absolute inset-x-0 top-1/2 h-1.5 -translate-y-1/2 overflow-hidden rounded-full bg-neutral-300">
+            <div ref={fillRef} className="h-full bg-neutral-900" style={{ width: '0%' }} />
+          </div>
+          <div className="absolute inset-0 flex">
+            {stages.map((item, i) => (
+              <div key={item.key} title={`${i + 1}. ${item.title}`} className="relative h-full flex-1">
+                {i > 0 && <span className="absolute left-0 top-1/2 h-3 w-0.5 -translate-y-1/2 bg-white" />}
+              </div>
+            ))}
+          </div>
+          <div
+            ref={knobRef}
+            className="pointer-events-none absolute top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-neutral-900 shadow"
+            style={{ left: '0%' }}
+          />
+        </div>
+      )}
       {stage && (
         <div className="mt-2 rounded-md border border-neutral-200 bg-white p-3 text-neutral-900">
           <div className="flex flex-wrap items-center justify-between gap-2">

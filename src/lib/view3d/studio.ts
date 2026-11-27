@@ -88,6 +88,10 @@ export type CabinetStudio = {
   setSpeed(speed: number): void
   /** The label beside the work in the assembly film (null: none). */
   setTag(text: string | null): void
+  /** Jumps the scene to this point (0 → 1), back or forward, like a video. */
+  seekFilm(fraction: number): void
+  /** How far the scene has played, 0 → 1 (1 when nothing moves in it). */
+  filmProgress(): number
   dispose(): void
 }
 
@@ -600,7 +604,9 @@ export function mountCabinetStudio(
       }
     })
   }
-  return wakeOnCall({
+  let lastAssembly: Parameters<CabinetStudio['setAssembly']> | null = null
+  const filmTotal = () => filmActions.reduce((sum, action) => sum + action.seconds, 0)
+  const api: CabinetStudio = wakeOnCall({
     toggle,
     setSeeThroughMirrors(on) {
       seeThrough = on
@@ -610,6 +616,7 @@ export function mountCabinetStudio(
       filmSpeed = speed
     },
     setAssembly(standing, motion, all, sheets, onDone) {
+      lastAssembly = [standing, motion, all, sheets, onDone]
       const build = (list: SceneSolid[], parent: Group) =>
         buildCabinet(parent, list.filter((solid) => solid.kind !== 'dim'), sheets, anisotropy, bin)
       for (const item of bin) item.dispose()
@@ -819,6 +826,20 @@ export function mountCabinetStudio(
     setTag(text) {
       tagText = text
     },
+    seekFilm(fraction) {
+      if (!lastAssembly) return
+      // Built again from the start of the scene, then run on to that point.
+      api.setAssembly(...lastAssembly)
+      filmElapsed = Math.max(0, Math.min(1, fraction)) * filmTotal()
+    },
+    filmProgress() {
+      const total = filmTotal()
+      if (total <= 0) return 1
+      let done = 0
+      for (let i = 0; i < filmAt && i < filmActions.length; i++) done += filmActions[i].seconds
+      if (filmAt < filmActions.length) done += filmElapsed
+      return Math.min(1, done / total)
+    },
     dispose() {
       disposed = true
       tag.dispose()
@@ -846,4 +867,5 @@ export function mountCabinetStudio(
       if (labels.domElement.parentElement === host) host.removeChild(labels.domElement)
     },
   })
+  return api
 }
