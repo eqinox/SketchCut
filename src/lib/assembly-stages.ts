@@ -461,7 +461,7 @@ export function assemblyStages(solids: SceneSolid[], steps: AssemblyStep[], grou
         ].flatMap(([p, q]) => nailLine(p as [number, number, number], q as [number, number, number], DRAWER_NAIL_STEP, 'up')),
       )
       const final = [...body, bottomSheet, ...runners, ...(drawer.front ? [drawer.front] : [])]
-      return { downBody, downSheet, upBody, upRunners, upFront, nails, final, move: [spotX, upDy, spotZ] as [number, number, number], body, sidesOfBox }
+      return { downBody, downSheet, upBody, upRunners, upFront, front: drawer.front, nails, final, move: [spotX, upDy, spotZ] as [number, number, number], body, sidesOfBox }
     })
     const count = drawers.length
     const word = count === 1 ? 'чекмеджето' : 'чекмеджетата'
@@ -498,20 +498,26 @@ export function assemblyStages(solids: SceneSolid[], steps: AssemblyStep[], grou
       ]),
       { note: 'На всеки водач по 3 винтчета 3,5×20 по долния ръб на страницата.' },
     )
-    const fronts = made.filter((item) => item.upFront)
-    if (fronts.length > 0) {
-      build('drawer-fronts', 'Челата', claimIds('drawer-front', 'front-edge-take-drawer'), fronts.map((item) => ({ solids: [item.upFront!], from: [0, 0, -300] as [number, number, number] })), {
-        note: 'Челото с дръжката се хваща към кутията отвътре.',
-      })
-    }
-    standing = standing.filter((solid) => !made.some((item) => item.upBody.includes(solid as Box) || item.upRunners.includes(solid as Box) || item.upFront === solid))
+    // The boxes go in without their fronts; then each front is put on its drawer in the cabinet,
+    // so it lines up with the gaps around it.
+    standing = standing.filter((solid) => !made.some((item) => item.upBody.includes(solid as Box) || item.upRunners.includes(solid as Box)))
     build(
       'drawer-in',
-      `${count === 1 ? 'Чекмеджето' : 'Чекмеджетата'} по местата`,
+      `${count === 1 ? 'Чекмеджето' : 'Чекмеджетата'} по местата, без челата`,
       claimIds('soft-close'),
-      made.map((item) => ({ solids: item.final, from: item.move, via: 'front' as const })),
+      made.map((item, unit) => ({ solids: item.final.filter((solid) => solid !== item.front), from: item.move, via: 'front' as const, unit })),
       { note: 'Всяко чекмедже се вдига пред мястото си и се плъзга по водачите.' },
     )
+    const fronts = made.filter((item) => item.front)
+    if (fronts.length > 0) {
+      build(
+        'drawer-fronts',
+        'Челата на чекмеджетата в шкафа',
+        claimIds('drawer-front', 'front-edge-take-drawer'),
+        fronts.map((item, unit) => ({ solids: [item.front!], from: [0, 0, -300] as [number, number, number], unit })),
+        { note: 'Чекмеджето е на мястото си: челото се нагласява по фугите и се хваща към кутията отвътре.' },
+      )
+    }
   }
 
   // 5. The rest in the old order: doors, a bed's lift, a mirror.
