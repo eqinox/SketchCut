@@ -310,7 +310,10 @@ export function AssemblyFilm({ store }: { store: CaptureStore }) {
       wantSeek.current = fraction
     }
   }
-  const button = 'flex items-center gap-1 rounded-md border border-neutral-300 bg-white px-2 py-1 text-sm text-neutral-900 disabled:opacity-40'
+  // The colours come in one set or the other, never both: two backgrounds on one button fight.
+  const shape = 'flex items-center gap-1 rounded-md border px-2 py-1 text-sm disabled:opacity-40'
+  const button = `${shape} border-neutral-300 bg-white text-neutral-900`
+  const pressed = `${shape} border-neutral-900 bg-neutral-900 text-white`
   return (
     <div className="w-full">
       <div className="relative h-[440px] w-full">
@@ -353,7 +356,7 @@ export function AssemblyFilm({ store }: { store: CaptureStore }) {
                   </button>
                   <button
                     type="button"
-                    className={`${button} ${fast ? 'border-neutral-900 bg-neutral-900 text-white' : ''}`}
+                    className={fast ? pressed : button}
                     aria-pressed={fast}
                     aria-label="По-бързо"
                     onClick={() => setFast((on) => !on)}
@@ -363,7 +366,7 @@ export function AssemblyFilm({ store }: { store: CaptureStore }) {
                   </button>
                   <button
                     type="button"
-                    className={`${button} ${allSlow ? 'border-neutral-900 bg-neutral-900 text-white' : ''}`}
+                    className={allSlow ? pressed : button}
                     aria-pressed={allSlow}
                     aria-label="Всичко бавно"
                     title="Всяко повторение толкова бавно, колкото първите — без забързване"
