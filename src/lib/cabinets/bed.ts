@@ -427,7 +427,7 @@ export function generateBed(raw: Record<string, unknown>, settings?: unknown): C
       minutes: s.topLargeMinutes,
       hint: 'като при голям шкаф · винтове 5×60 през страниците',
     },
-    { id: 'bed-frame', label: 'Подматрачна рамка', minutes: 15 },
+    { id: 'bed-frame', label: 'Подматрачна рамка', minutes: 10, hint: 'ляга върху вътрешните страници' },
   ]
   if (parsed.liftMechanism) {
     steps.push({ id: 'bed-lift-boards', label: 'Плоскостите за механизма', minutes: 10, quantity: 2, unitOne: 'плоскост', unitMany: 'плоскости', hint: 'по 5 мин · винтове към вътрешната страница' })

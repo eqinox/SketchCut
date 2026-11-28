@@ -342,7 +342,11 @@ export function assemblyStages(solids: SceneSolid[], steps: AssemblyStep[], grou
     solid.kind === 'glow' ||
     (solid.kind === 'box' && (!!solid.slide || solid.mirrorGlass === true || solid.assembly === 'mirror' || starts(pieceOf(solid), 'drawer', 'box-', 'mirror', 'back')))
   const rest = shown.filter((solid) => !used.has(solid) && !isFront(solid))
-  if (rest.length > 0) build('carcass-rest', 'Останалото от корпуса', [], [{ solids: rest }])
+  // On a bed, what is left is the slat frame: it goes on last, with its own time.
+  const frameSteps = claimIds('bed-frame')
+  if (rest.length > 0) {
+    build('carcass-rest', frameSteps.length > 0 ? 'Подматрачната рамка' : 'Останалото от корпуса', frameSteps, [{ solids: rest }])
+  } else pool.push(...frameSteps)
 
   // 3. The backs: the cabinet laid on its front, each back nailed on.
   const backBoxes = boxes.filter((box) => pieceOf(box).startsWith('back'))
