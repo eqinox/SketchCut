@@ -588,7 +588,7 @@ export const DRAWER_MEASURE_SECONDS: Record<DrawerMeasureLevel, number> = { easy
 export const DRAWER_MEASURE_LABELS: Record<DrawerMeasureLevel, string> = { easy: 'лесно', medium: 'по-сложно', hard: 'най-сложно' }
 export const DRAWER_TRY_SLIDE_SECONDS = 40
 /** Marks at the front and the back, the ruler set on them, the pencil along it. */
-export const SLIDE_LINE_SECONDS = 70
+export const SLIDE_LINE_SECONDS = 40
 /** The 3 screws of one slide (the first hole, the last, the middle). */
 export const SLIDE_SCREWS_SECONDS = 70
 
