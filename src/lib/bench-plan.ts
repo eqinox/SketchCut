@@ -118,8 +118,8 @@ function uprightFaces(board: Box, solids: SceneSolid[], withBottom: boolean): Ma
       const face = at(faceOf(bottom, board, 30))
       // Like a fixed shelf: two lines, the bottom's two faces, the bottom sits between them.
       if (face) {
-        line(face, 'bottom', bottom.y - board.y, ...span(bottom))
-        line(face, 'bottom', bottom.y + bottom.h - board.y, ...span(bottom))
+        line(face, 'bottom', bottom.y - board.y, 0, board.d)
+        line(face, 'bottom', bottom.y + bottom.h - board.y, 0, board.d)
       }
     }
   }
@@ -129,8 +129,9 @@ function uprightFaces(board: Box, solids: SceneSolid[], withBottom: boolean): Ma
     if (isFixedShelf(piece(shelf))) {
       // A fixed shelf is screwed through the board: two lines, one per face of the shelf,
       // a shelf's thickness apart; the shelf sits between them.
-      line(face, 'fixed', shelf.y - board.y, ...span(shelf))
-      line(face, 'fixed', shelf.y + shelf.h - board.y, ...span(shelf))
+      // From edge to edge, so on boards lying together it runs on across the next one.
+      line(face, 'fixed', shelf.y - board.y, 0, board.d)
+      line(face, 'fixed', shelf.y + shelf.h - board.y, 0, board.d)
     } else {
       const u = shelf.y + shelf.h + PIN_UNDER_SHELF_MM - board.y
       for (const v of [PIN_EDGE_MM, board.d - PIN_EDGE_MM]) {
@@ -150,7 +151,7 @@ function uprightFaces(board: Box, solids: SceneSolid[], withBottom: boolean): Ma
     const u = slide.y + slide.h - board.y
     if (face.slides.some((item) => Math.abs(item.u - u) < 2)) continue
     const [v0, v1] = span(slide)
-    line(face, 'slide', u, v0, v1)
+    line(face, 'slide', u, 0, board.d)
     face.slides.push({ u, v0, length: v1 - v0 })
   }
   return faces
@@ -176,10 +177,8 @@ function flatBoard(flat: Box, dividers: Box[], name: string): BenchBoard | null 
     const touches =
       Math.abs(divider.y + divider.h - flat.y) <= 3 || Math.abs(divider.y - (flat.y + flat.h)) <= 3
     if (!touches) continue
-    const v0 = Math.max(0, divider.z - flat.z)
-    const v1 = Math.min(flat.d, v0 + divider.d)
     for (const edge of [divider.x, divider.x + divider.w]) {
-      face.lines.push({ u0: edge - flat.x, v0, u1: edge - flat.x, v1, kind: 'divider' })
+      face.lines.push({ u0: edge - flat.x, v0: 0, u1: edge - flat.x, v1: flat.d, kind: 'divider' })
     }
   }
   if (face.lines.length === 0) return null
@@ -286,5 +285,17 @@ export function jobCounts(group: BenchGroup, face: number) {
     slides: all.reduce((sum, item) => sum + item.slides.length, 0),
     /** Pencil lines of one kind (the bottom, fixed shelves, slides, dividers). */
     linesOf: (kind: BenchLineKind) => all.reduce((sum, item) => sum + item.lines.filter((line) => line.kind === kind).length, 0),
+    /** Seconds of drawing slide lines here: 40 a line, 50 when it runs across boards lying together. */
+    slideLineSeconds: (() => {
+      const together = benchLayout(group) !== 'one-by-one' && group.boards.length > 1
+      const strokes = new Map<string, number>()
+      all.forEach((item, board) => {
+        for (const line of item.lines.filter((entry) => entry.kind === 'slide')) {
+          const key = together ? `${Math.round(line.u0)}` : `${board}|${Math.round(line.u0)}`
+          strokes.set(key, (strokes.get(key) ?? 0) + 1)
+        }
+      })
+      return [...strokes.values()].reduce((sum, boards) => sum + 40 + (boards > 1 ? 10 : 0), 0)
+    })(),
   }
 }

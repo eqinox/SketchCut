@@ -612,6 +612,7 @@ export function generatePlinthCabinet(
     doorCount: m.sliding ? 0 : interior.doorCount,
     drawerCount: interior.drawerCount,
     drawerMeasureLevel: parseDrawerMeasureLevel(raw.drawerMeasureLevel),
+    slideStrokes: interior.slideStrokes,
     hasClothesRail: interior.clothesRailCount > 0,
     clothesRailCount: interior.clothesRailCount,
     clothesRailLengthMm: m.innerW,

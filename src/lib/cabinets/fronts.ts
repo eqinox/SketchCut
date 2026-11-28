@@ -111,6 +111,7 @@ import {
   type ClothesRailSpec,
   type PartitionSpec,
   type ZoneFittings,
+  type InteriorLayout,
 } from './zones'
 
 export interface InteriorFittings {
@@ -1187,6 +1188,8 @@ export function appendZonedInterior(
   fixedShelfCount: number
   partitionCount: number
   backNails: BackNailGeometry
+  /** Each pencil line for drawer slides on the bench: how many boards it runs across at once. */
+  slideStrokes: number[]
 } {
   const f = input.fittings
   const sliding = f.doorStyle === 'sliding'
@@ -1554,7 +1557,80 @@ export function appendZonedInterior(
     fixedShelfCount: counts.fixedShelves,
     partitionCount: counts.partitions,
     backNails: backNailGeometry(layout, input.thickness),
+    slideStrokes: slideStrokesOf(layout, input.innerW, input.sideH ?? input.innerH, input.sideD),
   }
+}
+
+/** Boards of this length and width lie on the bench (90 cm × 2 m) together, `count` side by side. */
+function benchTogether(count: number, lengthMm: number, widthMm: number): boolean {
+  if (count < 2) return false
+  const widths = count * widthMm
+  return widths <= 900 || (lengthMm <= 900 && widths <= 2000)
+}
+
+/**
+ * The pencil lines for the drawer slides, as drawn on the bench: the outer sides lie together,
+ * the full-height dividers together, the short ones together, each when they fit on the bench.
+ * Lines at the same height on boards lying together are one stroke across them all; otherwise
+ * each board has its own. Returns, for each stroke, how many boards it crosses.
+ */
+function slideStrokesOf(layout: InteriorLayout, innerW: number, sideH: number, depth: number): number[] {
+  type Line = { board: string; group: 'sides' | 'middle' | 'short'; side: 'L' | 'R'; key: string }
+  const lines: Line[] = []
+  const near = (a: number, b: number) => Math.abs(a - b) <= 2
+  const boardAt = (x: number, faceOf: 'xLeft' | 'xRight'): { board: string; group: Line['group'] } | null => {
+    const full = layout.partitions.findIndex((p) => near(p[faceOf], x))
+    if (full >= 0) return { board: `full-${full}`, group: 'middle' }
+    const part = layout.partialPartitions.findIndex((p) => near(p[faceOf], x))
+    if (part >= 0) return { board: `short-${part}`, group: 'short' }
+    return null
+  }
+  const addStack = (heights: number[], y0: number, left: ReturnType<typeof boardAt>, right: ReturnType<typeof boardAt>) => {
+    let run = 0
+    heights.forEach((h) => {
+      run += h
+      const key = `${Math.round(y0)}|${run}`
+      // The left board carries the slide on its right face, the right board on its left face.
+      if (left) lines.push({ ...left, side: 'R', key })
+      if (right) lines.push({ ...right, side: 'L', key })
+    })
+  }
+  const sideLeft = { board: 'side-left', group: 'sides' as const }
+  const sideRight = { board: 'side-right', group: 'sides' as const }
+  const whole = layout.fullDrawerFrontHeights.filter((h) => h > 0)
+  if (whole.length > 0) addStack(whole, 0, sideLeft, sideRight)
+  for (const zone of layout.zones) {
+    const heights = zone.drawerFrontHeights.filter((h) => h > 0)
+    if (heights.length === 0) continue
+    const left = zone.x0 <= 1 ? sideLeft : boardAt(zone.x0, 'xRight')
+    const right = zone.x1 >= innerW - 1 ? sideRight : boardAt(zone.x1, 'xLeft')
+    addStack(heights, zone.y0, left, right)
+  }
+  const groupBoards = {
+    sides: 2,
+    middle: layout.partitions.length,
+    short: layout.partialPartitions.length,
+  }
+  const groupLength = {
+    sides: sideH,
+    middle: sideH,
+    short: layout.partialPartitions.reduce((most, p) => Math.max(most, p.height), 0),
+  }
+  // Each board lies with the face that has more slides up first (as on the bench).
+  const firstSide = new Map<string, 'L' | 'R'>()
+  for (const board of new Set(lines.map((line) => line.board))) {
+    const left = lines.filter((line) => line.board === board && line.side === 'L').length
+    const right = lines.filter((line) => line.board === board && line.side === 'R').length
+    firstSide.set(board, left > right ? 'L' : 'R')
+  }
+  const strokes = new Map<string, Set<string>>()
+  for (const line of lines) {
+    const together = benchTogether(groupBoards[line.group], groupLength[line.group], depth)
+    const rank = firstSide.get(line.board) === line.side ? 0 : 1
+    const id = together ? `${line.group}|${rank}|${line.key}` : `${line.board}|${line.side}|${line.key}`
+    strokes.set(id, (strokes.get(id) ?? new Set()).add(line.board))
+  }
+  return [...strokes.values()].map((boards) => boards.size)
 }
 
 function billCabinetHandles(

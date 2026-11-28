@@ -589,6 +589,8 @@ export const DRAWER_MEASURE_LABELS: Record<DrawerMeasureLevel, string> = { easy:
 export const DRAWER_TRY_SLIDE_SECONDS = 40
 /** Marks at the front and the back, the ruler set on them, the pencil along it. */
 export const SLIDE_LINE_SECONDS = 40
+/** One line drawn across boards lying together takes this much longer than on one board. */
+export const LINE_ACROSS_EXTRA_SECONDS = 10
 /** The 3 screws of one slide (the first hole, the last, the middle). */
 export const SLIDE_SCREWS_SECONDS = 70
 
@@ -603,7 +605,7 @@ export interface SlideRow {
 
 export function slideMarkingSteps(
   rows: SlideRow[],
-  opts: { level: DrawerMeasureLevel; together: boolean },
+  opts: { level: DrawerMeasureLevel; together: boolean; strokes?: number[] },
   known: ReadonlySet<string> = new Set(),
   copies = 1,
 ): { steps: AssemblyStep[]; keys: string[] } {
@@ -616,9 +618,11 @@ export function slideMarkingSteps(
     fresh += 1
   }
   const n = Math.max(1, Math.floor(copies))
-  const drawers = rows.length * n
-  const perLine = opts.together ? 1 : 2
-  const lines = drawers * perLine
+  // The lines as drawn on the bench: one across boards lying together takes 10 s more.
+  const strokes = opts.strokes && opts.strokes.length > 0 ? opts.strokes : Array.from({ length: rows.length * (opts.together ? 1 : 2) }, () => (opts.together ? 2 : 1))
+  const lineSeconds = strokes.reduce((sum, boards) => sum + SLIDE_LINE_SECONDS + (boards > 1 ? LINE_ACROSS_EXTRA_SECONDS : 0), 0) * n
+  const lines = strokes.length * n
+  const across = strokes.filter((boards) => boards > 1).length * n
   const measure = DRAWER_MEASURE_SECONDS[opts.level]
   const steps: AssemblyStep[] = []
   if (fresh > 0) {
@@ -649,18 +653,22 @@ export function slideMarkingSteps(
     id: 'mark-drawer-lines',
     kind: 'mark',
     label: 'Линии за водачите по линеал',
-    minutes: (lines * SLIDE_LINE_SECONDS) / 60,
+    minutes: lineSeconds / 60,
     quantity: lines,
     unitOne: 'линия',
     unitMany: 'линии',
-    calc: `${formatQty(lines)} ${lines === 1 ? 'линия' : 'линии'} × ${secText(SLIDE_LINE_SECONDS)} = ${secText(lines * SLIDE_LINE_SECONDS)}`,
-    hint: opts.together
-      ? 'белег отпред, белег отзад, линеалът на двата и молив по него · една линия през двете страници'
-      : 'белег отпред, белег отзад, линеалът на двата и молив по него · на всяка страница отделно',
+    calc: [
+      across > 0 ? `${formatQty(across)} през 2 плоскости × ${secText(SLIDE_LINE_SECONDS + LINE_ACROSS_EXTRA_SECONDS)}` : '',
+      lines - across > 0 ? `${formatQty(lines - across)} на 1 плоскост × ${secText(SLIDE_LINE_SECONDS)}` : '',
+    ]
+      .filter(Boolean)
+      .join(' + ') + ` = ${secText(lineSeconds)}`,
+    hint: 'белег отпред, белег отзад, линеалът на двата и молив по него · през плоскостите, които лежат заедно на масата, наведнъж',
     slideRows: rows,
     slideCopies: n,
     slideLevel: opts.level,
     slideTogether: opts.together,
+    slideStrokes: opts.strokes,
   })
   return { steps, keys: [...seen].filter((key) => !known.has(key)) }
 }
@@ -949,6 +957,7 @@ export interface AssemblyStep {
   slideCopies?: number
   slideLevel?: DrawerMeasureLevel
   slideTogether?: boolean
+  slideStrokes?: number[]
 }
 
 export function assemblyMinutesFromSteps(steps: AssemblyStep[]): number {
@@ -1133,6 +1142,8 @@ export function collectCabinetAssembly(input: {
   bottomBetweenSides?: boolean
   /** How hard it is to measure where the drawer fronts come (chosen with the drawers). */
   drawerMeasureLevel?: DrawerMeasureLevel
+  /** The slide lines on the bench: for each, how many boards it crosses at once. */
+  slideStrokes?: number[]
   partitionCount?: number
   /** Soft-close slides: 6 min per drawer on the sides, plus a project-wide groove on the taller rails. */
   softCloseDrawers?: boolean
@@ -1173,8 +1184,8 @@ export function collectCabinetAssembly(input: {
     const otherDepth = input.hasTop || input.isWallCabinet ? input.depth : 100
     const together = benchFitsTwo(input.width, input.depth, otherDepth)
     if (together) {
-      const minutes = markPerFace * partitions
-      pushStep(steps, {
+      const minutes = (markPerFace + LINE_ACROSS_EXTRA_SECONDS / 60) * partitions
+      pushExact(steps, {
         id: 'mark-partition-bottom',
         kind: 'mark',
         label:
@@ -1185,13 +1196,13 @@ export function collectCabinetAssembly(input: {
         quantity: partitions,
         unitOne: 'страница',
         unitMany: 'страници',
-        calc: `${pages} × ${minText(markPerFace)} = ${minText(minutes)}`,
-        hint: `дъното и ${topCaption} лежат заедно на масата · една линия минава през двете`,
+        calc: `${pages} × (${secText(markPerFace * 60)} + ${secText(LINE_ACROSS_EXTRA_SECONDS)} през двете) = ${secText(minutes * 60)}`,
+        hint: `дъното и ${topCaption} лежат заедно на масата · линиите минават от край до край през двете`,
       })
     } else {
       const minutes = markPerFace * partitions
       const faceCalc = `${pages} × ${minText(markPerFace)} = ${minText(minutes)}`
-      pushStep(steps, {
+      pushExact(steps, {
         id: 'mark-partition-bottom',
         kind: 'mark',
         label: partitions === 1 ? 'Начертаване на разделителна страница на дъното' : 'Начертаване на разделителни страници на дъното',
@@ -1211,7 +1222,7 @@ export function collectCabinetAssembly(input: {
         calc: secText(swap),
         hint: `махаш дъното, облягаш го на стената и слагаш ${topCaption} · ${formatQty(input.width / 10)} см дълго`,
       })
-      pushStep(steps, {
+      pushExact(steps, {
         id: 'mark-partition-top',
         kind: 'mark',
         label:
@@ -1232,28 +1243,32 @@ export function collectCabinetAssembly(input: {
   // sides, 1 min each when the two sides lie on the bench together. Otherwise each side is drawn
   // on its own (twice the time), with one swap of the sides at the wall for the whole cabinet.
   const sidesTogether = benchFitsTwo(input.height, input.depth)
-  const sideTimes = sidesTogether ? 1 : 2
   const sideHint = sidesTogether
     ? 'двете страници лежат заедно на масата · линиите минават през двете'
     : 'двете страници не се събират на масата: всяка се чертае отделно'
   let sidesDrawn = false
+  /** One line across both sides lying together: 10 s more than on one side. */
+  const acrossExtra = LINE_ACROSS_EXTRA_SECONDS / 60
   if (input.bottomBetweenSides && fixedMarkPer > 0) {
-    const minutes = fixedMarkPer * sideTimes
+    const minutes = sidesTogether ? fixedMarkPer + acrossExtra : fixedMarkPer * 2
     sidesDrawn = true
-    pushStep(steps, {
+    pushExact(steps, {
       id: 'mark-bottom',
       kind: 'mark',
       label: 'Начертаване на дъното на страниците',
       minutes,
-      calc: sidesTogether ? `2 линии през двете страници наведнъж = ${minText(minutes)}` : `2 страници × ${minText(fixedMarkPer)} = ${minText(minutes)}`,
+      calc: sidesTogether
+        ? `2 линии през двете страници наведнъж: ${secText(fixedMarkPer * 60)} + ${secText(LINE_ACROSS_EXTRA_SECONDS)} = ${secText(minutes * 60)}`
+        : `2 страници × ${secText(fixedMarkPer * 60)} = ${secText(minutes * 60)}`,
       hint: `дъното стои между страниците: две линии, на дебелината му · ${sideHint}`,
     })
   }
   if (fixedN > 0 && fixedMarkPer > 0) {
     const shelves = fixedN === 1 ? '1 фиксиран рафт' : `${formatQty(fixedN)} фиксирани рафта`
-    const minutes = fixedMarkPer * sideTimes * fixedN
+    const per = sidesTogether ? fixedMarkPer + acrossExtra : fixedMarkPer * 2
+    const minutes = per * fixedN
     sidesDrawn = true
-    pushStep(steps, {
+    pushExact(steps, {
       id: 'mark-fixed-shelf',
       kind: 'mark',
       label: fixedN === 1 ? 'Начертаване на фиксиран рафт' : 'Начертаване на фиксирани рафтове',
@@ -1262,8 +1277,8 @@ export function collectCabinetAssembly(input: {
       unitOne: 'рафт',
       unitMany: 'рафта',
       calc: sidesTogether
-        ? `${shelves} × ${minText(fixedMarkPer)} = ${minText(minutes)}`
-        : `${shelves} × 2 страници × ${minText(fixedMarkPer)} = ${minText(minutes)}`,
+        ? `${shelves} × (${secText(fixedMarkPer * 60)} + ${secText(LINE_ACROSS_EXTRA_SECONDS)} през двете) = ${secText(minutes * 60)}`
+        : `${shelves} × 2 страници × ${secText(fixedMarkPer * 60)} = ${secText(minutes * 60)}`,
       hint: `две линии на рафт, на дебелината му · ${sideHint}`,
     })
   }
@@ -1285,7 +1300,7 @@ export function collectCabinetAssembly(input: {
     while (rows.length < input.drawerCount) rows.push({ key: `slide|${input.height}|${input.depth}|drawer-${rows.length}` })
     rows.length = Math.min(rows.length, input.drawerCount)
     const level = input.drawerMeasureLevel ?? 'easy'
-    for (const step of slideMarkingSteps(rows, { level, together: sidesTogether }).steps) pushExact(steps, step)
+    for (const step of slideMarkingSteps(rows, { level, together: sidesTogether, strokes: input.slideStrokes }).steps) pushExact(steps, step)
     sidesDrawn = true
   }
   if (sidesDrawn && !sidesTogether) {

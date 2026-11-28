@@ -268,6 +268,7 @@ export function generateKitchenBase(
     doorCount: interior.doorCount,
     drawerCount: interior.drawerCount,
     drawerMeasureLevel: parseDrawerMeasureLevel(raw.drawerMeasureLevel),
+    slideStrokes: interior.slideStrokes,
     hasClothesRail: interior.clothesRailCount > 0,
     clothesRailCount: interior.clothesRailCount,
     clothesRailLengthMm: p.width - 2 * p.thickness,

@@ -202,7 +202,7 @@ export function assemblyStages(solids: SceneSolid[], steps: AssemblyStep[], grou
   // lines are drawn on every board, so they are shared by how many each has.
   const slideMarks = benchWhere((item) => item.phase === 'mark' && item.counts.slides > 0)
   giveTo(claimIds('mark-drawer-fronts', 'mark-drawer-try'), slideMarks.slice(0, 1))
-  giveTo(claimIds('mark-drawer-guides', 'mark-drawer'), slideMarks, (item) => item.counts.slides)
+  giveTo(claimIds('mark-drawer-guides', 'mark-drawer'), slideMarks, (item) => item.counts.slideLineSeconds)
   giveTo(claimIds('mark-partition-bottom'), benchWhere((item) => item.group.key === 'bottom'))
   giveTo(claimIds('mark-partition-top'), benchWhere((item) => item.group.key === 'top'))
   giveTo(claimIds('shelf-pins'), benchWhere((item) => item.phase === 'pins'), (item) => item.counts.points)

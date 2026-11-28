@@ -89,7 +89,7 @@ export function scaleCabinetResult(
   const assemblySteps = slideStep?.slideRows
     ? replaceSlideMarking(
         withPins,
-        slideMarkingSteps(slideStep.slideRows, { level: slideStep.slideLevel ?? 'easy', together: slideStep.slideTogether ?? true }, new Set(), q).steps,
+        slideMarkingSteps(slideStep.slideRows, { level: slideStep.slideLevel ?? 'easy', together: slideStep.slideTogether ?? true, strokes: slideStep.slideStrokes }, new Set(), q).steps,
       )
     : withPins
   return {
@@ -130,7 +130,7 @@ export function repriceShelfPins(result: CabinetGeneratorResult, known: Readonly
   if (slide?.slideRows) {
     assemblySteps = replaceSlideMarking(
       assemblySteps,
-      slideMarkingSteps(slide.slideRows, { level: slide.slideLevel ?? 'easy', together: slide.slideTogether ?? true }, known, slide.slideCopies ?? 1).steps,
+      slideMarkingSteps(slide.slideRows, { level: slide.slideLevel ?? 'easy', together: slide.slideTogether ?? true, strokes: slide.slideStrokes }, known, slide.slideCopies ?? 1).steps,
     )
   }
   return {
