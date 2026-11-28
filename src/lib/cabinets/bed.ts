@@ -3,6 +3,7 @@ import { confirmatCount, fastenerLine, pricedLine, SCREW_4X16, SCREW_5X60 } from
 import { SCREWS_PER_CORNER_BRACKET } from './nightstand'
 import { DEFAULT_HARDWARE_SETTINGS, type HardwareSettings } from '@/lib/settings'
 import { formatMm } from '../utils'
+import { DEFAULT_ASSEMBLY_TIME_SETTINGS, type AssemblyStep, type AssemblyTimeSettings } from '@/lib/assembly-time'
 import type { RuleBlock } from './rule-text'
 import {
   edges,
@@ -208,6 +209,9 @@ function panel(
   }
 }
 
+/** One board under the mattress frame: set in place and held by its 4 corner brackets. */
+const BED_SUPPORT_MINUTES = 6
+
 export function generateBed(raw: Record<string, unknown>, settings?: unknown): CabinetGeneratorResult {
   const parsed = parseBedParams(raw)
   const m = measureBed(parsed)
@@ -368,16 +372,67 @@ export function generateBed(raw: Record<string, unknown>, settings?: unknown): C
     notes.push(`Таблата е ${formatMm(m.width)} × ${formatMm(m.headboardHeight)} мм в горния край.`)
   }
 
-  const steps = [
-    { id: 'bed-bottom', label: 'Дъно към страниците', minutes: 20 },
-    { id: 'bed-inner', label: 'Вътрешни страници и средна', minutes: 25 },
-    { id: 'bed-supports', label: 'Плоскости под рамката', minutes: 15 },
-    { id: 'bed-top', label: 'Плот между страниците', minutes: 10 },
+  // The bed is a large piece: the sides and the top take the large-cabinet times; each board in the
+  // middle (inner sides, middle side) goes in like a divider; the boards under the frame are held
+  // by 4 corner brackets each.
+  const s = (settings as { assemblyTime?: AssemblyTimeSettings } | undefined)?.assemblyTime ?? DEFAULT_ASSEMBLY_TIME_SETTINGS
+  const lineMinutes = s.partitionLineMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.partitionLineMinutes
+  const boardMinutes = s.partitionInstallMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.partitionInstallMinutes
+  const middleBoards = 3
+  const steps: AssemblyStep[] = [
+    {
+      id: 'mark-bed-bottom',
+      kind: 'mark',
+      label: 'Начертаване на дъното: къде стоят вътрешните и средната страница',
+      minutes: lineMinutes * middleBoards,
+      quantity: middleBoards,
+      unitOne: 'страница',
+      unitMany: 'страници',
+      calc: `${middleBoards} страници × ${lineMinutes} мин (2 линии на страница) = ${lineMinutes * middleBoards} мин`,
+    },
+    {
+      id: 'bed-sides',
+      label: 'Страниците към дъното',
+      minutes: s.sidesToBottomLargeMinutes,
+      quantity: 2,
+      unitOne: 'страница',
+      unitMany: 'страници',
+      hint: 'като при голям шкаф · винтове 5×60 отдолу през дъното',
+    },
+    {
+      id: 'bed-inner',
+      label: 'Вътрешните страници и средната',
+      minutes: boardMinutes * middleBoards,
+      quantity: middleBoards,
+      unitOne: 'страница',
+      unitMany: 'страници',
+      calc: `${middleBoards} страници × ${boardMinutes} мин = ${boardMinutes * middleBoards} мин`,
+      hint: 'всяка като разделителна страница · по линиите, винтове 5×60 отдолу през дъното',
+    },
+    {
+      id: 'bed-supports',
+      label: 'Плоскостите под рамката',
+      minutes: BED_SUPPORT_MINUTES * 2,
+      quantity: 2,
+      unitOne: 'плоскост',
+      unitMany: 'плоскости',
+      calc: `2 плоскости × ${BED_SUPPORT_MINUTES} мин = ${BED_SUPPORT_MINUTES * 2} мин`,
+      hint: `между вътрешната и средната · ${BED_BRACKETS_PER_SUPPORT} ъгълчета по 4 винтчета на плоскост`,
+    },
+    {
+      id: 'bed-top',
+      label: 'Плотът между страниците',
+      minutes: s.topLargeMinutes,
+      hint: 'като при голям шкаф · винтове 5×60 през страниците',
+    },
     { id: 'bed-frame', label: 'Подматрачна рамка', minutes: 15 },
   ]
-  if (parsed.liftMechanism) steps.push({ id: 'bed-lift', label: 'Механизъм за повдигане', minutes: 20 })
+  if (parsed.liftMechanism) {
+    steps.push({ id: 'bed-lift-boards', label: 'Плоскостите за механизма', minutes: 10, quantity: 2, unitOne: 'плоскост', unitMany: 'плоскости', hint: 'по 5 мин · винтове към вътрешната страница' })
+    steps.push({ id: 'bed-lift', label: 'Механизъм за повдигане', minutes: 20 })
+  }
   if (parsed.headboard) steps.push({ id: 'bed-head', label: 'Табла', minutes: 15 })
-  const assemblyMinutes = steps.reduce((sum, step) => sum + step.minutes, 0)
+  const assemblyMinutes = Math.round(steps.reduce((sum, step) => sum + step.minutes, 0) * 10) / 10
 
   return {
     panels,
