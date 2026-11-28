@@ -2142,17 +2142,18 @@ function CabinetDialogForm({
 
   // The assembly film shows one cabinet being made, so its times are for one copy (the first,
   // with the spots already known from cabinets before it), not for all the copies together.
+  const editingId = editing?.id ?? null
   const filmSteps = useMemo(() => {
     if (!assemblyFilm) return []
     try {
       return repriceShelfPins(
         generateCabinet(typeId, { ...params }, settings),
-        walkShelfPinSpots(projectCabinets, settings, editing?.id ?? null),
+        walkShelfPinSpots(projectCabinets, settings, editingId),
       ).labor.assemblySteps ?? []
     } catch {
       return []
     }
-  }, [assemblyFilm, typeId, params, settings, projectCabinets, editing?.id])
+  }, [assemblyFilm, typeId, params, settings, projectCabinets, editingId])
 
   const estimate = result ? estimateFromPanels(result.panels) : null
   const breakdown = result
