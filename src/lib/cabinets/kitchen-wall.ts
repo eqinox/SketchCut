@@ -25,6 +25,7 @@ import { formatMm } from '../utils'
 import type { RuleBlock } from './rule-text'
 import {
   collectCabinetAssembly,
+  parseDrawerMeasureLevel,
   type AssemblyTimeSettings,
 } from '@/lib/assembly-time'
 import { DEFAULT_ASSEMBLY_TIME_SETTINGS } from '@/lib/assembly-time'
@@ -284,6 +285,7 @@ export function generateKitchenWall(
     shelfCount: interior.shelfCount,
     doorCount: interior.doorCount,
     drawerCount: interior.drawerCount,
+    drawerMeasureLevel: parseDrawerMeasureLevel(raw.drawerMeasureLevel),
     hasClothesRail: interior.clothesRailCount > 0,
     clothesRailCount: interior.clothesRailCount,
     clothesRailLengthMm: m.innerW,

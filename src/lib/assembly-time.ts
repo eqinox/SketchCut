@@ -574,6 +574,104 @@ function pushExact(steps: AssemblyStep[], step: AssemblyStep): void {
   if (step.minutes > 0) steps.push(step)
 }
 
+/**
+ * Drawer slides, marked on the bench. The first time at a spot: the fronts and their 3 mm gaps
+ * are measured up the side with the tape and marked (quick, harder, hardest — chosen with the
+ * drawers), then a slide is held just above each gap and a round number picked for its line.
+ * Every line: a mark at the front, one at the back, the ruler on both, the pencil along it.
+ * Where another cabinet in the project already has slides at exactly the same spots, only the
+ * lines are drawn. Each slide is then held by 3 screws.
+ */
+export type DrawerMeasureLevel = 'easy' | 'medium' | 'hard'
+export const DRAWER_MEASURE_SECONDS: Record<DrawerMeasureLevel, number> = { easy: 35, medium: 105, hard: 240 }
+export const DRAWER_MEASURE_LABELS: Record<DrawerMeasureLevel, string> = { easy: 'лесно', medium: 'по-сложно', hard: 'най-сложно' }
+export const DRAWER_TRY_SLIDE_SECONDS = 30
+export const SLIDE_LINE_SECONDS = 40
+/** The 3 screws of one slide (the first hole, the last, the middle). */
+export const SLIDE_SCREWS_SECONDS = 70
+
+export function parseDrawerMeasureLevel(value: unknown): DrawerMeasureLevel {
+  return value === 'medium' || value === 'hard' ? value : 'easy'
+}
+
+/** One drawer's pair of slides; `key` is the same where the slides sit at exactly the same spots. */
+export interface SlideRow {
+  key: string
+}
+
+export function slideMarkingSteps(
+  rows: SlideRow[],
+  opts: { level: DrawerMeasureLevel; together: boolean },
+  known: ReadonlySet<string> = new Set(),
+  copies = 1,
+): { steps: AssemblyStep[]; keys: string[] } {
+  if (rows.length === 0) return { steps: [], keys: [] }
+  const seen = new Set(known)
+  let fresh = 0
+  for (const row of rows) {
+    if (seen.has(row.key)) continue
+    seen.add(row.key)
+    fresh += 1
+  }
+  const n = Math.max(1, Math.floor(copies))
+  const drawers = rows.length * n
+  const perLine = opts.together ? 1 : 2
+  const lines = drawers * perLine
+  const measure = DRAWER_MEASURE_SECONDS[opts.level]
+  const steps: AssemblyStep[] = []
+  if (fresh > 0) {
+    steps.push({
+      id: 'mark-drawer-fronts',
+      kind: 'mark',
+      label: 'Мерене и белязване на челата и фугите',
+      minutes: (fresh * measure) / 60,
+      quantity: fresh,
+      unitOne: 'чекмедже',
+      unitMany: 'чекмеджета',
+      calc: `${formatQty(fresh)} ${fresh === 1 ? 'чекмедже' : 'чекмеджета'} × ${secText(measure)} (${DRAWER_MEASURE_LABELS[opts.level]}) = ${secText(fresh * measure)}`,
+      hint: 'с ролетката: височината на челото, после още 3 мм фуга, и така до горе',
+    })
+    steps.push({
+      id: 'mark-drawer-try',
+      kind: 'mark',
+      label: 'Пробване на водача над фугата',
+      minutes: (fresh * DRAWER_TRY_SLIDE_SECONDS) / 60,
+      quantity: fresh,
+      unitOne: 'чекмедже',
+      unitMany: 'чекмеджета',
+      calc: `${formatQty(fresh)} × ${secText(DRAWER_TRY_SLIDE_SECONDS)} = ${secText(fresh * DRAWER_TRY_SLIDE_SECONDS)}`,
+      hint: 'водачът малко над фугата, мериш докъде идва и избираш кръгло число',
+    })
+  }
+  steps.push({
+    id: 'mark-drawer-lines',
+    kind: 'mark',
+    label: 'Линии за водачите по линеал',
+    minutes: (lines * SLIDE_LINE_SECONDS) / 60,
+    quantity: lines,
+    unitOne: 'линия',
+    unitMany: 'линии',
+    calc: `${formatQty(lines)} ${lines === 1 ? 'линия' : 'линии'} × ${secText(SLIDE_LINE_SECONDS)} = ${secText(lines * SLIDE_LINE_SECONDS)}`,
+    hint: opts.together
+      ? 'белег отпред, белег отзад, линеалът на двата и молив по него · една линия през двете страници'
+      : 'белег отпред, белег отзад, линеалът на двата и молив по него · на всяка страница отделно',
+    slideRows: rows,
+    slideCopies: n,
+    slideLevel: opts.level,
+    slideTogether: opts.together,
+  })
+  return { steps, keys: [...seen].filter((key) => !known.has(key)) }
+}
+
+/** Puts new slide marking steps in place of the old ones, where they stood. */
+export function replaceSlideMarking(steps: AssemblyStep[], next: AssemblyStep[]): AssemblyStep[] {
+  const ids = ['mark-drawer-fronts', 'mark-drawer-try', 'mark-drawer-lines']
+  const at = steps.findIndex((step) => ids.includes(step.id))
+  if (at < 0) return steps
+  const rest = steps.filter((step) => !ids.includes(step.id))
+  return [...rest.slice(0, at), ...next.filter((step) => step.minutes > 0), ...rest.slice(at)]
+}
+
 /** Puts new working-out and marking steps in place of the old ones, where they stood. */
 export function replaceShelfPinMarking(steps: AssemblyStep[], next: AssemblyStep[]): AssemblyStep[] {
   const at = steps.findIndex((step) => step.id === 'mark-shelf-pins-calc' || step.id === 'mark-shelf-pins')
@@ -840,6 +938,11 @@ export interface AssemblyStep {
   pinRows?: ShelfPinRow[]
   /** How many of this cabinet are made, for `pinRows`. */
   pinCopies?: number
+  /** Drawer slide marking: each drawer's spot, so repeats across the project are priced lower. */
+  slideRows?: SlideRow[]
+  slideCopies?: number
+  slideLevel?: DrawerMeasureLevel
+  slideTogether?: boolean
 }
 
 export function assemblyMinutesFromSteps(steps: AssemblyStep[]): number {
@@ -1022,6 +1125,8 @@ export function collectCabinetAssembly(input: {
   fixedShelfCount?: number
   /** The bottom sits between the sides, so its place is drawn on them. */
   bottomBetweenSides?: boolean
+  /** How hard it is to measure where the drawer fronts come (chosen with the drawers). */
+  drawerMeasureLevel?: DrawerMeasureLevel
   partitionCount?: number
   /** Soft-close slides: 6 min per drawer on the sides, plus a project-wide groove on the taller rails. */
   softCloseDrawers?: boolean
@@ -1155,6 +1260,18 @@ export function collectCabinetAssembly(input: {
         : `${shelves} × 2 страници × ${minText(fixedMarkPer)} = ${minText(minutes)}`,
       hint: `две линии на рафт, на дебелината му · ${sideHint}`,
     })
+  }
+  if (input.drawerCount > 0) {
+    // Each drawer's slides: the cabinet's size and its fronts, so equal cabinets match.
+    const fronts = input.panels
+      .filter((panel) => panel.role === 'drawer-front')
+      .flatMap((panel) => Array.from({ length: Math.max(0, panel.quantity) }, () => Math.round(panel.height)))
+    const rows: SlideRow[] = Array.from({ length: input.drawerCount }, (_, i) => ({
+      key: `slide|${input.height}|${input.depth}|${fronts.join(',')}|${i}`,
+    }))
+    const level = input.drawerMeasureLevel ?? 'easy'
+    for (const step of slideMarkingSteps(rows, { level, together: sidesTogether }).steps) pushExact(steps, step)
+    sidesDrawn = true
   }
   if (sidesDrawn && !sidesTogether) {
     const swap = benchSwapSeconds(input.height)
@@ -1470,28 +1587,16 @@ export function collectCabinetAssembly(input: {
   if (input.drawerCount > 0) {
     const n = input.drawerCount
     const soft = !!input.softCloseDrawers
-    const deep = isDeepDrawerGuides(input.depth, input.height, s)
-    const guidePer = soft
-      ? (s.installDrawerGuidesSoftMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.installDrawerGuidesSoftMinutes)
-      : deep
-        ? s.installDrawerGuidesDeepMinutes
-        : s.installDrawerGuidesMinutes
-    const minDepth = s.shelfPinDeepMinDepthMm ?? DEEP_CABINET_MIN_DEPTH_MM
-    const minHeight = s.drawerGuideDeepMinHeightMm ?? DRAWER_GUIDE_DEEP_MIN_HEIGHT_MM
-    pushStep(steps, {
+    const slides = n * 2
+    pushExact(steps, {
       id: 'drawer-guides-sides',
-      label: 'Слагане на водачи на страниците',
-      minutes: guidePer * n,
-      quantity: n,
-      unitOne: 'чекмедже',
-      unitMany: 'чекмеджета',
-      hint: soft
-        ? `водачи с плавно прибиране · ${guidePer} мин на чекмедже`
-        : deep
-          ? `водачи на страниците · дълбочина над ${minDepth} мм и височина от ${minHeight} мм`
-          : input.depth > minDepth
-            ? `водачи на страниците · висок под ${minHeight} мм — брои се за малък`
-            : `водачи на страниците · дълбочина до ${minDepth} мм`,
+      label: 'Водачите на страниците: по 3 винта',
+      minutes: (slides * SLIDE_SCREWS_SECONDS) / 60,
+      quantity: slides,
+      unitOne: 'водач',
+      unitMany: 'водача',
+      calc: `${formatQty(slides)} водача × ${secText(SLIDE_SCREWS_SECONDS)} = ${secText(slides * SLIDE_SCREWS_SECONDS)}`,
+      hint: `${soft ? 'водачи с плавно прибиране' : 'ролкови водачи'} · винт в първата дупка, в последната и в средата`,
     })
     if (soft) {
       const first = s.softCloseGrooveFirstPairMinutes ?? DEFAULT_ASSEMBLY_TIME_SETTINGS.softCloseGrooveFirstPairMinutes

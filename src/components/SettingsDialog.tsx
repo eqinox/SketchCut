@@ -1768,47 +1768,14 @@ export function SettingsDialog({
               <div className="rounded-md border border-[var(--color-border)] p-4">
                 <h3 className="mb-3 font-medium">Сглобяване на чекмедже</h3>
                 <div className="grid gap-3 sm:grid-cols-2">
-                  <div>
-                    <Label htmlFor="drawer-guides">Водачи на страниците (минути)</Label>
-                    <Input
-                      id="drawer-guides"
-                      type="number"
-                      step="0.5"
-                      min="0"
-                      value={drawerGuides}
-                      onChange={(e) => setDrawerGuides(e.target.value)}
-                    />
-                    <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
-                      За 1 чекмедже. И при дълбочина над {previewShelfPinDepth} мм, ако височината е под {previewDrawerGuideHeight} мм.
-                    </p>
-                  </div>
-                  <div>
-                    <Label htmlFor="drawer-guides-deep">Водачи — дълбок шкаф (минути)</Label>
-                    <Input
-                      id="drawer-guides-deep"
-                      type="number"
-                      step="0.5"
-                      min="0"
-                      value={drawerGuidesDeep}
-                      onChange={(e) => setDrawerGuidesDeep(e.target.value)}
-                    />
-                    <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
-                      Дълбочина над {previewShelfPinDepth} мм и височина от {previewDrawerGuideHeight} мм нагоре.
-                    </p>
-                  </div>
-                  <div>
-                    <Label htmlFor="drawer-guides-soft">Водачи — плавно прибиране (минути)</Label>
-                    <Input
-                      id="drawer-guides-soft"
-                      type="number"
-                      step="0.5"
-                      min="0"
-                      value={drawerGuidesSoft}
-                      onChange={(e) => setDrawerGuidesSoft(e.target.value)}
-                    />
-                    <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
-                      За 1 чекмедже с плавно прибиране, вместо малко/дълбоко.
-                    </p>
+                  <div className="sm:col-span-2 rounded-md border border-[var(--color-border)] p-3 text-xs">
+                    <p className="font-medium">Водачи (на чекмедже)</p>
+                    <ul className="mt-1 list-disc space-y-0.5 pl-4 text-[var(--color-muted-foreground)]">
+                      <li>Мерене и белязване на челата и фугите: 35 сек (лесно), 1 мин 45 сек (по-сложно), 4 мин (най-сложно) — избира се при чекмеджетата.</li>
+                      <li>Пробване на водача над фугата: 30 сек. Линия по линеал: 40 сек (на всяка страница, ако не са заедно на масата).</li>
+                      <li>Ако друг шкаф в проекта има водачи на същите места — само линиите.</li>
+                      <li>По 3 винта на водач: 1 мин 10 сек, 2 водача на чекмедже.</li>
+                    </ul>
                   </div>
                   <div>
                     <Label htmlFor="soft-groove-first">Канал на високите царги — първи чифт (минути)</Label>

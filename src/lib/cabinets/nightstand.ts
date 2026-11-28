@@ -32,6 +32,7 @@ import type { HardwareSettings } from '@/lib/settings'
 import { DEFAULT_HARDWARE_SETTINGS, omitsCuttingEdgingLabor } from '@/lib/settings'
 import {
   collectCabinetAssembly,
+  parseDrawerMeasureLevel,
   type AssemblyTimeSettings,
 } from '@/lib/assembly-time'
 import { DEFAULT_ASSEMBLY_TIME_SETTINGS } from '@/lib/assembly-time'
@@ -610,6 +611,7 @@ export function generatePlinthCabinet(
     shelfCount: interior.shelfCount,
     doorCount: m.sliding ? 0 : interior.doorCount,
     drawerCount: interior.drawerCount,
+    drawerMeasureLevel: parseDrawerMeasureLevel(raw.drawerMeasureLevel),
     hasClothesRail: interior.clothesRailCount > 0,
     clothesRailCount: interior.clothesRailCount,
     clothesRailLengthMm: m.innerW,

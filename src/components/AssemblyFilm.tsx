@@ -21,7 +21,14 @@ const FAST_SPEED = 3
 const BENCH_OPS: Record<BenchOp, { title: string; unit?: string; steps: (id: string) => boolean; otherwise: string }> = {
   'line:bottom': { title: 'Линии за дъното', unit: '2 линии', steps: (id) => id === 'mark-bottom', otherwise: 'без отделно време' },
   'line:fixed': { title: 'Линии за фиксиран рафт', unit: '2 линии', steps: (id) => id === 'mark-fixed-shelf', otherwise: 'без отделно време' },
-  'line:slide': { title: 'Линия за водач', unit: 'линия', steps: (id) => id.startsWith('mark-drawer'), otherwise: 'във времето за водачите' },
+  'line:slide': {
+    title: 'Линия за водач по линеал',
+    unit: 'линия',
+    steps: (id) => id === 'mark-drawer-lines' || id === 'mark-drawer-guides',
+    otherwise: 'във времето за водачите',
+  },
+  measure: { title: 'Мерене на челото и фугата', unit: 'чекмедже', steps: (id) => id === 'mark-drawer-fronts', otherwise: 'без отделно време' },
+  try: { title: 'Пробване на водача над фугата', unit: 'чекмедже', steps: (id) => id === 'mark-drawer-try', otherwise: 'без отделно време' },
   'line:divider': {
     title: 'Линии за разделителна страница',
     unit: '2 линии',
@@ -200,6 +207,11 @@ export function AssemblyFilm({ store }: { store: CaptureStore }) {
     studioRef.current?.setSpeed(pace)
   }, [pace, benchKey, ready])
 
+  // New slide spots in this cabinet: the bench shows the fronts measured and a slide tried first.
+  const measureFronts = (film?.steps ?? []).some((step) => step.id === 'mark-drawer-fronts')
+  useEffect(() => {
+    benchRef.current?.setMeasureFronts(measureFronts)
+  }, [measureFronts, benchKey])
   useEffect(() => {
     benchRef.current?.setAllSlow(allSlow)
     studioRef.current?.setFilmAllSlow(allSlow)

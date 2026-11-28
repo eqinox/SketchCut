@@ -13,7 +13,9 @@ import {
   assemblyMinutesFromSteps,
   rescaleProjectScopedStep,
   replaceShelfPinMarking,
+  replaceSlideMarking,
   shelfPinMarkingSteps,
+  slideMarkingSteps,
   type AssemblyStep,
 } from '@/lib/assembly-time'
 
@@ -70,18 +72,26 @@ export function scaleCabinetResult(
   const scaled = (result.labor.assemblySteps ?? []).map((step: AssemblyStep) => {
     // Shelf-pin marking is priced again below: the copies after the first repeat the first.
     if (step.id === 'mark-shelf-pins-calc' || step.pinRows) return step
+    if (step.id === 'mark-drawer-fronts' || step.id === 'mark-drawer-try' || step.slideRows) return step
     if (step.projectFirstExtra && step.quantity != null) {
       return rescaleProjectScopedStep(step, step.quantity * q)
     }
     return {
       ...step,
-      minutes: Math.round(step.minutes * q * 10) / 10,
+      minutes: Math.round(step.minutes * q * 100) / 100,
       quantity: step.quantity != null ? step.quantity * q : undefined,
       calc: undefined,
     }
   })
   const rows = scaled.find((step) => step.pinRows)?.pinRows
-  const assemblySteps = rows ? replaceShelfPinMarking(scaled, shelfPinMarkingSteps(rows, new Set(), q).steps) : scaled
+  const withPins = rows ? replaceShelfPinMarking(scaled, shelfPinMarkingSteps(rows, new Set(), q).steps) : scaled
+  const slideStep = withPins.find((step) => step.slideRows)
+  const assemblySteps = slideStep?.slideRows
+    ? replaceSlideMarking(
+        withPins,
+        slideMarkingSteps(slideStep.slideRows, { level: slideStep.slideLevel ?? 'easy', together: slideStep.slideTogether ?? true }, new Set(), q).steps,
+      )
+    : withPins
   return {
     ...result,
     panels: result.panels.map((p) => ({
@@ -100,8 +110,10 @@ export function scaleCabinetResult(
 
 /** The shelf-pin spots a cabinet marks (see `shelfPinMarkingSteps`). */
 export function shelfPinSpots(result: CabinetGeneratorResult): string[] {
-  const rows = result.labor.assemblySteps?.find((step) => step.pinRows)?.pinRows ?? []
-  return rows.map((row) => row.key)
+  const steps = result.labor.assemblySteps ?? []
+  const pins = steps.find((step) => step.pinRows)?.pinRows ?? []
+  const slides = steps.find((step) => step.slideRows)?.slideRows ?? []
+  return [...pins.map((row) => row.key), ...slides.map((row) => row.key)]
 }
 
 /**
@@ -109,11 +121,18 @@ export function shelfPinSpots(result: CabinetGeneratorResult): string[] {
  * before it in the project: those skip the working-out and are marked 30 seconds quicker.
  */
 export function repriceShelfPins(result: CabinetGeneratorResult, known: ReadonlySet<string>): CabinetGeneratorResult {
-  const steps = result.labor.assemblySteps ?? []
-  const mark = steps.find((step) => step.pinRows)
-  if (!mark?.pinRows || known.size === 0) return result
-  const next = shelfPinMarkingSteps(mark.pinRows, known, mark.pinCopies ?? 1).steps
-  const assemblySteps = replaceShelfPinMarking(steps, next)
+  if (known.size === 0) return result
+  let assemblySteps = result.labor.assemblySteps ?? []
+  const mark = assemblySteps.find((step) => step.pinRows)
+  if (mark?.pinRows) assemblySteps = replaceShelfPinMarking(assemblySteps, shelfPinMarkingSteps(mark.pinRows, known, mark.pinCopies ?? 1).steps)
+  // Drawer slides at spots an earlier cabinet already has: only the lines are drawn.
+  const slide = assemblySteps.find((step) => step.slideRows)
+  if (slide?.slideRows) {
+    assemblySteps = replaceSlideMarking(
+      assemblySteps,
+      slideMarkingSteps(slide.slideRows, { level: slide.slideLevel ?? 'easy', together: slide.slideTogether ?? true }, known, slide.slideCopies ?? 1).steps,
+    )
+  }
   return {
     ...result,
     labor: { ...result.labor, assemblySteps, assemblyMinutes: assemblyMinutesFromSteps(assemblySteps) },

@@ -29,6 +29,8 @@ import { createToolTag } from '@/lib/view3d/tool-tag'
 /** What one moment of the bench film is: the label beside the tool says what it costs. */
 export type BenchOp =
   | `line:${BenchLineKind}`
+  | 'measure'
+  | 'try'
   | 'cross'
   | 'point'
   | 'dent'
@@ -49,6 +51,8 @@ export type Workbench = {
   seek(fraction: number): void
   /** On: every repeat at the slow pace of the first ones, none hurried. Takes effect from the same point. */
   setAllSlow(on: boolean): void
+  /** On: before each slide line, the fronts are measured with the tape and a slide is tried (the first time). */
+  setMeasureFronts(on: boolean): void
   /** How far the job has played, 0 → 1. */
   progress(): number
   dispose(): void
@@ -88,6 +92,8 @@ export function mountWorkbench(host: HTMLElement, group: BenchGroup, soft: boole
   const jobs: BenchJob[] = benchJobs(group)
   /** Every repeat at the slow pace of the first ones (set from the film's „Всичко бавно“). */
   let allSlow = false
+  /** The slide spots are new: measure the fronts and try a slide before each line. */
+  let measureFronts = false
   const renderer = new WebGLRenderer({ antialias: true })
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5))
   renderer.outputColorSpace = SRGBColorSpace
@@ -639,6 +645,8 @@ export function mountWorkbench(host: HTMLElement, group: BenchGroup, soft: boole
         ? [...all].sort((a, b) => (a.index === onTable ? -1 : b.index === onTable ? 1 : a.index - b.index)).map((item) => [item])
         : [all]
       let batchNo = -1
+      /** Slide lines already measured (one-by-one, the second board just gets its lines). */
+      const measured = new Set<number>()
       for (const onFace of batches) {
         batchNo += 1
         if (oneByOne && onFace[0] && onFace[0].index !== onTable) actions.push(swap(onFace[0].index))
@@ -685,6 +693,95 @@ export function mountWorkbench(host: HTMLElement, group: BenchGroup, soft: boole
           const draws = stroke.parts.map((part) => ({ part, draw: pencilLine(part.index, face, part.a, part.b) }))
           const y = stroke.parts[0].a.y
           const length = stroke.z1 - stroke.z0
+          if (stroke.kind === 'slide') {
+            const key = Math.round(stroke.x)
+            if (measureFronts && !measured.has(key)) {
+              measured.add(key)
+              // The tape from the board's bottom edge up to the front, two pencil marks: the
+              // top of the front and the 3 mm gap; then a slide tried just above the gap.
+              const first = stroke.parts[0]
+              const board = placed[first.index].board
+              const near = first.a.z <= first.b.z ? first.a.z + 30 : first.a.z - 30
+              const bottomX = board.u
+              const gapX = stroke.x + 6
+              const tape = new Group()
+              const tapeCase = box(70, 38, 70, mat('#e7b416', 0.5))
+              tapeCase.position.set(35, 19, 0)
+              const blade = box(1, 1, 19, mat('#f2d24b', 0.4, 0.2))
+              tape.add(tapeCase, blade)
+              tape.visible = false
+              tape.position.set(bottomX, y, near)
+              built.add(tape)
+              const ticks = [gapX, gapX + 3].map((x) => {
+                const tick = box(1.8, 0.3, 16, graphite)
+                tick.position.set(x, y + 0.15, near)
+                tick.visible = false
+                built.add(tick)
+                return tick
+              })
+              actions.push({
+                focus: new Vector3((bottomX + gapX) / 2, y, near),
+                op: 'measure',
+                seconds: 2.4 * slow(count),
+                run: (p) => {
+                  tape.visible = p < 1
+                  // The blade runs out from the case to the mark.
+                  const out = ease(span(p, 0.05, 0.45)) * (bottomX - gapX)
+                  blade.scale.x = Math.max(1, out)
+                  blade.position.set(-out / 2, 0.6, 0)
+                  ticks[0].visible = p >= 0.6
+                  ticks[1].visible = p >= 0.8
+                  pencil.visible = p > 0.5 && p < 1
+                  pencil.position.set(p < 0.7 ? ticks[0].position.x : ticks[1].position.x, y + (p < 0.55 ? 30 : 0), near)
+                },
+              })
+              const trial = box(soft ? 38 : 28, soft ? 14 : 12, Math.min(length, 450), slideMat)
+              trial.visible = false
+              built.add(trial)
+              actions.push({
+                focus: new Vector3(stroke.x, y, near),
+                op: 'try',
+                seconds: 1.8 * slow(count),
+                run: (p) => {
+                  trial.visible = p < 1
+                  // Laid just above the gap, held, lifted away again.
+                  const down = span(p, 0, 0.3) - span(p, 0.75, 1)
+                  trial.position.set(stroke.x - (soft ? 19 : 14), y + (soft ? 7 : 6) + (1 - down) * 80, near + (first.a.z <= first.b.z ? 1 : -1) * Math.min(length, 450) / 2)
+                },
+              })
+            }
+            // A mark at the front and the back, the ruler on both, the pencil along it.
+            const ruler = box(28, 3, length + 60, mat('#c9ccd1', 0.3, 0.8))
+            ruler.visible = false
+            built.add(ruler)
+            const ends = [stroke.z0, stroke.z1].map((z) => {
+              const tick = box(14, 0.3, 1.8, graphite)
+              tick.position.set(stroke.x, y + 0.15, z)
+              tick.visible = false
+              built.add(tick)
+              return tick
+            })
+            actions.push({
+              focus: () => new Vector3(pencil.position.x, y, pencil.position.z),
+              op: `line:${stroke.kind}`,
+              line: { x: stroke.x, batch: batchNo },
+              seconds: (2.6 + length / 700) * slow(count++),
+              run: (p) => {
+                ends[0].visible = p >= 0.12
+                ends[1].visible = p >= 0.27
+                const lay = span(p, 0.3, 0.42) - span(p, 0.9, 1)
+                ruler.visible = lay > 0 && p < 1
+                ruler.position.set(stroke.x - 15, y + 1.5 + (1 - lay) * 60, (stroke.z0 + stroke.z1) / 2)
+                const q = ease(span(p, 0.45, 0.88))
+                const z = stroke.z0 + length * q
+                for (const { part, draw } of draws) draw(span(z, part.a.z, part.b.z))
+                pencil.visible = p < 0.9
+                const tickAt = p < 0.15 ? stroke.z0 : p < 0.3 ? stroke.z1 : z
+                pencil.position.set(stroke.x, y + (p > 0.27 && p < 0.45 ? 40 : 0), tickAt)
+              },
+            })
+            continue
+          }
           actions.push({
             focus: () => new Vector3(pencil.position.x, y, pencil.position.z),
             op: `line:${stroke.kind}`,
@@ -1053,6 +1150,21 @@ export function mountWorkbench(host: HTMLElement, group: BenchGroup, soft: boole
       start(lastJob, lastDone)
       const total = queue.reduce((sum, action) => sum + action.seconds, 0)
       elapsed = Math.max(0, Math.min(1, fraction)) * total
+      // Run on to that point now, and put the camera on the work there (also while paused).
+      while (current < queue.length && elapsed >= queue[current].seconds) {
+        queue[current].run(1)
+        elapsed -= queue[current].seconds
+        current += 1
+      }
+      const action = queue[current]
+      if (!action) return
+      action.run(elapsed / action.seconds)
+      if (!action.focus) return
+      const focus = typeof action.focus === 'function' ? action.focus() : action.focus
+      const back = camera.position.clone().sub(controls.target).setLength(action.distance ?? FOLLOW_MM)
+      controls.target.copy(focus)
+      camera.position.copy(focus).add(back)
+      follow = true
     },
     setAllSlow(on) {
       if (on === allSlow) return
@@ -1066,6 +1178,15 @@ export function mountWorkbench(host: HTMLElement, group: BenchGroup, soft: boole
     },
     progress() {
       return progressNow()
+    },
+    setMeasureFronts(on) {
+      if (on === measureFronts) return
+      const at = progressNow()
+      measureFronts = on
+      if (lastJob >= 0 && lastDone) {
+        start(lastJob, lastDone)
+        elapsed = at * queue.reduce((sum, action) => sum + action.seconds, 0)
+      }
     },
     setDescribe(next) {
       describe = next

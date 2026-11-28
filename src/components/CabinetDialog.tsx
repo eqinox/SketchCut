@@ -187,7 +187,13 @@ import {
 import type { HardwareSettings } from '@/lib/settings'
 import { DEFAULT_HARDWARE_SETTINGS } from '@/lib/settings'
 import type { AssemblyTimeSettings } from '@/lib/assembly-time'
-import { DEFAULT_ASSEMBLY_TIME_SETTINGS } from '@/lib/assembly-time'
+import {
+  DEFAULT_ASSEMBLY_TIME_SETTINGS,
+  DRAWER_MEASURE_LABELS,
+  DRAWER_MEASURE_SECONDS,
+  parseDrawerMeasureLevel,
+  type DrawerMeasureLevel,
+} from '@/lib/assembly-time'
 import {
   SLIDING_TRACK_COLOR_IDS,
   SLIDING_TRACK_COLOR_LABELS,
@@ -1748,6 +1754,10 @@ function CabinetDialogForm({
   const [handleSku, setHandleSku] = useState<PullSku>(initialFittings.handleSku ?? 'normal')
   const [handleOverrides, setHandleOverrides] = useState<Record<string, PullSku>>(initialFittings.handleOverrides ?? {})
   const [slideKind, setSlideKind] = useState<SlideKind>(parseSlideKind(initialFittings.slideKind))
+  /** How hard it is to measure where the drawer fronts come: sets the time for marking the slides. */
+  const [drawerMeasureLevel, setDrawerMeasureLevel] = useState<DrawerMeasureLevel>(
+    parseDrawerMeasureLevel((editing?.params as Record<string, unknown> | undefined)?.drawerMeasureLevel),
+  )
   const [slideLength, setSlideLength] = useState(initialFittings.slideLength)
 
   const initialVanity = editing?.typeId === 'vanity' ? parseVanityParams(editing.params) : DEFAULT_VANITY_PARAMS
@@ -1932,6 +1942,7 @@ function CabinetDialogForm({
       handleOverrides,
       slideKind,
       slideLength,
+      drawerMeasureLevel,
       externalDoors,
       innerDrawerFronts,
       innerDoors,
@@ -2079,7 +2090,7 @@ function CabinetDialogForm({
       colors,
       ...fittings,
     })
-  }, [typeId, width, height, depth, depthMode, thickness, legHeight, shelfCount, movableShelves, hasBack, nailBack, clothesRails, doorCount, doorStyle, slidingDoorCount, slidingEdges, slidingUpperTrackColor, slidingLowerTrackColor, slidingHandleSkuId, slidingCapSkuId, slidingSoftCloseLeft, slidingSoftCloseRight, drawerFrontHeights, cutFromOneBoard, includeHandles, handleSku, handleOverrides, slideKind, slideLength, useLegs, plinthCount, plinthHeight, colors, topStyle, hasHood, hoodShape, hoodDiameter, hoodRectW, hoodRectD, fixedShelves, partitions, doorSpan, zoneUi, externalDoors, innerDrawerFronts, innerDoors, dimFontScale, shelfFrontInset, knee, kneeWidth, legSide, backRailHeight, doorMirror, boardMirror, bedMattressLength, bedMattressWidth, bedSideHeight, bedLift, bedLiftDampers, bedHeadboard, bedHeadboardHeight])
+  }, [typeId, width, height, depth, depthMode, thickness, legHeight, shelfCount, movableShelves, hasBack, nailBack, clothesRails, doorCount, doorStyle, slidingDoorCount, slidingEdges, slidingUpperTrackColor, slidingLowerTrackColor, slidingHandleSkuId, slidingCapSkuId, slidingSoftCloseLeft, slidingSoftCloseRight, drawerFrontHeights, cutFromOneBoard, includeHandles, handleSku, handleOverrides, slideKind, slideLength, drawerMeasureLevel, useLegs, plinthCount, plinthHeight, colors, topStyle, hasHood, hoodShape, hoodDiameter, hoodRectW, hoodRectD, fixedShelves, partitions, doorSpan, zoneUi, externalDoors, innerDrawerFronts, innerDoors, dimFontScale, shelfFrontInset, knee, kneeWidth, legSide, backRailHeight, doorMirror, boardMirror, bedMattressLength, bedMattressWidth, bedSideHeight, bedLift, bedLiftDampers, bedHeadboard, bedHeadboardHeight])
 
   const params = useMemo(
     () => ({
@@ -6587,10 +6598,29 @@ function CabinetDialogForm({
         {counts.drawerCount > 0 && (
           <FormSection defaultOpen={false}
             title="Водачи"
-            summary={
+            summary={`${
               slideKind === 'roller' ? 'Ролкови' : slideKind === 'soft-full' ? 'Плавно пълно' : 'Плавно частично'
-            }
+            } · мерене ${DRAWER_MEASURE_LABELS[drawerMeasureLevel]}`}
           >
+            <p className="text-xs text-[var(--color-muted-foreground)]">
+              Колко трудно се намира къде идват челата (на чекмедже, когато мястото е ново)
+            </p>
+            <div className="mt-1 mb-3 flex flex-wrap gap-2">
+              {(['easy', 'medium', 'hard'] as const).map((level) => (
+                <Button
+                  key={level}
+                  type="button"
+                  size="sm"
+                  variant={drawerMeasureLevel === level ? 'default' : 'outline'}
+                  onClick={() => setDrawerMeasureLevel(level)}
+                >
+                  {level === 'easy' ? 'Лесно' : level === 'medium' ? 'По-сложно' : 'Най-сложно'} ·{' '}
+                  {DRAWER_MEASURE_SECONDS[level] < 60
+                    ? `${DRAWER_MEASURE_SECONDS[level]} сек`
+                    : `${Math.floor(DRAWER_MEASURE_SECONDS[level] / 60)} мин${DRAWER_MEASURE_SECONDS[level] % 60 ? ` ${DRAWER_MEASURE_SECONDS[level] % 60} сек` : ''}`}
+                </Button>
+              ))}
+            </div>
             <div className="mt-1 flex flex-wrap gap-2">
               {(['roller', 'soft-full', 'soft-partial'] as const).map((kind) => (
                 <Button
