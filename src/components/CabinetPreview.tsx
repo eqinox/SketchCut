@@ -3860,6 +3860,7 @@ function PlinthBoxPreview({
             fascia={fascia}
             boardMirror={parseMirrorSpec(params.boardMirror)}
             dividersToFloor={bottomSpans != null}
+            pedestalRails={bottomSpans != null && bottomSpans.length === 2}
             sketchTitle={typeId === 'vanity' ? 'Тоалетка 3D' : ''}
           />
       </FrontDrawing>
@@ -3954,6 +3955,7 @@ function PlinthBoxFront3DView({
   fascia = null,
   boardMirror = null,
   dividersToFloor = false,
+  pedestalRails = false,
   sketchTitle = '',
 }: {
   p: NightstandParams
@@ -3971,6 +3973,8 @@ function PlinthBoxFront3DView({
   fascia?: { x: number; w: number; h: number } | null
   boardMirror?: MirrorSpec | null
   dividersToFloor?: boolean
+  /** Each pedestal is its own box: a front and a back rail on top, between its sides, under the top. */
+  pedestalRails?: boolean
   sketchTitle?: string
 }) {
   const marks = useCabinetMarks()
@@ -4487,6 +4491,32 @@ function PlinthBoxFront3DView({
                     cam={view}
                     faces={{ front: true }}
                   />
+                  {pedestalRails && (
+                    <>
+                      <Board
+                        x={span.x}
+                        y={sideY}
+                        z={zSide + m.sideD - Math.min(p.railWidth, m.sideD / 2)}
+                        w={span.w}
+                        h={T}
+                        d={Math.min(p.railWidth, m.sideD / 2)}
+                        color={wood.rail} pick={`rail-back-${Math.round(span.x)}`}
+                        cam={view}
+                        faces={BETWEEN_FACES}
+                      />
+                      <Board
+                        x={span.x}
+                        y={sideY}
+                        z={zSide}
+                        w={span.w}
+                        h={T}
+                        d={Math.min(p.railWidth, m.sideD / 2)}
+                        color={wood.rail} pick={`rail-front-${Math.round(span.x)}`}
+                        cam={view}
+                        faces={BETWEEN_FACES}
+                      />
+                    </>
+                  )}
                 </React.Fragment>
               )
             })}

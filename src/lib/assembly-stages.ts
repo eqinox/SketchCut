@@ -6,6 +6,7 @@ import {
   isFixedShelf,
   jobCounts,
   mainBoxes,
+  separateBoxes,
   splitDividers,
   type BenchGroup,
 } from '@/lib/bench-plan'
@@ -152,10 +153,14 @@ export function assemblyStages(solids: SceneSolid[], steps: AssemblyStep[], grou
         if (counts.lines > 0) what.push(`${counts.lines} ${counts.lines === 1 ? 'линия' : 'линии'}`)
         if (counts.crosses > 0) what.push(`${counts.crosses} ${counts.crosses === 1 ? 'кръстче за лоста' : 'кръстчета за лоста'}`)
         if (counts.points > 0) what.push(`${counts.points} точки за рафтоносачи`)
-        if (group.key === 'sides' && benchLayout(group) === 'one-by-one') {
+        const pair = group.key === 'sides' || group.key === 'box'
+        if (pair && other) {
+          title = `${group.title}: обръщаш и чертаеш другата страна`
+          note = `С молив: къде идват водачите. ${what.join(', ')}.`
+        } else if (pair && benchLayout(group) === 'one-by-one') {
           title = `${group.title} една по една: чертаене`
           note = `Двете не се събират на масата (90 см): чертаеш едната, вдигаш я и я облягаш на стената, после слагаш другата на масата. С молив: къде идва дъното, фиксираните рафтове и рафтовете, къде седи лостът. ${what.join(', ')}.`
-        } else if (group.key === 'sides') {
+        } else if (pair) {
           title = `${group.title} една до друга: чертаене`
           note = `Лежат една до друга на масата с вътрешната страна нагоре${benchLayout(group) === 'across' ? ', долният край към теб' : ''}, една линия минава и през двете. С молив: къде идва дъното, фиксираните рафтове и рафтовете, къде седи лостът. ${what.join(', ')}.`
         } else if (group.key === 'bottom' || group.key === 'top') {
@@ -195,7 +200,7 @@ export function assemblyStages(solids: SceneSolid[], steps: AssemblyStep[], grou
   const marking = (item: BenchItem) => item.phase === 'mark'
   giveTo(claimIds('mark-bottom'), benchWhere((item) => marking(item) && item.counts.linesOf('bottom') > 0), (item) => item.counts.linesOf('bottom'))
   giveTo(claimIds('mark-fixed-shelf'), benchWhere((item) => marking(item) && item.counts.linesOf('fixed') > 0), (item) => item.counts.linesOf('fixed'))
-  giveTo(claimIds('mark-sides-swap'), benchWhere((item) => item.group.key === 'sides' && marking(item)))
+  giveTo(claimIds('mark-sides-swap'), benchWhere((item) => (item.group.key === 'sides' || item.group.key === 'box') && item.face === 0 && marking(item)))
   giveTo(claimIds('mark-clothes-rail'), benchWhere((item) => marking(item) && item.counts.crosses > 0), (item) => item.counts.crosses)
   giveTo(claimIds('mark-shelf'), benchWhere((item) => marking(item) && item.counts.points > 0), (item) => item.counts.points)
   // Measuring the fronts and trying a slide are done once, on the first boards with slides; the
@@ -225,8 +230,69 @@ export function assemblyStages(solids: SceneSolid[], steps: AssemblyStep[], grou
   const withSlides = (board: Box) => [...allOf(pieceOf(board)), ...(slideOwner.get(board) ?? [])]
   const floorY = boxes.reduce((most, box) => Math.max(most, box.y + box.h), 0)
 
+  // Separate boxes (a vanity's two pedestals): each is put together on its own, like a nightstand —
+  // the bottom upside down with its plinths, turned over, its two sides, the two rails on top.
+  // While one is made the other stands aside; then they stand side by side for the top.
+  const separate = separateBoxes(shown)
+  if (separate.length > 0) {
+    const n = separate.length
+    const plinthSteps = claimIds('plinth')
+    const sideSteps = claimIds('sides-bottom')
+    const railTopSteps = claimIds('top-rails')
+    const made: SceneSolid[][] = []
+    separate.forEach((box, k) => {
+      const word = k === 0 ? 'Лявото шкафче' : k === n - 1 ? 'Дясното шкафче' : `Шкафче ${k + 1}`
+      standing = []
+      const plinthParts = allOf(`plinth-${box.key}`).sort((a, b) => a.z - b.z)
+      if (plinthParts.length > 0) {
+        build(`box-${k}-bottom-down`, `${word}: дъното с лицето надолу`, [], [{ solids: allOf(`bottom-${box.key}`) }], { pose: UPSIDE_DOWN })
+        plinthParts.forEach((plinth, i) => {
+          const which =
+            plinthParts.length === 2 ? (i === 0 ? 'предният цокъл' : 'задният цокъл') : plinthParts.length === 1 ? 'цокълът' : `цокъл ${i + 1}`
+          build(`box-${k}-plinth-${i}`, `${word}: ${which} към дъното`, share(plinthSteps, 1 / (n * plinthParts.length)), [{ solids: [plinth] }], {
+            pose: UPSIDE_DOWN,
+            note: 'Цокълът е с канта надолу, винтовете 5×60 минават през дъното.',
+          })
+        })
+        build(`box-${k}-bottom-turn`, `${word}: обръщаш дъното с ${plinthParts.length === 1 ? 'цокъла' : 'цоклите'}`, [], [], { fromPose: UPSIDE_DOWN, pose: UPRIGHT })
+      } else {
+        build(`box-${k}-bottom`, `${word}: дъното`, [], [{ solids: allOf(`bottom-${box.key}`) }])
+      }
+      const boards = [box.left, box.right].filter((board): board is Box => board != null)
+      boards.forEach((board, i) => {
+        const left = board === box.left
+        build(`box-${k}-side-${i}`, `${word}: ${left ? 'лявата' : 'дясната'} страница`, share(sideSteps, 1 / (n * boards.length)), [{ solids: withSlides(board), from: [left ? -600 : 600, 0, 0] }], {
+          note: 'Хваща се към дъното с 2 винта 5×60 през страницата.',
+        })
+      })
+      const rails = [...allOf(`rail-back-${box.key}`), ...allOf(`rail-front-${box.key}`)]
+      if (rails.length > 0) {
+        build(`box-${k}-rails`, `${word}: двете бленди горе`, share(railTopSteps, 1 / n), rails.map((rail) => ({ solids: [rail], from: [0, 400, 0] as [number, number, number] })), {
+          note: 'Предна и задна бленда между страниците, с винтове 5×60 през тях.',
+        })
+      }
+      made.push([...standing])
+    })
+    if (n > 1) {
+      build(
+        'boxes-together',
+        'Шкафчетата едно до друго',
+        [],
+        made.slice(0, -1).map((solids, k) => ({ solids, from: [k === 0 ? -900 : 900, 0, 0] as [number, number, number] })),
+        { note: 'Двете кутии застават на местата си, с отвора за краката между тях.' },
+      )
+    }
+    const fasciaParts = allOf('fascia-knee')
+    if (fasciaParts.length > 0) {
+      build('knee-fascia', 'Блендата отзад на отвора', claimIds('knee-fascia'), [{ solids: fasciaParts, from: [0, 0, 700] }], {
+        note: 'Между двете шкафчета отзад, с винтове 5×60 през страниците им.',
+      })
+    }
+    if (railTopSteps.length > 0 && separate.every((box) => allOf(`rail-back-${box.key}`).length === 0)) pool.push(...railTopSteps)
+  }
+
   const bottom = allOf('bottom')
-  const plinths = mainBoxes(shown, (name) => name.startsWith('plinth'))
+  const plinths = mainBoxes(shown, (name) => name.startsWith('plinth') && !used.has(allOf(name)[0]))
     .flatMap((main) => [allOf(pieceOf(main))])
     .sort((a, b) => a[0].z - b[0].z)
   // Plinth pieces can share one name: then each box is its own plinth.
@@ -251,14 +317,18 @@ export function assemblyStages(solids: SceneSolid[], steps: AssemblyStep[], grou
     pool.push(...plinthSteps)
   }
 
-  sides.forEach((side, index) => {
+  // What separate boxes already put in is left out from here on.
+  const looseSides = sides.filter((side) => !used.has(side))
+  const looseFull = full.filter((divider) => !used.has(divider))
+  const looseShort = short.filter((divider) => !used.has(divider))
+  looseSides.forEach((side, index) => {
     const left = pieceOf(side) === 'side-left'
-    const title = sides.length === 2 ? (index === 0 ? 'Едната страница' : 'Другата страница') : 'Страницата'
-    build(`side-${index}`, title, share(sideSteps, 1 / sides.length), [{ solids: withSlides(side), from: [left ? -600 : 600, 0, 0] }], {
+    const title = looseSides.length === 2 ? (index === 0 ? 'Едната страница' : 'Другата страница') : 'Страницата'
+    build(`side-${index}`, title, share(sideSteps, 1 / looseSides.length), [{ solids: withSlides(side), from: [left ? -600 : 600, 0, 0] }], {
       note: 'Хваща се към дъното с 2 винта 5×60 през страницата.',
     })
   })
-  if (sides.length === 0) pool.push(...sideSteps)
+  if (looseSides.length === 0) pool.push(...sideSteps)
 
   // A bed: the boards inside, one by one, each with its share of the time.
   const bedBoards: [string, string, string][] = [
@@ -291,26 +361,26 @@ export function assemblyStages(solids: SceneSolid[], steps: AssemblyStep[], grou
     Math.abs(rail.x - (board.x + board.w)) <= 30 || Math.abs(rail.x + rail.w - board.x) <= 30
   const partitionSteps = claimIds('partition')
   const railSteps = claimIds('clothes-rail')
-  const dividerScenes = full.length + (short.length > 0 ? 1 : 0)
+  const dividerScenes = looseFull.length + (looseShort.length > 0 ? 1 : 0)
   let railsPlaced = false
-  full.forEach((divider, index) => {
+  looseFull.forEach((divider, index) => {
     const mine = rails.filter((rail) => !used.has(rail) && railTouches(rail, divider))
     const batches: FilmBatch[] = [{ solids: withSlides(divider), from: [0, 0, -900] }]
     for (const rail of mine) batches.push({ solids: [rail], from: [0, 0, -700] })
     const title =
-      (full.length > 1 ? `Разделителна страница ${index + 1}` : 'Средната разделителна страница') + (mine.length > 0 ? ' и лостовете' : '')
+      (looseFull.length > 1 ? `Разделителна страница ${index + 1}` : 'Средната разделителна страница') + (mine.length > 0 ? ' и лостовете' : '')
     const taken = [...share(partitionSteps, 1 / dividerScenes), ...(mine.length > 0 && !railsPlaced ? railSteps : [])]
     if (mine.length > 0) railsPlaced = true
     build(`divider-${index}`, title, taken, batches, {
       note: mine.length > 0 ? 'Страницата сяда на дъното и под плота; лостовете влизат между нея и страниците.' : 'Сяда на дъното и под плота, винтове 5×60.',
     })
   })
-  if (short.length > 0) {
+  if (looseShort.length > 0) {
     build(
       'short-dividers',
-      short.length > 1 ? 'Малките разделителни страници' : 'Малката разделителна страница',
+      looseShort.length > 1 ? 'Малките разделителни страници' : 'Малката разделителна страница',
       share(partitionSteps, 1 / dividerScenes),
-      short.map((divider) => ({ solids: withSlides(divider), from: [0, 0, -900] as [number, number, number] })),
+      looseShort.map((divider) => ({ solids: withSlides(divider), from: [0, 0, -900] as [number, number, number] })),
       { note: 'Сядат на дъното, с водачите вече на тях.' },
     )
   }

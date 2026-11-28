@@ -317,7 +317,13 @@ export function generateNightstand(
 export function generatePlinthCabinet(
   raw: Record<string, unknown>,
   settings: unknown,
-  opts: { topInner: boolean; label: string; forcePlinth?: boolean },
+  opts: {
+    topInner: boolean
+    label: string
+    forcePlinth?: boolean
+    /** Separate boxes side by side (a vanity's pedestals): see `appendZonedInterior`. */
+    benchBoxes?: { x0: number; x1: number }[]
+  },
 ): CabinetGeneratorResult {
   const hardwareSettings = (settings as { hardware?: HardwareSettings; assemblyTime?: AssemblyTimeSettings })?.hardware ?? DEFAULT_HARDWARE_SETTINGS
   const assemblyTimeSettings = (settings as { hardware?: HardwareSettings; assemblyTime?: AssemblyTimeSettings })?.assemblyTime ?? DEFAULT_ASSEMBLY_TIME_SETTINGS
@@ -569,6 +575,7 @@ export function generatePlinthCabinet(
       partitionD: m.partitionD,
       shelfD: m.shelfD,
       frontHeight: m.sliding ? m.innerH : m.frontHeight,
+      benchBoxes: opts.benchBoxes,
     },
     panels,
     hardware,

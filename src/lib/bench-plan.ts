@@ -29,7 +29,8 @@ export interface BenchBoard {
 }
 
 export interface BenchGroup {
-  key: 'sides' | 'middle' | 'short' | 'bottom' | 'top'
+  /** `box`: one of separate boxes side by side (a vanity's pedestal), its two sides together. */
+  key: 'sides' | 'middle' | 'short' | 'bottom' | 'top' | 'box'
   /** For the captions, e.g. „Двете крайни страници“. */
   title: string
   boards: BenchBoard[]
@@ -80,6 +81,24 @@ export function mainBoxes(solids: SceneSolid[], test: (name: string) => boolean)
 }
 
 export const isFixedShelf = (name: string) => /^shelf-\d+$/.test(name)
+/** A bottom of its own under one of separate boxes (a vanity's pedestal): `bottom-<x>`. */
+export const isBoxBottom = (name: string) => /^bottom-\d+$/.test(name)
+
+/**
+ * Separate boxes side by side (a vanity's two pedestals), left to right: each box's bottom and the
+ * two uprights it sits between. Empty for a cabinet in one piece.
+ */
+export function separateBoxes(solids: SceneSolid[]): { key: string; bottom: Box; left: Box | null; right: Box | null }[] {
+  const bottoms = mainBoxes(solids, isBoxBottom)
+  if (bottoms.length < 2) return []
+  const uprights = mainBoxes(solids, (name) => name === 'side-left' || name === 'side-right' || name.startsWith('divider'))
+  return bottoms.map((bottom) => ({
+    key: piece(bottom).slice('bottom-'.length),
+    bottom,
+    left: uprights.find((board) => Math.abs(board.x + board.w - bottom.x) <= 3) ?? null,
+    right: uprights.find((board) => Math.abs(board.x - (bottom.x + bottom.w)) <= 3) ?? null,
+  }))
+}
 
 /** Which face of an upright board a part stands against: +1 its right face, -1 its left, 0 none. */
 function faceOf(part: { x: number; w: number; y: number; h: number }, board: Box, reach: number): -1 | 0 | 1 {
@@ -114,7 +133,7 @@ function uprightFaces(board: Box, solids: SceneSolid[], withBottom: boolean): Ma
   }
 
   if (withBottom) {
-    for (const bottom of mainBoxes(solids, (name) => name === 'bottom')) {
+    for (const bottom of mainBoxes(solids, (name) => name === 'bottom' || isBoxBottom(name))) {
       const face = at(faceOf(bottom, board, 30))
       // Like a fixed shelf: two lines, the bottom's two faces, the bottom sits between them.
       if (face) {
@@ -198,8 +217,31 @@ export function splitDividers(solids: SceneSolid[]): { full: Box[]; short: Box[]
 
 export function benchGroups(solids: SceneSolid[]): BenchGroup[] {
   const groups: BenchGroup[] = []
-  const sides = mainBoxes(solids, (name) => name === 'side-left' || name === 'side-right')
-  const { full, short } = splitDividers(solids)
+  const boxes = separateBoxes(solids)
+  const inBox = new Set(boxes.flatMap((box) => [box.left, box.right]).filter((board): board is Box => board != null))
+  const sides = mainBoxes(solids, (name) => name === 'side-left' || name === 'side-right').filter((board) => !inBox.has(board))
+  const split = splitDividers(solids)
+  const full = split.full.filter((board) => !inBox.has(board))
+  const short = split.short.filter((board) => !inBox.has(board))
+
+  // Separate boxes: each box's two sides lie side by side, the faces toward the box up; a side
+  // with work on its other face (a drawer in the knee opening) is turned over after.
+  boxes.forEach((box, index) => {
+    const boards = [box.left, box.right].flatMap((board, at): BenchBoard[] => {
+      if (!board) return []
+      const faces = uprightFaces(board, solids, true)
+      const inner = faces.get(at === 0 ? 1 : -1)!
+      const outer = faces.get(at === 0 ? -1 : 1)!
+      const list = [inner, ...(work(outer) > 0 ? [outer] : [])]
+      if (list.every((face) => work(face) === 0)) return []
+      const outerSide = piece(board) === 'side-left' || piece(board) === 'side-right'
+      const name = outerSide ? (at === 0 ? 'Лява страница' : 'Дясна страница') : 'Вътрешна страница на шкафчето'
+      return [{ name, u: board.h, v: board.d, thickness: board.w, color: board.color, faces: list }]
+    })
+    if (boards.length === 0) return
+    const word = index === 0 ? 'лявото шкафче' : index === boxes.length - 1 ? 'дясното шкафче' : `шкафче ${index + 1}`
+    groups.push({ key: 'box', title: `Страниците на ${word}`, boards, mirrorSecond: true })
+  })
 
   // The two outer sides lie side by side, inner faces up: one line marks both at once.
   const sideBoards = sides.flatMap((side): BenchBoard[] => {
@@ -244,10 +286,12 @@ export function benchGroups(solids: SceneSolid[]): BenchGroup[] {
   }
 
   const dividers = [...full, ...short]
-  for (const [key, name, title] of [
-    ['bottom', 'Дъно', 'Дъното'],
-    ['top', 'Плот', 'Плотът'],
-  ] as const) {
+  for (const [key, name, title] of boxes.length > 0
+    ? []
+    : ([
+        ['bottom', 'Дъно', 'Дъното'],
+        ['top', 'Плот', 'Плотът'],
+      ] as const)) {
     const flat = mainBoxes(solids, (item) => item === key)[0]
     const board = flat ? flatBoard(flat, dividers, name) : null
     if (board) groups.push({ key, title, boards: [board], mirrorSecond: false })

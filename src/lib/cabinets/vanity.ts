@@ -1,4 +1,10 @@
-import { confirmatCount, fastenerLine, SCREW_5X60 } from './hardware'
+import {
+  collectCabinetAssembly,
+  DEFAULT_ASSEMBLY_TIME_SETTINGS,
+  type AssemblyStep,
+  type AssemblyTimeSettings,
+} from '@/lib/assembly-time'
+import { confirmatCount, fastenerLine, KITCHEN_BASE_SCREWS_RAILS, SCREW_5X60 } from './hardware'
 import { DEFAULT_HARDBOARD_THICKNESS, hardboardCutSize } from './materials'
 import { DEFAULT_HARDWARE_SETTINGS } from '@/lib/settings'
 import {
@@ -282,10 +288,20 @@ export function generateVanity(raw: Record<string, unknown>, settings?: unknown)
     return { ...built, notes: [opening.error, ...built.notes] }
   }
   const partitions = mergeKneePartitions(parsed.partitions, opening.dividers)
+  // A pedestal on both sides: each is its own box (bottom, plinths, two sides, two rails on top),
+  // put together on its own; the top goes over both at the end.
+  const boxes = opening.pedestals.length === 2
+  const T = parsed.thickness
   const built = generatePlinthCabinet(
     { ...parsed, useLegs: false, partitions, knee: parsed.knee, kneeWidth: opening.knee } as Record<string, unknown>,
     settings,
-    { topInner: false, label: 'Тоалетка' },
+    {
+      topInner: false,
+      label: 'Тоалетка',
+      ...(boxes
+        ? { benchBoxes: opening.pedestals.map((pedestal) => ({ x0: pedestal.x - T, x1: pedestal.x - T + pedestal.w })) }
+        : {}),
+    },
   )
   const measured = measureNightstand({ ...parsed, useLegs: false }, false)
   const oldBottom = built.panels.find((panel) => panel.role === 'bottom')
@@ -357,6 +373,24 @@ export function generateVanity(raw: Record<string, unknown>, settings?: unknown)
     note: `Кант 0.5 мм: долна. Отзад на отвора, от лявата част до дясната, ${formatMm(opening.knee)} × ${formatMm(railH)} мм. Вместо гръб.`,
     pieceKeys: ['fascia-knee'],
   }
+  const boxRails = boxes
+    ? groupedPanels(
+        opening.pedestals.flatMap((pedestal) => [
+          { w: pedestal.w, name: pedestal.name, key: `rail-front-${Math.round(pedestal.x)}` },
+          { w: pedestal.w, name: pedestal.name, key: `rail-back-${Math.round(pedestal.x)}` },
+        ]),
+        (width, quantity, names) => ({
+          role: 'rail' as const,
+          name: 'Бленда горе',
+          width,
+          height: parsed.railWidth,
+          quantity,
+          canRotate: false,
+          edges: edges({ top: true }),
+          note: `Кант: едната дълга страна. Предна и задна бленда горе между страниците на шкафчето, ${formatMm(width)} мм. Плотът ляга върху тях. ${names}.`,
+        }),
+      )
+    : []
   const mirrorScrews = confirmatCount(parsed.width)
   const mirrorH = VANITY_MIRROR_BOARD_MM + railH
   const mirror: GeneratedPanel = {
@@ -384,7 +418,7 @@ export function generateVanity(raw: Record<string, unknown>, settings?: unknown)
       if (panel.role === 'plinth') return plinths
       return [panel]
     })
-    .concat(backs, fascia, mirror)
+    .concat(boxRails, backs, fascia, mirror)
     .map((panel) => {
     if (panel.name !== 'Разделителна страница') return panel
     if (!panel.note?.includes('Сяда на дъното като вътрешна страница')) return panel
@@ -392,7 +426,9 @@ export function generateVanity(raw: Record<string, unknown>, settings?: unknown)
       ...panel,
       height: measured.sideH,
       edges: edges({ left: true, bottom: true }, 'mm05'),
-      note: 'Кант 0.5 мм: предна и долна. Стига до пода. Дъното на шкафчето влиза в нея.',
+      note: boxes
+        ? 'Кант 0.5 мм: предна и долна. Вътрешната страница на шкафчето, стига до пода. Дъното и блендите горе влизат между нея и крайната страница.'
+        : 'Кант 0.5 мм: предна и долна. Стига до пода. Дъното на шкафчето влиза в нея.',
     }
   })
   const bottomScrews = opening.pedestals.length * 2 * confirmatCount(measured.bottomD)
@@ -419,6 +455,27 @@ export function generateVanity(raw: Record<string, unknown>, settings?: unknown)
       'Плоскост за огледалото — винтове в задния кант на плота',
     ),
   )
+  if (boxes) {
+    // The knee dividers are the boxes' inner sides: held by the bottom's screws, not as dividers.
+    // Their share of the divider screws goes; any other dividers keep theirs.
+    const dividerPanels = built.panels
+      .filter((panel) => panel.name === 'Разделителна страница')
+      .reduce((sum, panel) => sum + panel.quantity, 0)
+    const dividerAt = hardware.findIndex((item) => item.note?.startsWith('Разделителна страница'))
+    if (dividerAt >= 0 && dividerPanels > 0) {
+      const item = hardware[dividerAt]
+      const left = Math.round((item.quantity * Math.max(0, dividerPanels - opening.dividers.length)) / dividerPanels)
+      if (left > 0) hardware[dividerAt] = { ...item, quantity: left }
+      else hardware.splice(dividerAt, 1)
+    }
+    hardware.push(
+      fastenerLine(
+        { ...SCREW_5X60, packPriceEur: hardwareSettings.screw5x60_500PackEur ?? SCREW_5X60.packPriceEur },
+        KITCHEN_BASE_SCREWS_RAILS * opening.pedestals.length,
+        'Бленди горе на шкафчетата — винтове през страниците',
+      ),
+    )
+  }
   const kept = built.notes.filter((note) => {
     if (/сяда на дъното|сядат на дъното/.test(note)) return false
     if (/външни на дъното/.test(note)) return false
@@ -444,10 +501,13 @@ export function generateVanity(raw: Record<string, unknown>, settings?: unknown)
     `Разделителите са ${formatMm(measured.sideH)} мм и стигат до пода. Дъното на шкафчето влиза между страницата и разделителя.`,
     'Плотът минава над целия отвор. Чекмедже в отвора почва отгоре, 3 мм под плота, и празното остава отдолу.',
     `Зад тоалетката има плоскост ${formatMm(parsed.width)} × ${formatMm(mirrorH)} мм. Почва от долния край на блендата и се качва ${formatMm(VANITY_MIRROR_BOARD_MM)} мм над нея. Огледалото се хваща на нея и не се реже от плочата. Хваща се с ${mirrorScrews} винта 5×60 в задния кант на плота.`,
-    `Сглобяване: цокъл към дъното на всяко шкафче, после дъното между страницата и разделителя. Плотът се хваща с ${brackets} ъгълчета.`,
+    boxes
+      ? `Сглобяване: всяко шкафче е отделна кутия — цоклите към дъното, дъното между двете му страници, две бленди горе (предна и задна). После блендата отзад на отвора и плотът върху двете шкафчета, с ${brackets} ъгълчета.`
+      : `Сглобяване: цокъл към дъното на всяко шкафче, после дъното между страницата и разделителя. Плотът се хваща с ${brackets} ъгълчета.`,
     ...kept.slice(1),
   ]
-  const steps = (built.labor.assemblySteps ?? []).map((step) => {
+  const before = built.labor.assemblySteps ?? []
+  let steps = before.map((step) => {
     if (step.id !== 'plinth' || opening.pedestals.length <= 1) return step
     const was = step.quantity ?? 1
     const quantity = was * opening.pedestals.length
@@ -458,9 +518,13 @@ export function generateVanity(raw: Record<string, unknown>, settings?: unknown)
       label: 'Слагане на цокли към дъната на шкафчетата',
     }
   })
-  const plinthBefore = (built.labor.assemblySteps ?? []).find((step) => step.id === 'plinth')
-  const plinthAfter = steps.find((step) => step.id === 'plinth')
-  const extra = (plinthAfter?.minutes ?? 0) - (plinthBefore?.minutes ?? 0)
+  if (boxes) {
+    const assemblyTime =
+      (settings as { assemblyTime?: AssemblyTimeSettings } | undefined)?.assemblyTime ?? DEFAULT_ASSEMBLY_TIME_SETTINGS
+    steps = vanityBoxSteps(steps, opening, parsed, measured.sideH, assemblyTime)
+  }
+  steps = [...steps, { id: 'mirror-board', label: 'Плоскост за огледалото', minutes: 15 }]
+  const total = (list: AssemblyStep[]) => list.reduce((sum, step) => sum + step.minutes, 0)
   return {
     ...built,
     panels,
@@ -468,10 +532,115 @@ export function generateVanity(raw: Record<string, unknown>, settings?: unknown)
     notes,
     labor: {
       ...built.labor,
-      assemblyMinutes: (built.labor.assemblyMinutes ?? 0) + extra + 15,
-      assemblySteps: [...steps, { id: 'mirror-board', label: 'Плоскост за огледалото', minutes: 15 }],
+      assemblyMinutes: Math.round(((built.labor.assemblyMinutes ?? 0) + total(steps) - total(before)) * 100) / 100,
+      assemblySteps: steps,
     },
   }
+}
+
+/** `step` with `count` of its `of` units left (by its per-unit time); null when none are left. */
+function fewer(step: AssemblyStep, count: number, of: number): AssemblyStep | null {
+  if (count <= 0 || of <= 0) return null
+  if (count >= of) return step
+  const ratio = count / of
+  return {
+    ...step,
+    minutes: Math.round(step.minutes * ratio * 10000) / 10000,
+    ...(step.quantity != null ? { quantity: Math.round(step.quantity * ratio * 1000) / 1000 } : {}),
+  }
+}
+
+/**
+ * The two pedestals as separate boxes: each is put together like a nightstand of its own size —
+ * the bottom drawn on its two sides, the sides to the bottom, two rails on top. The knee dividers
+ * are those boxes' inner sides, so they are not marked on a bottom or a top and not fitted as
+ * dividers; the outer sides are no longer drawn as one pair.
+ */
+function vanityBoxSteps(
+  steps: AssemblyStep[],
+  opening: VanityOpening,
+  p: VanityParams,
+  sideH: number,
+  settings: AssemblyTimeSettings,
+): AssemblyStep[] {
+  const T = p.thickness
+  const perBox = opening.pedestals.map(
+    (pedestal) =>
+      collectCabinetAssembly({
+        settings,
+        panels: [],
+        width: pedestal.w + 2 * T,
+        height: sideH,
+        depth: p.depth,
+        hasLegs: false,
+        hasTopRails: true,
+        topRailPairCount: 1,
+        hasTop: false,
+        plinthCount: p.plinthCount,
+        hasBack: false,
+        shelfCount: 0,
+        doorCount: 0,
+        drawerCount: 0,
+        hasClothesRail: false,
+        bottomBetweenSides: true,
+        skipEdgeFinishing: true,
+      }).steps,
+  )
+  const boxCount = opening.pedestals.length
+  const merged = (id: string, label: string, unitOne: string, unitMany: string, per: number): AssemblyStep | null => {
+    const found = perBox.flatMap((list) => list.filter((step) => step.id === id))
+    if (found.length === 0) return null
+    const minutes = found.reduce((sum, step) => sum + step.minutes, 0)
+    const first = found[0]
+    return {
+      ...first,
+      label,
+      minutes,
+      quantity: found.length * per,
+      unitOne,
+      unitMany,
+      calc: found.length > 1 ? `${boxCount} шкафчета × ${first.calc ?? `${Math.round(first.minutes * 100) / 100} мин`}` : first.calc,
+    }
+  }
+  const kneeDividers = opening.dividers.length
+  const partitionsBefore = steps.find((step) => step.id === 'partition')?.quantity ?? 0
+  const partitionsLeft = Math.max(0, partitionsBefore - kneeDividers)
+  const boxSteps = () =>
+    [
+      merged(
+        'plinth',
+        p.plinthCount === 1 ? 'Слагане на цокъл към дъното на всяко шкафче' : 'Слагане на цокли към дъното на всяко шкафче',
+        'цокъл',
+        'цокъла',
+        p.plinthCount,
+      ),
+      merged('mark-bottom', 'Начертаване на дъното на страниците на шкафчетата', 'шкафче', 'шкафчета', 1),
+      merged('mark-sides-swap', 'Смяна на страницата на масата (всяко шкафче)', 'шкафче', 'шкафчета', 1),
+      merged('sides-bottom', 'Сглобяване на страниците към дъното на шкафчетата', 'шкафче', 'шкафчета', 1),
+      merged('top-rails', 'Сглобяване на 2 бленди горе на всяко шкафче', 'бленда', 'бленди', 2),
+    ].filter((step): step is AssemblyStep => step != null)
+  const out: AssemblyStep[] = []
+  let placed = false
+  for (const step of steps) {
+    if (step.id === 'mark-bottom' || step.id === 'mark-sides-swap' || step.id === 'plinth') continue
+    if (step.id === 'sides-bottom') {
+      out.push(...boxSteps())
+      placed = true
+      continue
+    }
+    if (step.id === 'partition' || step.id === 'mark-partition-bottom' || step.id === 'mark-partition-top') {
+      const kept = fewer(step, partitionsLeft, partitionsBefore)
+      if (kept) out.push(kept)
+      continue
+    }
+    if (step.id === 'mark-partition-top-swap') {
+      if (partitionsLeft > 0) out.push(step)
+      continue
+    }
+    out.push(step)
+  }
+  if (!placed) out.push(...boxSteps())
+  return out
 }
 
 export function vanityRuleBlock(): RuleBlock {

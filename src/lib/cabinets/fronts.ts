@@ -1175,6 +1175,11 @@ export function appendZonedInterior(
     shelfHole?: PanelHole
     partitionD?: number
     shelfD?: number
+    /**
+     * Separate boxes side by side (a vanity's two pedestals), as clear spans from the inner left:
+     * each box's two sides lie together on the bench, not the cabinet's two outer sides.
+     */
+    benchBoxes?: { x0: number; x1: number }[]
   },
   panels: GeneratedPanel[],
   hardware: HardwareItem[],
@@ -1557,7 +1562,7 @@ export function appendZonedInterior(
     fixedShelfCount: counts.fixedShelves,
     partitionCount: counts.partitions,
     backNails: backNailGeometry(layout, input.thickness),
-    slideStrokes: slideStrokesOf(layout, input.innerW, input.sideH ?? input.innerH, input.sideD),
+    slideStrokes: slideStrokesOf(layout, input.innerW, input.sideH ?? input.innerH, input.sideD, input.benchBoxes),
   }
 }
 
@@ -1574,8 +1579,14 @@ function benchTogether(count: number, lengthMm: number, widthMm: number): boolea
  * Lines at the same height on boards lying together are one stroke across them all; otherwise
  * each board has its own. Returns, for each stroke, how many boards it crosses.
  */
-function slideStrokesOf(layout: InteriorLayout, innerW: number, sideH: number, depth: number): number[] {
-  type Line = { board: string; group: 'sides' | 'middle' | 'short'; side: 'L' | 'R'; key: string }
+function slideStrokesOf(
+  layout: InteriorLayout,
+  innerW: number,
+  sideH: number,
+  depth: number,
+  benchBoxes?: { x0: number; x1: number }[],
+): number[] {
+  type Line = { board: string; group: string; side: 'L' | 'R'; key: string }
   const lines: Line[] = []
   const near = (a: number, b: number) => Math.abs(a - b) <= 2
   const boardAt = (x: number, faceOf: 'xLeft' | 'xRight'): { board: string; group: Line['group'] } | null => {
@@ -1602,20 +1613,31 @@ function slideStrokesOf(layout: InteriorLayout, innerW: number, sideH: number, d
   for (const zone of layout.zones) {
     const heights = zone.drawerFrontHeights.filter((h) => h > 0)
     if (heights.length === 0) continue
-    const left = zone.x0 <= 1 ? sideLeft : boardAt(zone.x0, 'xRight')
-    const right = zone.x1 >= innerW - 1 ? sideRight : boardAt(zone.x1, 'xLeft')
+    let left = zone.x0 <= 1 ? sideLeft : boardAt(zone.x0, 'xRight')
+    let right = zone.x1 >= innerW - 1 ? sideRight : boardAt(zone.x1, 'xLeft')
+    // A separate box: its two sides lie together on the bench.
+    const box = (benchBoxes ?? []).findIndex((item) => near(item.x0, zone.x0) || near(item.x1, zone.x1))
+    if (box >= 0) {
+      const own = benchBoxes![box]
+      if (left && near(own.x0, zone.x0)) left = { ...left, group: `box-${box}` }
+      if (right && near(own.x1, zone.x1)) right = { ...right, group: `box-${box}` }
+    }
     addStack(heights, zone.y0, left, right)
   }
-  const groupBoards = {
+  const groupBoards: Record<string, number> = {
     sides: 2,
     middle: layout.partitions.length,
     short: layout.partialPartitions.length,
   }
-  const groupLength = {
+  const groupLength: Record<string, number> = {
     sides: sideH,
     middle: sideH,
     short: layout.partialPartitions.reduce((most, p) => Math.max(most, p.height), 0),
   }
+  ;(benchBoxes ?? []).forEach((_, box) => {
+    groupBoards[`box-${box}`] = 2
+    groupLength[`box-${box}`] = sideH
+  })
   // Each board lies with the face that has more slides up first (as on the bench).
   const firstSide = new Map<string, 'L' | 'R'>()
   for (const board of new Set(lines.map((line) => line.board))) {
