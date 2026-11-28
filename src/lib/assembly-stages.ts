@@ -198,7 +198,11 @@ export function assemblyStages(solids: SceneSolid[], steps: AssemblyStep[], grou
   giveTo(claimIds('mark-sides-swap'), benchWhere((item) => item.group.key === 'sides' && marking(item)))
   giveTo(claimIds('mark-clothes-rail'), benchWhere((item) => marking(item) && item.counts.crosses > 0), (item) => item.counts.crosses)
   giveTo(claimIds('mark-shelf'), benchWhere((item) => marking(item) && item.counts.points > 0), (item) => item.counts.points)
-  giveTo(claimIds('mark-drawer-guides', 'mark-drawer'), benchWhere((item) => item.phase === 'mark' && item.counts.slides > 0), (item) => item.counts.slides)
+  // Measuring the fronts and trying a slide are done once, on the first boards with slides; the
+  // lines are drawn on every board, so they are shared by how many each has.
+  const slideMarks = benchWhere((item) => item.phase === 'mark' && item.counts.slides > 0)
+  giveTo(claimIds('mark-drawer-fronts', 'mark-drawer-try'), slideMarks.slice(0, 1))
+  giveTo(claimIds('mark-drawer-guides', 'mark-drawer'), slideMarks, (item) => item.counts.slides)
   giveTo(claimIds('mark-partition-bottom'), benchWhere((item) => item.group.key === 'bottom'))
   giveTo(claimIds('mark-partition-top'), benchWhere((item) => item.group.key === 'top'))
   giveTo(claimIds('shelf-pins'), benchWhere((item) => item.phase === 'pins'), (item) => item.counts.points)

@@ -208,7 +208,7 @@ export function AssemblyFilm({ store }: { store: CaptureStore }) {
   }, [pace, benchKey, ready])
 
   // New slide spots in this cabinet: the bench shows the fronts measured and a slide tried first.
-  const measureFronts = (film?.steps ?? []).some((step) => step.id === 'mark-drawer-fronts')
+  const measureFronts = (stage?.steps ?? []).some((step) => step.id === 'mark-drawer-fronts')
   useEffect(() => {
     benchRef.current?.setMeasureFronts(measureFronts)
   }, [measureFronts, benchKey])

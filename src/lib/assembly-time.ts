@@ -585,8 +585,11 @@ function pushExact(steps: AssemblyStep[], step: AssemblyStep): void {
 export type DrawerMeasureLevel = 'easy' | 'medium' | 'hard'
 export const DRAWER_MEASURE_SECONDS: Record<DrawerMeasureLevel, number> = { easy: 35, medium: 105, hard: 240 }
 export const DRAWER_MEASURE_LABELS: Record<DrawerMeasureLevel, string> = { easy: 'лесно', medium: 'по-сложно', hard: 'най-сложно' }
+/** Measuring and marking one front and its gap with the tape, the first time. */
+export const DRAWER_FRONT_MEASURE_SECONDS = 45
 export const DRAWER_TRY_SLIDE_SECONDS = 30
-export const SLIDE_LINE_SECONDS = 40
+/** Marks at the front and the back, the ruler set on them, the pencil along it. */
+export const SLIDE_LINE_SECONDS = 70
 /** The 3 screws of one slide (the first hole, the last, the middle). */
 export const SLIDE_SCREWS_SECONDS = 70
 
@@ -617,19 +620,20 @@ export function slideMarkingSteps(
   const drawers = rows.length * n
   const perLine = opts.together ? 1 : 2
   const lines = drawers * perLine
-  const measure = DRAWER_MEASURE_SECONDS[opts.level]
+  const level = DRAWER_MEASURE_SECONDS[opts.level]
+  const measure = DRAWER_FRONT_MEASURE_SECONDS + level
   const steps: AssemblyStep[] = []
   if (fresh > 0) {
     steps.push({
       id: 'mark-drawer-fronts',
       kind: 'mark',
-      label: 'Мерене и белязване на челата и фугите',
+      label: 'Мерене на челата и фугите и къде идват водачите',
       minutes: (fresh * measure) / 60,
       quantity: fresh,
       unitOne: 'чекмедже',
       unitMany: 'чекмеджета',
-      calc: `${formatQty(fresh)} ${fresh === 1 ? 'чекмедже' : 'чекмеджета'} × ${secText(measure)} (${DRAWER_MEASURE_LABELS[opts.level]}) = ${secText(fresh * measure)}`,
-      hint: 'с ролетката: височината на челото, после още 3 мм фуга, и така до горе',
+      calc: `${formatQty(fresh)} ${fresh === 1 ? 'чекмедже' : 'чекмеджета'} × (${secText(DRAWER_FRONT_MEASURE_SECONDS)} мерене + ${secText(level)} ${DRAWER_MEASURE_LABELS[opts.level]}) = ${secText(fresh * measure)}`,
+      hint: 'само първия път: с ролетката височината на челото и 3 мм фуга, и докъде идва водачът',
     })
     steps.push({
       id: 'mark-drawer-try',
