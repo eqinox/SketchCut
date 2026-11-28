@@ -239,6 +239,7 @@ export function assemblyStages(solids: SceneSolid[], steps: AssemblyStep[], grou
     const plinthSteps = claimIds('plinth')
     const sideSteps = claimIds('sides-bottom')
     const railTopSteps = claimIds('top-rails')
+    const boxBackSteps = claimIds('back')
     const made: SceneSolid[][] = []
     separate.forEach((box, k) => {
       const word = k === 0 ? 'Лявото шкафче' : k === n - 1 ? 'Дясното шкафче' : `Шкафче ${k + 1}`
@@ -271,6 +272,41 @@ export function assemblyStages(solids: SceneSolid[], steps: AssemblyStep[], grou
           note: 'Предна и задна бленда между страниците, с винтове 5×60 през тях.',
         })
       }
+      // Its back, before the top: the box laid on its front, the hardboard stapled all round.
+      const x0 = Math.min(...boards.map((board) => board.x))
+      const x1 = Math.max(...boards.map((board) => board.x + board.w))
+      const myBacks = boxes.filter(
+        (solid) => pieceOf(solid).startsWith('back') && !used.has(solid) && solid.x + solid.w / 2 > x0 && solid.x + solid.w / 2 < x1,
+      )
+      if (myBacks.length > 0) {
+        for (const solid of myBacks) used.add(solid)
+        build(`box-${k}-lay-down`, `${word}: обръщаш го с лицето надолу`, [], [], { fromPose: UPRIGHT, pose: FACE_DOWN })
+        const sheets: Box[] = myBacks.map((solid, i) => ({ ...solid, d: HARDBOARD_MM, piece: `back-film-box-${k}-${i}` }))
+        const nails = uniqueNails(
+          sheets.flatMap((sheet) => {
+            const face = sheet.z + HARDBOARD_MM
+            const [a, b, y0, y1] = [sheet.x, sheet.x + sheet.w, sheet.y, sheet.y + sheet.h]
+            const lines: [[number, number, number], [number, number, number]][] = [
+              [[a + 9, y0, face], [a + 9, y1, face]],
+              [[b - 9, y0, face], [b - 9, y1, face]],
+              [[a, y0 + 9, face], [b, y0 + 9, face]],
+              [[a, y1 - 9, face], [b, y1 - 9, face]],
+            ]
+            return lines.flatMap(([p, q]) => nailLine(p, q, BACK_NAIL_STEP, 'back'))
+          }),
+        )
+        const stapled = boxBackSteps.some((step) => step.id.startsWith('back-nails'))
+        build(
+          `box-${k}-back`,
+          stapled ? `${word}: гърбът, фазер с такер` : `${word}: гърбът`,
+          share(boxBackSteps, 1 / n),
+          sheets.map((sheet) => ({ solids: [sheet] })),
+          stapled
+            ? { pose: FACE_DOWN, nails, tool: 'stapler', note: `${nails.length} телчета с такера по ръба на фазера.` }
+            : { pose: FACE_DOWN },
+        )
+        build(`box-${k}-stand-up`, `${word}: изправяш го`, [], [], { fromPose: FACE_DOWN, pose: UPRIGHT })
+      }
       made.push([...standing])
     })
     if (n > 1) {
@@ -282,6 +318,7 @@ export function assemblyStages(solids: SceneSolid[], steps: AssemblyStep[], grou
         { note: 'Двете кутии застават на местата си, с отвора за краката между тях.' },
       )
     }
+    if (boxBackSteps.length > 0 && !stages.some((stage) => stage.key.endsWith('-back'))) pool.push(...boxBackSteps)
     const fasciaParts = allOf('fascia-knee')
     if (fasciaParts.length > 0) {
       build('knee-fascia', 'Блендата отзад на отвора', claimIds('knee-fascia'), [{ solids: fasciaParts, from: [0, 0, 700] }], {
@@ -351,7 +388,7 @@ export function assemblyStages(solids: SceneSolid[], steps: AssemblyStep[], grou
 
   const tops = boxes.filter((box) => /^(top|rail-|fascia)/.test(pieceOf(box)) && !used.has(box))
   if (tops.length > 0) {
-    build('top', tops.some((box) => pieceOf(box) === 'top') ? 'Плотът' : 'Бленди', claimIds('top-rails', 'front-fascia', 'top'), [{ solids: tops }], {
+    build('top', tops.some((box) => pieceOf(box) === 'top') ? 'Плотът' : 'Бленди', claimIds('top-rails', 'front-fascia', 'knee-fascia', 'top'), [{ solids: tops }], {
       note: 'Влиза между страниците и се хваща с винтове 5×60 през тях.',
     })
   }
@@ -419,7 +456,7 @@ export function assemblyStages(solids: SceneSolid[], steps: AssemblyStep[], grou
   } else pool.push(...frameSteps)
 
   // 3. The backs: the cabinet laid on its front, each back nailed on.
-  const backBoxes = boxes.filter((box) => pieceOf(box).startsWith('back'))
+  const backBoxes = boxes.filter((box) => pieceOf(box).startsWith('back') && !used.has(box))
   const backSteps = claimIds('back')
   if (backBoxes.length > 0) {
     const nailed = backSteps.some((step) => step.id.startsWith('back-nails'))

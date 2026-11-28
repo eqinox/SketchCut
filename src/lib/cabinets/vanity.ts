@@ -28,6 +28,8 @@ export type VanityLegSide = 'none' | 'left' | 'right'
 
 /** Rear fascia in the knee opening, instead of a hardboard back. Usually 250–300 mm. */
 export const VANITY_BACK_RAIL_MM = 280
+/** Putting in the rear fascia across the knee opening. */
+export const VANITY_KNEE_FASCIA_MINUTES = 15
 
 /**
  * How far the mirror board rises above the top of the knee fascia
@@ -525,7 +527,11 @@ export function generateVanity(raw: Record<string, unknown>, settings?: unknown)
       (settings as { assemblyTime?: AssemblyTimeSettings } | undefined)?.assemblyTime ?? DEFAULT_ASSEMBLY_TIME_SETTINGS
     steps = vanityBoxSteps(steps, opening, parsed, measured.sideH, assemblyTime)
   }
-  steps = [...steps, { id: 'mirror-board', label: 'Плоскост за огледалото', minutes: 15 }]
+  steps = [
+    ...steps,
+    { id: 'knee-fascia', label: 'Бленда отзад на отвора', minutes: VANITY_KNEE_FASCIA_MINUTES, hint: 'между двете части отзад, винтове 5×60 през страниците' },
+    { id: 'mirror-board', label: 'Плоскост за огледалото', minutes: 15 },
+  ]
   const total = (list: AssemblyStep[]) => list.reduce((sum, step) => sum + step.minutes, 0)
   return {
     ...built,
@@ -653,7 +659,7 @@ function vanityBoxSteps(
         out.push(
           ...[
             merged('back', 'Слагане на гърба на всяко шкафче', 'шкафче', 'шкафчета', 1),
-            merged('back-nails', 'Коване на гърба на всяко шкафче с пирони', 'пирон', 'пирона', 0),
+            merged('back-nails', 'Коване на гърба на всяко шкафче с такер', 'телче', 'телчета', 0),
           ].filter((item): item is AssemblyStep => item != null),
         )
       }
