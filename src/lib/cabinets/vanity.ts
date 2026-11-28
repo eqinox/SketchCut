@@ -73,6 +73,8 @@ export const DEFAULT_VANITY_PARAMS: VanityParams = {
   height: 750,
   depth: 450,
   hasBack: true,
+  // The hardboard of each pedestal is nailed on.
+  nailBack: true,
   knee: 'middle',
   kneeWidth: 500,
   legSide: 'none',
@@ -584,7 +586,30 @@ function vanityBoxSteps(
         hasClothesRail: false,
         bottomBetweenSides: true,
         skipEdgeFinishing: true,
-      }).steps,
+      }).steps.concat(
+        // Each box has its own hardboard, as tall as the vanity, nailed on its own.
+        p.hasBack
+          ? collectCabinetAssembly({
+              settings,
+              panels: [],
+              width: pedestal.w + 2 * T,
+              height: p.height,
+              depth: p.depth,
+              hasLegs: false,
+              hasTopRails: false,
+              hasTop: false,
+              plinthCount: 0,
+              hasBack: true,
+              nailBack: p.nailBack === true,
+              backPlinthMm: p.plinthHeight,
+              shelfCount: 0,
+              doorCount: 0,
+              drawerCount: 0,
+              hasClothesRail: false,
+              skipEdgeFinishing: true,
+            }).steps.filter((step) => step.id === 'back' || step.id === 'back-nails')
+          : [],
+      ),
   )
   const boxCount = opening.pedestals.length
   const merged = (id: string, label: string, unitOne: string, unitMany: string, per: number): AssemblyStep | null => {
@@ -596,7 +621,7 @@ function vanityBoxSteps(
       ...first,
       label,
       minutes,
-      quantity: found.length * per,
+      quantity: per > 0 ? found.length * per : found.reduce((sum, step) => sum + (step.quantity ?? 1), 0),
       unitOne,
       unitMany,
       calc: found.length > 1 ? `${boxCount} шкафчета × ${first.calc ?? `${Math.round(first.minutes * 100) / 100} мин`}` : first.calc,
@@ -623,6 +648,17 @@ function vanityBoxSteps(
   let placed = false
   for (const step of steps) {
     if (step.id === 'mark-bottom' || step.id === 'mark-sides-swap' || step.id === 'plinth') continue
+    if (step.id === 'back' || step.id === 'back-nails') {
+      if (step.id === 'back') {
+        out.push(
+          ...[
+            merged('back', 'Слагане на гърба на всяко шкафче', 'шкафче', 'шкафчета', 1),
+            merged('back-nails', 'Коване на гърба на всяко шкафче с пирони', 'пирон', 'пирона', 0),
+          ].filter((item): item is AssemblyStep => item != null),
+        )
+      }
+      continue
+    }
     if (step.id === 'sides-bottom') {
       out.push(...boxSteps())
       placed = true

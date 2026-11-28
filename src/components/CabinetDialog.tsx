@@ -3667,6 +3667,7 @@ function CabinetDialogForm({
                   setShelfCount(0)
                   setMovableShelves([])
                   setHasBack(true)
+                  setNailBack(d.nailBack)
                   setClothesRails([])
                   setDoorCount(0)
                   setDoorStyle('hinged')

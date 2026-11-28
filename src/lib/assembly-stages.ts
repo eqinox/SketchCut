@@ -441,7 +441,14 @@ export function assemblyStages(solids: SceneSolid[], steps: AssemblyStep[], grou
         const nearest = [...full].sort((a, b) => Math.abs(a.x + a.w / 2 - middle) - Math.abs(b.x + b.w / 2 - middle))[0]
         cuts.splice(1, 0, nearest.x + nearest.w / 2)
       }
-      const pieces = cuts.slice(0, -1).map((a, index) => [a, cuts[index + 1]] as const)
+      // Separate boxes: each has its own back, only behind it (none over the knee opening).
+      const boxBacks = separate.length > 0 ? [...backBoxes].sort((a, b) => a.x - b.x) : []
+      const pieces: (readonly [number, number])[] =
+        boxBacks.length > 0
+          ? boxBacks.map((box) => [box.x, box.x + box.w] as const)
+          : cuts.slice(0, -1).map((a, index) => [a, cuts[index + 1]] as const)
+      const boxWord = (index: number) =>
+        index === 0 ? 'Гърбът на лявото шкафче' : index === pieces.length - 1 ? 'Гърбът на дясното шкафче' : `Гърбът на шкафче ${index + 1}`
       build('lay-down', 'Обръщаш шкафа с лицето надолу', [], [], { fromPose: UPRIGHT, pose: FACE_DOWN })
       const face = z + HARDBOARD_MM
       const reachesBack = (box: Box) => box.z + box.d >= z - 5
@@ -466,8 +473,13 @@ export function assemblyStages(solids: SceneSolid[], steps: AssemblyStep[], grou
         const nails = uniqueNails(lines.flatMap(([p, q]) => nailLine(p, q, BACK_NAIL_STEP, 'back')))
         build(
           `back-${index}`,
-          pieces.length > 1 ? `Гръб ${index + 1} от ${pieces.length}: фазер с пирони` : 'Гърбът: фазер с пирони',
-          share(backSteps, 1 / pieces.length),
+          boxBacks.length > 1
+            ? `${boxWord(index)}: фазер с пирони`
+            : pieces.length > 1
+              ? `Гръб ${index + 1} от ${pieces.length}: фазер с пирони`
+              : 'Гърбът: фазер с пирони',
+          // Each back its part by width (two equal boxes: half each).
+          share(backSteps, (b - a) / pieces.reduce((sum, [p, q]) => sum + (q - p), 0)),
           [{ solids: [sheet] }],
           { pose: FACE_DOWN, nails, note: `${nails.length} пирона по ръба, по рафтовете и по разделителните страници.` },
         )
