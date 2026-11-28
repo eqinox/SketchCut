@@ -24,7 +24,7 @@ const BENCH_OPS: Record<BenchOp, { title: string; unit?: string; steps: (id: str
   'line:slide': {
     title: 'Линия за водач по линеал',
     unit: 'линия',
-    steps: (id) => id === 'mark-drawer-lines' || id === 'mark-drawer-guides',
+    steps: (id) => id === 'mark-drawer-lines',
     otherwise: 'във времето за водачите',
   },
   measure: { title: 'Мерене на челото и фугата', unit: 'чекмедже', steps: (id) => id === 'mark-drawer-fronts', otherwise: 'без отделно време' },

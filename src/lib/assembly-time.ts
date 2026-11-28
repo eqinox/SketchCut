@@ -583,11 +583,10 @@ function pushExact(steps: AssemblyStep[], step: AssemblyStep): void {
  * lines are drawn. Each slide is then held by 3 screws.
  */
 export type DrawerMeasureLevel = 'easy' | 'medium' | 'hard'
-export const DRAWER_MEASURE_SECONDS: Record<DrawerMeasureLevel, number> = { easy: 35, medium: 105, hard: 240 }
+/** Measuring and marking one front and its gap, and where its slides come — the first time. */
+export const DRAWER_MEASURE_SECONDS: Record<DrawerMeasureLevel, number> = { easy: 45, medium: 105, hard: 240 }
 export const DRAWER_MEASURE_LABELS: Record<DrawerMeasureLevel, string> = { easy: 'лесно', medium: 'по-сложно', hard: 'най-сложно' }
-/** Measuring and marking one front and its gap with the tape, the first time. */
-export const DRAWER_FRONT_MEASURE_SECONDS = 45
-export const DRAWER_TRY_SLIDE_SECONDS = 30
+export const DRAWER_TRY_SLIDE_SECONDS = 40
 /** Marks at the front and the back, the ruler set on them, the pencil along it. */
 export const SLIDE_LINE_SECONDS = 70
 /** The 3 screws of one slide (the first hole, the last, the middle). */
@@ -620,8 +619,7 @@ export function slideMarkingSteps(
   const drawers = rows.length * n
   const perLine = opts.together ? 1 : 2
   const lines = drawers * perLine
-  const level = DRAWER_MEASURE_SECONDS[opts.level]
-  const measure = DRAWER_FRONT_MEASURE_SECONDS + level
+  const measure = DRAWER_MEASURE_SECONDS[opts.level]
   const steps: AssemblyStep[] = []
   if (fresh > 0) {
     steps.push({
@@ -632,7 +630,7 @@ export function slideMarkingSteps(
       quantity: fresh,
       unitOne: 'чекмедже',
       unitMany: 'чекмеджета',
-      calc: `${formatQty(fresh)} ${fresh === 1 ? 'чекмедже' : 'чекмеджета'} × (${secText(DRAWER_FRONT_MEASURE_SECONDS)} мерене + ${secText(level)} ${DRAWER_MEASURE_LABELS[opts.level]}) = ${secText(fresh * measure)}`,
+      calc: `${formatQty(fresh)} ${fresh === 1 ? 'чекмедже' : 'чекмеджета'} × ${secText(measure)} (${DRAWER_MEASURE_LABELS[opts.level]}) = ${secText(fresh * measure)}`,
       hint: 'само първия път: с ролетката височината на челото и 3 мм фуга, и докъде идва водачът',
     })
     steps.push({
@@ -1266,13 +1264,22 @@ export function collectCabinetAssembly(input: {
     })
   }
   if (input.drawerCount > 0) {
-    // Each drawer's slides: the cabinet's size and its fronts, so equal cabinets match.
-    const fronts = input.panels
-      .filter((panel) => panel.role === 'drawer-front')
-      .flatMap((panel) => Array.from({ length: Math.max(0, panel.quantity) }, () => Math.round(panel.height)))
-    const rows: SlideRow[] = Array.from({ length: input.drawerCount }, (_, i) => ({
-      key: `slide|${input.height}|${input.depth}|${fronts.join(',')}|${i}`,
-    }))
+    // Each drawer's slides: the cabinet's size, the fronts of its own stack and its place in it.
+    // Two stacks alike (one each side of a divider) have their slides at the same heights, so
+    // the second is measured once with the first: only its lines are drawn.
+    const stacks = new Map<string, number[]>()
+    for (const panel of input.panels.filter((item) => item.role === 'drawer-front')) {
+      const zone = /\(([^)]*)\)/.exec(panel.name)?.[1] ?? ''
+      const list = stacks.get(zone) ?? []
+      for (let i = 0; i < Math.max(0, panel.quantity); i++) list.push(Math.round(panel.height))
+      stacks.set(zone, list)
+    }
+    const rows: SlideRow[] = []
+    for (const heights of stacks.values()) {
+      heights.forEach((_, i) => rows.push({ key: `slide|${input.height}|${input.depth}|${heights.join(',')}|${i}` }))
+    }
+    while (rows.length < input.drawerCount) rows.push({ key: `slide|${input.height}|${input.depth}|drawer-${rows.length}` })
+    rows.length = Math.min(rows.length, input.drawerCount)
     const level = input.drawerMeasureLevel ?? 'easy'
     for (const step of slideMarkingSteps(rows, { level, together: sidesTogether }).steps) pushExact(steps, step)
     sidesDrawn = true
@@ -1293,19 +1300,6 @@ export function collectCabinetAssembly(input: {
     const extra = detailMarkPer * partitions
     const extraCalc = `${partitionPagesPhrase(partitions)} × ${minText(detailMarkPer)} (${sizeWord} шкаф) = ${minText(extra)}`
     const extraHint = `${size} · по ${minText(detailMarkPer)} на разделителна страница, защото разделителите усложняват чертежа`
-    if (input.drawerCount > 0) {
-      pushStep(steps, {
-        id: 'mark-drawer-guides',
-        kind: 'mark',
-        label: 'Начертаване за водачи на страниците',
-        minutes: extra,
-        quantity: partitions,
-        unitOne: 'страница',
-        unitMany: 'страници',
-        calc: extraCalc,
-        hint: extraHint,
-      })
-    }
     if (railN > 0) {
       pushStep(steps, {
         id: 'mark-clothes-rail',

@@ -6603,7 +6603,7 @@ function CabinetDialogForm({
             } · мерене ${DRAWER_MEASURE_LABELS[drawerMeasureLevel]}`}
           >
             <p className="text-xs text-[var(--color-muted-foreground)]">
-              Колко трудно се намира къде идват водачите — добавя се към 45 сек мерене на чекмедже, само първия път
+              Мерене на челото и фугата и къде идват водачите — на чекмедже, само първия път
             </p>
             <div className="mt-1 mb-3 flex flex-wrap gap-2">
               {(['easy', 'medium', 'hard'] as const).map((level) => (
@@ -6614,7 +6614,7 @@ function CabinetDialogForm({
                   variant={drawerMeasureLevel === level ? 'default' : 'outline'}
                   onClick={() => setDrawerMeasureLevel(level)}
                 >
-                  {level === 'easy' ? 'Лесно' : level === 'medium' ? 'По-сложно' : 'Най-сложно'} · +
+                  {level === 'easy' ? 'Лесно' : level === 'medium' ? 'По-сложно' : 'Най-сложно'} ·{' '}
                   {DRAWER_MEASURE_SECONDS[level] < 60
                     ? `${DRAWER_MEASURE_SECONDS[level]} сек`
                     : `${Math.floor(DRAWER_MEASURE_SECONDS[level] / 60)} мин${DRAWER_MEASURE_SECONDS[level] % 60 ? ` ${DRAWER_MEASURE_SECONDS[level] % 60} сек` : ''}`}
