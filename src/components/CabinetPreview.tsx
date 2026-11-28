@@ -628,6 +628,9 @@ function haloParts(
   return parts
 }
 
+/** Greys out the drawing: light colours go to white paper, black lines stay black. */
+const PENCIL_FILTER = 'grayscale(1) brightness(1.35) contrast(1.5)'
+
 /** Single 3D front view with depth extending to the right. */
 export function CabinetPreview(props: CabinetPreviewProps) {
   const pictured = props.drawStyle === 'color' || props.drawStyle === 'model' || props.captureSolids === true
@@ -637,7 +640,15 @@ export function CabinetPreview(props: CabinetPreviewProps) {
     <DoorMirrorContext.Provider value={parseMirrorSpec(props.params.doorMirror)}>
     <PullChoiceContext.Provider value={pullChoiceFrom(props.params, props.onPullChange)}>
       <CaptureSolidsOnly.Provider value={props.captureSolids === true}>
-        <CabinetPreviewView {...props} />
+        {pictured ? (
+          <CabinetPreviewView {...props} />
+        ) : (
+          // The drawing: black pencil on white paper. Every colour (the boards, the legs, the
+          // fittings) is washed to white or grey; the lines and the sizes stay black.
+          <div style={{ filter: PENCIL_FILTER }}>
+            <CabinetPreviewView {...props} />
+          </div>
+        )}
       </CaptureSolidsOnly.Provider>
     </PullChoiceContext.Provider>
     </DoorMirrorContext.Provider>
@@ -705,7 +716,7 @@ function CabinetPreviewView({
       <WithDecor entries={textureEntries}>
         <div className={cn('flex flex-col gap-3', className)}>
           <FrontDrawing title="3D Изглед отпред">
-            <BedPreview params={parseBedParams(drawnParams)} showDims={showMarks} />
+            <BedPreview params={parseBedParams(drawnParams)} showDims={showMarks} showFrame={model} />
           </FrontDrawing>
         </div>
       </WithDecor>

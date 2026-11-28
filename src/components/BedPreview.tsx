@@ -140,7 +140,8 @@ function LiftingFrame({ solid }: { solid: Extract<SceneSolid, { kind: 'lift' }> 
 const BED_DEPTH_ANGLE = 58
 
 /** Front-right view. The 780 panels stand in the opening and start at the inner side, not the outer one. */
-export function BedPreview({ params, showDims }: { params: BedParams; showDims: boolean }) {
+/** `showFrame`: the slat frame is drawn only in 3D; the drawing leaves it out (it is bought, not cut). */
+export function BedPreview({ params, showDims, showFrame = true }: { params: BedParams; showDims: boolean; showFrame?: boolean }) {
   const m = measureBed(params)
   const T = m.thickness
   const hint = createDrawCam({ ox: 0, oy: 0, depthAngle: BED_DEPTH_ANGLE })
@@ -294,7 +295,7 @@ export function BedPreview({ params, showDims }: { params: BedParams; showDims: 
       <Board x={leftSupportX} y={innerY} z={zCross} w={half} h={m.innerHeight} d={T} color={wood.shelf} pick="support-left" cam={view} faces={BETWEEN_FACES} />
       <Board x={rightSupportX} y={innerY} z={zCross} w={half} h={m.innerHeight} d={T} color={wood.shelf} pick="support-right" cam={view} faces={BETWEEN_FACES} />
       {/* The slat frame. With a lift mechanism the 3D picture builds it as one piece that rises. */}
-      {frame.map((part, i) => (
+      {showFrame && frame.map((part, i) => (
         <Board
           key={`frame-${i}`}
           x={part.x}
@@ -310,7 +311,7 @@ export function BedPreview({ params, showDims }: { params: BedParams; showDims: 
           capture={!lifts}
         />
       ))}
-      {liftSolid && <LiftingFrame solid={liftSolid} />}
+      {showFrame && liftSolid && <LiftingFrame solid={liftSolid} />}
       <Board
         x={m.width - T}
         y={bottomTop - m.sideHeight}
