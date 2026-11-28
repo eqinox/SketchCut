@@ -472,14 +472,15 @@ export function assemblyStages(solids: SceneSolid[], steps: AssemblyStep[], grou
       claimIds('drawer-box'),
       made.flatMap((item) => {
         const sidesFirst = [...item.downBody].sort((a, b) => Number(b.w < b.d) - Number(a.w < a.d))
-        return sidesFirst.map((box) => ({ solids: [box] }))
+        return sidesFirst.map((box) => ({ solids: [box], unit: made.indexOf(item) }))
       }),
       { note: 'Страниците и царгите с винтове 5×60. Кутията се сглобява обърната, с горния ръб на масата.' },
     )
-    // The hardboard bottom on the upturned box, nailed all round.
-    build('drawer-bottom', `Дъно от фазер на ${word} с пирони`, claimIds('drawer-back', 'drawer-bottom'), made.map((item) => ({ solids: [item.downSheet] })), {
-      nails: made.flatMap((item) => item.nails),
-      note: 'Фазерът се кове с пирони по страниците и по царгите.',
+    // The hardboard bottom on the upturned box, stapled all round.
+    build('drawer-bottom', `Дъно от фазер на ${word} с такер`, claimIds('drawer-back', 'drawer-bottom'), made.map((item, unit) => ({ solids: [item.downSheet], unit })), {
+      nails: made.flatMap((item, unit) => item.nails.map((nail) => ({ ...nail, unit }))),
+      tool: 'stapler',
+      note: 'Фазерът се кове с такер по страниците и по царгите.',
     })
     // Turned the right way up; then the drawer half of each slide.
     standing = standing.filter((solid) => !made.some((item) => item.downBody.includes(solid as Box) || item.downSheet === solid))
@@ -487,9 +488,10 @@ export function assemblyStages(solids: SceneSolid[], steps: AssemblyStep[], grou
       'drawer-runners',
       `Обръщаш ${word} и слагаш водачите`,
       claimIds('drawer-runners'),
-      made.flatMap((item) => [
-        { solids: item.upBody, mode: 'flip' as const },
+      made.flatMap((item, unit) => [
+        { solids: item.upBody, mode: 'flip' as const, unit },
         ...item.upRunners.map((runner) => ({
+          unit,
           solids: [runner],
           from: [runner.x + runner.w / 2 < (Math.min(...item.upBody.map((b) => b.x)) + Math.max(...item.upBody.map((b) => b.x + b.w))) / 2 ? -150 : 150, 0, 0] as [number, number, number],
         })),

@@ -403,7 +403,7 @@ export const DEFAULT_ASSEMBLY_TIME_SETTINGS: AssemblyTimeSettings = {
   softCloseGrooveExtraPairMinutes: 1,
   assembleDrawerBoxMinutes: 7,
   attachDrawerBackMinutes: 4,
-  attachDrawerRunnersMinutes: 4,
+  attachDrawerRunnersMinutes: 3,
   installDrawerFrontMinutes: 15,
   frontEdgeTakeSmallMinutes: 1,
   frontEdgeTakeTallMinutes: 1.5,
@@ -785,7 +785,11 @@ export function parseAssemblyTimeSettings(raw: unknown): AssemblyTimeSettings {
     softCloseGrooveExtraPairMinutes: numPositive(src, 'softCloseGrooveExtraPairMinutes', d.softCloseGrooveExtraPairMinutes),
     assembleDrawerBoxMinutes: numPositive(src, 'assembleDrawerBoxMinutes', d.assembleDrawerBoxMinutes),
     attachDrawerBackMinutes: numPositive(src, 'attachDrawerBackMinutes', d.attachDrawerBackMinutes),
-    attachDrawerRunnersMinutes: numPositive(src, 'attachDrawerRunnersMinutes', d.attachDrawerRunnersMinutes),
+    // 4 was the old default; the workshop's time is 3.
+    attachDrawerRunnersMinutes: (() => {
+      const value = numPositive(src, 'attachDrawerRunnersMinutes', d.attachDrawerRunnersMinutes)
+      return value === 4 ? d.attachDrawerRunnersMinutes : value
+    })(),
     installDrawerFrontMinutes: numPositive(src, 'installDrawerFrontMinutes', d.installDrawerFrontMinutes),
     frontEdgeTakeSmallMinutes: numPositive(src, 'frontEdgeTakeSmallMinutes', d.frontEdgeTakeSmallMinutes),
     frontEdgeTakeTallMinutes: numPositive(src, 'frontEdgeTakeTallMinutes', d.frontEdgeTakeTallMinutes),
@@ -1626,7 +1630,7 @@ export function collectCabinetAssembly(input: {
     })
     pushStep(steps, {
       id: 'drawer-back',
-      label: 'Слагане на гръб на чекмеджето',
+      label: 'Фазерът на чекмеджето с такер',
       minutes: s.attachDrawerBackMinutes * n,
       quantity: n,
       unitOne: 'чекмедже',

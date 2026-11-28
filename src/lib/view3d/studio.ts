@@ -98,7 +98,14 @@ export type CabinetStudio = {
 }
 
 /** A nail on a back or a drawer bottom, in drawing millimetres; its head faces `dir`. */
-export type FilmNail = { x: number; y: number; z: number; dir: 'back' | 'up' }
+export type FilmNail = {
+  x: number
+  y: number
+  z: number
+  dir: 'back' | 'up'
+  /** Which piece (drawer) the nail belongs to, for the label's „1 от N“. */
+  unit?: number
+}
 /**
  * Pieces arriving together. `drop` (the default without `from`): from above. `from`: from that
  * offset (drawing mm), straight, or `via: 'front'` first up in front of the place, then pushed in.
@@ -109,9 +116,18 @@ export type FilmBatch = {
   mode?: 'drop' | 'flip'
   from?: [number, number, number]
   via?: 'front'
+  /** Which piece this batch is part of (one drawer's sides and ends), for the label's „1 от N“. */
+  unit?: number
 }
 /** `pose`: the whole cabinet turned about the x axis (0 standing, π upside down, π/2 on its front). */
-export type FilmMotion = { batches: FilmBatch[]; pose?: number; fromPose?: number; nails?: FilmNail[] }
+export type FilmMotion = {
+  batches: FilmBatch[]
+  pose?: number
+  fromPose?: number
+  nails?: FilmNail[]
+  /** What drives the nails: the hammer (backs) or the stapler (drawer bottoms). */
+  tool?: 'hammer' | 'stapler'
+}
 type FilmAction = {
   seconds: number
   run: (p: number) => void
@@ -308,6 +324,22 @@ export function mountCabinetStudio(
     hammer.add(head, handle)
     hammer.visible = false
     scene.add(hammer)
+  }
+  // The stapler (такер) for hardboard: origin at its nose, the body lying along x.
+  const stapler = new Group()
+  {
+    const shell = new MeshStandardMaterial({ color: 0xc23b22, roughness: 0.5 })
+    const metal = new MeshStandardMaterial({ color: 0x9aa0a6, roughness: 0.35, metalness: 0.8 })
+    const base = new Mesh(new BoxGeometry(170, 22, 34), metal)
+    base.position.set(70, 11, 0)
+    const body = new Mesh(new BoxGeometry(150, 40, 30), shell)
+    body.position.set(75, 22 + 20, 0)
+    const grip = new Mesh(new BoxGeometry(120, 18, 26), shell)
+    grip.position.set(100, 22 + 40 + 22, 0)
+    for (const mesh of [base, body, grip]) mesh.castShadow = true
+    stapler.add(base, body, grip)
+    stapler.visible = false
+    scene.add(stapler)
   }
   let assemblyFramed = false
   let assemblyShape = ''
@@ -545,6 +577,7 @@ export function mountCabinetStudio(
       }
       else {
         hammer.visible = false
+      stapler.visible = false
         const finish = filmDone
         filmDone = null
         finish?.()
@@ -662,8 +695,10 @@ export function mountCabinetStudio(
       const nailGeo = new CylinderGeometry(3.2, 3.2, 1.6, 12)
       const nailMat = new MeshStandardMaterial({ color: 0x9aa0a6, roughness: 0.35, metalness: 0.8 })
       bin.push(nailGeo, nailMat)
+      const stapleGeo = new BoxGeometry(11, 0.8, 1.6)
+      bin.push(stapleGeo)
       const nails = (motion.nails ?? []).map((nail) => {
-        const mesh = new Mesh(nailGeo, nailMat)
+        const mesh = new Mesh(motion.tool === 'stapler' ? stapleGeo : nailGeo, nailMat)
         if (nail.dir === 'back') {
           mesh.rotation.x = Math.PI / 2
           mesh.position.set(nail.x, -nail.y, -nail.z - 0.8)
@@ -730,8 +765,15 @@ export function mountCabinetStudio(
         })
       }
       const out = (p: number) => 1 - (1 - p) ** 3
-      const pieceCount = motion.batches.filter((batch) => batch.mode !== 'flip').length
+      // Pieces for the label: by the batches' `unit` when given (one drawer of several boards), else
+      // one per batch brought in.
+      const units = motion.batches.some((batch) => batch.unit !== undefined)
+      const pieceCount = units
+        ? new Set(motion.batches.map((batch) => batch.unit ?? -1)).size
+        : motion.batches.filter((batch) => batch.mode !== 'flip').length
       let pieceIndex = 0
+      const pieceOf = (batch: FilmBatch) =>
+        pieceCount > 1 ? { piece: { index: units ? (batch.unit ?? 0) : pieceIndex++, count: pieceCount } } : {}
       motion.batches.forEach((batch, index) => {
         const group = batchGroups[index]
         const quick = !filmAllSlow && index >= 4
@@ -762,7 +804,7 @@ export function mountCabinetStudio(
           seconds: quick ? 0.45 : 1.1,
           anchor: () => centerOf(group),
           // One of several pieces brought in: the label tells its own share of the time.
-          ...(pieceCount > 1 ? { piece: { index: pieceIndex++, count: pieceCount } } : {}),
+          ...pieceOf(batch),
           run: (p) => {
             group.visible = true
             const q = out(p)
@@ -783,14 +825,25 @@ export function mountCabinetStudio(
           },
         })
       })
+      const nailUnits = new Set((motion.nails ?? []).map((nail) => nail.unit ?? -1)).size
+      const stapling = motion.tool === 'stapler'
       nails.forEach((nail, index) => {
         const slow = filmAllSlow || index < 3
+        const unit = motion.nails?.[index]?.unit
         actions.push({
-          seconds: slow ? 0.7 : 0.09,
-          anchor: () => hammer.position.clone().add(new Vector3(0, 60, 0)),
+          seconds: slow ? 0.7 : stapling ? 0.12 : 0.09,
+          anchor: () => (stapling ? stapler : hammer).position.clone().add(new Vector3(0, 60, 0)),
+          ...(unit !== undefined && nailUnits > 1 ? { piece: { index: unit, count: nailUnits } } : {}),
           run: (p) => {
             if (p >= 0.5) nail.visible = true
             const spot = nail.getWorldPosition(new Vector3())
+            if (stapling) {
+              // Set down on the edge, pressed once, lifted to the next staple.
+              stapler.visible = p < 1
+              const press = Math.sin(Math.min(1, p / 0.9) * Math.PI) ** 2
+              stapler.position.set(spot.x, spot.y + 1 + (1 - press) * (slow ? 50 : 14), spot.z)
+              return
+            }
             hammer.visible = p < 1
             const blow = slow ? Math.sin(Math.min(1, p / 0.95) * Math.PI * 2) ** 2 : Math.sin(p * Math.PI) ** 2
             hammer.position.set(spot.x, spot.y + 2 + (1 - blow) * (slow ? 110 : 45), spot.z)
@@ -802,6 +855,7 @@ export function mountCabinetStudio(
       filmElapsed = 0
       filmDone = onDone ?? null
       hammer.visible = false
+      stapler.visible = false
       shadowUntil = performance.now() + 1500
       if (actions.length === 0) {
         filmDone = null
@@ -814,6 +868,7 @@ export function mountCabinetStudio(
       filmActions = []
       filmDone = null
       hammer.visible = false
+      stapler.visible = false
       for (const item of bin) item.dispose()
       bin = []
       root.clear()
