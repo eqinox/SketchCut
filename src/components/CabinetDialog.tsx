@@ -2140,6 +2140,20 @@ function CabinetDialogForm({
     }
   }, [typeId, params, qty, settings, attachedGuests, peerDrafts, projectCabinets, editing?.id])
 
+  // The assembly film shows one cabinet being made, so its times are for one copy (the first,
+  // with the spots already known from cabinets before it), not for all the copies together.
+  const filmSteps = useMemo(() => {
+    if (!assemblyFilm) return []
+    try {
+      return repriceShelfPins(
+        generateCabinet(typeId, { ...params }, settings),
+        walkShelfPinSpots(projectCabinets, settings, editing?.id ?? null),
+      ).labor.assemblySteps ?? []
+    } catch {
+      return []
+    }
+  }, [assemblyFilm, typeId, params, settings, projectCabinets, editing?.id])
+
   const estimate = result ? estimateFromPanels(result.panels) : null
   const breakdown = result
     ? explainCabinetPrice({
@@ -7489,7 +7503,7 @@ function CabinetDialogForm({
     <PieceColorChoiceContext.Provider value={pieceColorChoice}>
       <ProjectRoomContext.Provider value={withRoom && !assemblyFilm ? projectRoom : null}>
         <AssemblyFilmContext.Provider
-          value={assemblyFilm && drawStyle === 'model' ? { steps: result?.labor.assemblySteps ?? [], dailyRateEur, slideKind } : null}
+          value={assemblyFilm && drawStyle === 'model' ? { steps: filmSteps, dailyRateEur, slideKind } : null}
         >
           {dialogBody}
         </AssemblyFilmContext.Provider>
