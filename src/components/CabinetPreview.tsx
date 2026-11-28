@@ -628,9 +628,6 @@ function haloParts(
   return parts
 }
 
-/** Greys out the drawing: light colours go to white paper, black lines stay black. */
-const PENCIL_FILTER = 'grayscale(1) brightness(1.35) contrast(1.5)'
-
 /** Single 3D front view with depth extending to the right. */
 export function CabinetPreview(props: CabinetPreviewProps) {
   const pictured = props.drawStyle === 'color' || props.drawStyle === 'model' || props.captureSolids === true
@@ -643,9 +640,9 @@ export function CabinetPreview(props: CabinetPreviewProps) {
         {pictured ? (
           <CabinetPreviewView {...props} />
         ) : (
-          // The drawing: black pencil on white paper. Every colour (the boards, the legs, the
-          // fittings) is washed to white or grey; the lines and the sizes stay black.
-          <div style={{ filter: PENCIL_FILTER }}>
+          // The drawing: black pencil on white paper. Every fill is white, every line and size
+          // black (see `.pencil-drawing` in index.css).
+          <div className="pencil-drawing">
             <CabinetPreviewView {...props} />
           </div>
         )}
