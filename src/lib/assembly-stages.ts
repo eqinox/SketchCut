@@ -245,7 +245,7 @@ export function assemblyStages(solids: SceneSolid[], steps: AssemblyStep[], grou
     })
     build('bottom-turn', 'Обръщаш дъното с цоклите', [], [], { fromPose: UPSIDE_DOWN, pose: UPRIGHT })
   } else if (bottom.length > 0) {
-    build('bottom', 'Дъното', [], [{ solids: bottom }])
+    build('bottom', 'Дъното', claimIds('mark-bed-bottom'), [{ solids: bottom }])
     pool.push(...plinthSteps)
   } else {
     pool.push(...plinthSteps)
@@ -259,6 +259,25 @@ export function assemblyStages(solids: SceneSolid[], steps: AssemblyStep[], grou
     })
   })
   if (sides.length === 0) pool.push(...sideSteps)
+
+  // A bed: the boards inside, one by one, each with its share of the time.
+  const bedBoards: [string, string, string][] = [
+    ['inner-left', 'Лявата вътрешна страница', 'bed-inner'],
+    ['middle', 'Средната страница', 'bed-inner'],
+    ['inner-right', 'Дясната вътрешна страница', 'bed-inner'],
+    ['support-left', 'Лявата плоскост под рамката', 'bed-supports'],
+    ['support-right', 'Дясната плоскост под рамката', 'bed-supports'],
+    ['lift-left', 'Лявата плоскост за механизма', 'bed-lift-boards'],
+    ['lift-right', 'Дясната плоскост за механизма', 'bed-lift-boards'],
+  ]
+  const bedPresent = bedBoards.filter(([name]) => allOf(name).length > 0)
+  for (const stepId of new Set(bedPresent.map(([, , id]) => id))) {
+    const boards = bedPresent.filter(([, , id]) => id === stepId)
+    const taken = claimIds(stepId)
+    boards.forEach(([name, title]) => {
+      build(`bed-${name}`, title, share(taken, 1 / boards.length), [{ solids: allOf(name), from: [0, 0, -700] }])
+    })
+  }
 
   const tops = boxes.filter((box) => /^(top|rail-|fascia)/.test(pieceOf(box)) && !used.has(box))
   if (tops.length > 0) {

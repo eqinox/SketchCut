@@ -391,12 +391,14 @@ export function generateBed(raw: Record<string, unknown>, settings?: unknown): C
       calc: `${middleBoards} страници × ${lineMinutes} мин (2 линии на страница) = ${lineMinutes * middleBoards} мин`,
     },
     {
-      id: 'bed-sides',
+      // The same id as the cabinets' sides, so the film shows each side with its half.
+      id: 'sides-bottom',
       label: 'Страниците към дъното',
       minutes: s.sidesToBottomLargeMinutes,
       quantity: 2,
       unitOne: 'страница',
       unitMany: 'страници',
+      calc: `2 страници × ${s.sidesToBottomLargeMinutes / 2} мин = ${s.sidesToBottomLargeMinutes} мин`,
       hint: 'като при голям шкаф · винтове 5×60 отдолу през дъното',
     },
     {
@@ -420,7 +422,7 @@ export function generateBed(raw: Record<string, unknown>, settings?: unknown): C
       hint: `между вътрешната и средната · ${BED_BRACKETS_PER_SUPPORT} ъгълчета по 4 винтчета на плоскост`,
     },
     {
-      id: 'bed-top',
+      id: 'top',
       label: 'Плотът между страниците',
       minutes: s.topLargeMinutes,
       hint: 'като при голям шкаф · винтове 5×60 през страниците',
